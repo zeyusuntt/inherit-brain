@@ -4,3 +4,8 @@
 node_modules/
 __pycache__/
 dist/
+docs/internal/
+data/
+runs/
+*.pk
+*.pkl
