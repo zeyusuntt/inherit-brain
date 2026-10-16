@@ -1,4 +1,4 @@
-.PHONY: download bundle audit test proxy
+.PHONY: download bundle audit test proxy load
 
 download:
 	uv run python -m inherit.data.download
@@ -14,3 +14,8 @@ test:
 
 proxy:
 	uv run python -m inherit.proxy
+
+PRODUCTS ?= dev
+
+load:
+	uv run python -m inherit.graph.load --products $(PRODUCTS)
