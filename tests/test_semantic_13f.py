@@ -79,9 +79,9 @@ def test_a_question_or_a_suggestion_counts_whatever_the_label_says():
 def test_the_cited_remark_is_validated_not_the_whole_message():
     text = "Sure. I'll handle the Roadmap section. We need broader coverage later."
     cites = [{"record_id": "m1", "quote": "I'll handle the Roadmap section"}]
-    assert cited_remark(text, cites, "m1") == "I'll handle the Roadmap section."
+    assert cited_remark(text, cites, "m1", "Handle the roadmap section") == "I'll handle the Roadmap section."
     assert is_review("suggestion", text) is True  # the whole message has "need": the old, wrong test
-    assert is_review("suggestion", cited_remark(text, cites, "m1")) is False
+    assert is_review("suggestion", cited_remark(text, cites, "m1", "Handle the roadmap section")) is False
     other = [{"record_id": "m2", "quote": "broader coverage"}]
     assert cited_remark(text, other, "m1") == text  # nothing cited in this record: the message stands in
     two = cites + [{"record_id": "m1", "quote": "need broader coverage"}]
@@ -193,13 +193,28 @@ def test_a_meeting_chat_link_names_the_shared_version_and_the_revisions_that_fol
     assert [x.id for x in d] == [FINAL] and why == "link"  # nothing was revised after it
 
 
-def test_meeting_remarks_reach_the_revisions_that_follow_the_linked_version(tmp_path):
-    out, _ = run(rec=_rec_with_later_version(), tmp=tmp_path)
-    es = [e for e in edges(out.facts, "SUGGESTED") if e.key == f"{fx.M2}#5"]
-    assert {e.dst_id for e in es} == {f"Document:{FINAL}", f"Document:{LATEST}"}
-    assert all(e.props["version_ambiguous"] is True and e.props["doc_basis"] == "link_and_later_versions" for e in es)
+def test_a_meeting_remark_reaches_a_later_revision_only_when_its_feedback_shows_the_remark(tmp_path):
+    rec = _rec_with_later_version()
+    rec.documents[-1] = Document(LATEST, fx.ANN, "Market Research Report", rec.documents[-1].link, "2026-03-09T00:00:00",
+                                 "Executive Summary: Mini is a product. Latest.",
+                                 "- The Executive Summary needs more detail on the algorithms.")
+    out, _ = run(rec=rec, tmp=tmp_path)
+    shown = [e for e in edges(out.facts, "SUGGESTED") if e.key == f"{fx.M2}#6"]
+    assert {e.dst_id for e in shown} == {f"Document:{FINAL}", f"Document:{LATEST}"}
+    assert all(e.props["version_ambiguous"] is True and e.props["doc_basis"] == "link_and_later_versions" for e in shown)
+    other = [e for e in edges(out.facts, "SUGGESTED") if e.key == f"{fx.M2}#5"]
+    assert {e.dst_id for e in other} == {f"Document:{FINAL}"}  # nothing in the revision's feedback shows this remark
+    assert all(e.props["version_ambiguous"] is False and e.props["doc_basis"] == "link" for e in other)
     older = [e for e in edges(out.facts, "SUGGESTED") if e.dst_id == f"Document:{MR}" and e.key.startswith(fx.M2)]
     assert older == []  # a version older than the shared one is not what the meeting looked at
+
+
+def test_revision_evidence_is_the_share_of_distinctive_remark_words_in_the_feedback():
+    from inherit.extract.semantic import shows_remark
+    fb = "- The Executive Summary needs more detail on the algorithms."
+    assert shows_remark("needs more detail on the algorithms", fb) == 1.0
+    assert shows_remark("Add a comparison table", fb) == 0.0  # fewer than three distinctive words: no evidence
+    assert shows_remark("pricing tiers and regional compliance rules", fb) == 0.0
 
 
 # ---------------------------------------------------------------- explicit task-to-PR statements
@@ -207,8 +222,10 @@ def test_meeting_remarks_reach_the_revisions_that_follow_the_linked_version(tmp_
 PR11 = "Real-time Alerts Forecast Rollout"
 
 
-def _rec_explicit(*statements):
-    rec = fx.records(prs=[*fx.PRS, fx.pr(11, PR11, merged=True, state="closed", summary="Rolls out forecasts.")])
+def _rec_explicit(*statements, slack=()):
+    rec = fx.records(slack=fx.SLACK + [(f"2026060{i}-0-y000{i}", fx.EVE, f"2026-06-0{i}T09:00:00", t) + fx.PLAN
+                                       for i, t in enumerate(slack, 1)],
+                     prs=[*fx.PRS, fx.pr(11, PR11, merged=True, state="closed", summary="Rolls out forecasts.")])
     segs = list(fx.M1_SEGS) + [(10 + i, "Ben Ray", s) for i, s in enumerate(statements)]
     rec.meetings[0] = fx.meeting(fx.M1, "2026-03-01T10:00:00", "product-planning",
                                  [fx.ANN, fx.BEN, fx.CY, fx.SAM1, fx.SAM2, fx.EVE], segs)
@@ -261,3 +278,55 @@ def test_the_membership_requests_do_not_change(tmp_path):
     # PR 11 is already filed from the meeting, so only the other unmatched PRs go to the model, with the examples
     # computed from the previous reading of the meeting links
     assert users and PR11 not in "\n".join(users).split("PRS:")[-1]
+
+
+# ---------------------------------------------------------------- fix round 1 (review of f6cdd55 and 23363ae)
+
+@pytest.mark.parametrize("kind", ["suggestion", "review_question"])
+@pytest.mark.parametrize("text", [
+    "Can you take the integration part?",
+    "Hi team, I want to discuss the Product Requirements Document. Let's brainstorm some ideas and outline the key "
+    "sections we need to include.",
+    "Does that work for everyone?",
+    "Thoughts?",
+])
+def test_ownership_scheduling_and_openers_are_not_reviews_whatever_the_label(kind, text):
+    assert is_review(kind, text) is False
+
+
+@pytest.mark.parametrize("kind", ["suggestion", "review_question"])
+def test_a_content_suggestion_or_question_is_a_review_whatever_the_label(kind):
+    assert is_review(kind, "We should add a pricing section.") is True
+    assert is_review(kind, "In the Competitive Analysis, can we get a clarification on the metrics?") is True
+
+
+def test_adjacent_sentences_of_the_same_remark_stay_with_the_cited_one():
+    text = "The current design is too complex for new users. We might need to simplify the layout. Thanks all, great chat."
+    cites = [{"record_id": "m1", "quote": "too complex for new users"}]
+    remark = "The current design is too complex for new users; simplify the layout"
+    got = cited_remark(text, cites, "m1", remark)
+    assert got == "The current design is too complex for new users. We might need to simplify the layout."
+    assert is_review("suggestion", cited_remark(text, cites, "m1")) is False  # alone, the complaint carries no proposal
+    assert is_review("suggestion", got) is True
+
+
+def test_a_competitor_thread_worded_with_on_is_external_and_a_plain_topic_is_not():
+    cat = _cat()
+    d, why = resolve_review_docs(cat, ["Hi team, let's discuss the Market Research Report on X-Genie.",
+                                       "How would our onboarding compare?"], "")
+    assert d == [] and why == "external_product_document"  # talk of "our onboarding" is not a switch to our document
+    d, why = resolve_review_docs(cat, ["Comments on the Market Research Report on Pricing"], "")
+    assert {x.id for x in d} == BOTH
+
+
+def test_an_explicit_slack_statement_outranks_title_overlap_too(tmp_path):
+    rec = _rec_explicit(f"Also the '{PR11}' PR.", slack=[STATE_PRED])
+    out, _ = run(_chat_explicit(), rec, tmp_path)
+    assert _about(out) == {(f"PR:{P}11", PRED)}
+
+
+def test_a_meeting_and_a_slack_statement_that_disagree_leave_the_pr_unassociated(tmp_path):
+    rec = _rec_explicit(STATE_ALERTS, slack=[STATE_PRED])
+    out, _ = run(_chat_explicit(), rec, tmp_path)
+    assert _about(out) == set()
+    assert out.report["pr_conflicts"][-1]["kept"] is None

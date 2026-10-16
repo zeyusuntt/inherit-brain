@@ -319,34 +319,33 @@ def _stems(text: str) -> set[str]:
     return {w[:5] for w in re.findall(r"[a-z0-9]+", text.casefold()) if len(w) >= 4}
 
 
-def explicit_task_features(title: str, meetings, names_of: dict[str, list[str]]) -> list[dict]:
-    """Features a meeting segment names as the task a PR implements. For each segment that speaks the PR title, the
+def explicit_task_features(title: str, sources, names_of: dict[str, list[str]]) -> list[dict]:
+    """Features a meeting segment or Slack message names as the task a PR implements. For each one that speaks the PR title, the
     segment without the title words must carry task wording (task, assigned, pending, lastly, related PR ...) and name
     exactly one best feature: at least two of its stems and two thirds of a feature name's stems appear. The words of
     the title itself are removed first, so they cannot pick a feature by overlap. One row per feature found, with the
-    segment that says it. `names_of`: feature id -> its title and aliases."""
+    segment that says it. `sources`: (container id, date, record id, text) of every segment and message. `names_of`: feature id -> its title and aliases."""
     nt = normalise(title)
     out: dict[str, dict] = {}
-    for mt in meetings:
-        for sg in mt.segments:
-            text = normalise(sg.text)
-            if not nt or nt not in text:
-                continue
-            rest = text.replace(nt, " ")
-            if not _TASK_CUE.search(rest):
-                continue
-            have = _stems(rest)
-            scored = []
-            for fid, names in names_of.items():
-                cover = [len(st & have) / len(st) if len(st) >= 2 else 0.0 for st in map(_stems, names)]
-                best = max(cover, default=0.0)
-                if best >= 2 / 3:  # a feature named by its title outranks one named only by an alias of it
-                    scored.append(((best, cover[0]), fid))
-            scored.sort(reverse=True)
-            if scored and (len(scored) == 1 or scored[0][0] > scored[1][0]):
-                out.setdefault(scored[0][1], {"feature": scored[0][1], "meeting": mt.id, "date": mt.date,
-                                              "context": (sg.text, ""),
-                                              "citations": [{"record_id": sg.id, "quote": title, "field": "text"}]})
+    for container, date, rid, raw in sources:
+        text = normalise(raw)
+        if not nt or nt not in text:
+            continue
+        rest = text.replace(nt, " ")
+        if not _TASK_CUE.search(rest):
+            continue
+        have = _stems(rest)
+        scored = []
+        for fid, names in names_of.items():
+            cover = [len(st & have) / len(st) if len(st) >= 2 else 0.0 for st in map(_stems, names)]
+            best = max(cover, default=0.0)
+            if best >= 2 / 3:  # a feature named by its title outranks one named only by an alias of it
+                scored.append(((best, cover[0]), fid))
+        scored.sort(reverse=True)
+        if scored and (len(scored) == 1 or scored[0][0] > scored[1][0]):
+            out.setdefault(scored[0][1], {"feature": scored[0][1], "meeting": container, "date": date,
+                                          "context": (raw, ""),
+                                          "citations": [{"record_id": rid, "quote": title, "field": "text"}]})
     return list(out.values())
 
 
@@ -359,8 +358,9 @@ def _names_in(text: str, names) -> set[str]:
 # the document's content ("I'll handle the X section", "I'll gather feedback", "maybe we can collaborate on Y").
 _TASK_TAKING = re.compile(
     r"\b(?:i'?ll|i will|i can|i'?m going to|i am going to|i'?ve got|we'?ll|we will|we can|let'?s|(?:maybe|perhaps) we can"
-    r"|(?:can|could|would|will) you)\b[^.!?]{0,40}?\b(?:handle|work(?:ing)? on|draft(?:ing)?|gather(?:ing)?|collect(?:ing)?"
-    r"|prepare|take (?:the lead|care|charge|on|over|this|that|it)|start(?:ed|ing)?|focus(?:ing)? on|writ(?:e|ing)"
+    r"|i(?:'d)? (?:want|wanted|would like|like) to|(?:can|could|would|will) you)\b[^.!?]{0,40}?\b(?:handle|work(?:ing)? on|draft(?:ing)?|gather(?:ing)?|collect(?:ing)?"
+    r"|prepare|take (?:the|care|charge|on|over|this|that|it)|start(?:ed|ing)?|focus(?:ing)? on|writ(?:e|ing)"
+    r"|discuss|brainstorm|outline|go through|kick off|aim|keep"
     r"|put together|collaborat\w*|sync(?:ing)?|assist|help|pair|research|cover|look(?:ing)? into|set up|schedule"
     r"|own)\b", re.I)
 # Wording that proposes a change to content. A purpose clause ("...to include in the document") describes the
@@ -376,36 +376,84 @@ def _task_statement(sentence: str) -> bool:
     return bool(_TASK_TAKING.search(sentence)) and not _CONTENT_CUE.search(_PURPOSE.sub(" ", sentence))
 
 
-def cited_remark(text: str, citations, record_id: str) -> str:
-    """The sentence(s) of the record that the extracted remark cites; the whole text when nothing in it is cited. A
-    review is judged on what was cited, not on an unrelated sentence of the same message."""
-    hits = [quote_sentences(text, c["quote"]) for c in citations or []
-            if isinstance(c, dict) and c.get("record_id") == record_id and c.get("quote")]
-    return " ".join(dict.fromkeys(hits)) or text
+def cited_remark(text: str, citations, record_id: str, remark: str = "") -> str:
+    """The sentence(s) of the record that the extracted remark cites, plus the adjacent sentences of the same remark: a
+    neighbour joins when most of its content words are in the remark's own text (`remark`), so a complaint and the
+    suggestion that follows it stay together while an unrelated sentence of the message never validates the remark.
+    The whole text when nothing in it is cited."""
+    sents = _SENTENCES.split(text or "")
+    hit: set[int] = set()
+    for c in citations or []:
+        if not (isinstance(c, dict) and c.get("record_id") == record_id and c.get("quote")):
+            continue
+        q = normalise(c["quote"])
+        idx = {i for i, x in enumerate(sents) if q and q in normalise(x)}
+        if not idx and q:
+            head = " ".join(q.split()[:4])
+            idx = {i for i, x in enumerate(sents) if head in normalise(x)}
+        hit |= idx
+    if not hit:
+        quotes = [c["quote"] for c in citations or [] if isinstance(c, dict) and c.get("record_id") == record_id and c.get("quote")]
+        return " ".join(dict.fromkeys(quotes)) or text
+    own = _stems(remark)
+    grew = True
+    while own and grew:
+        grew = False
+        for i in sorted(hit):
+            for j in (i - 1, i + 1):
+                if 0 <= j < len(sents) and j not in hit:
+                    st = _stems(sents[j])
+                    if st and (len(st & own) >= 2 or len(st & own) / len(st) >= 0.6):
+                        hit.add(j)
+                        grew = True
+    return " ".join(sents[i] for i in sorted(hit))
+
+
+# A question about who does what or when, or a check-in, is not a question about the document's content.
+_WORKFLOW_Q = re.compile(
+    r"\b(?:can|could|would|will) you\b|\b(?:thoughts|sound good|any questions|does that work|work for (?:everyone|you)"
+    r"|make sense|(?:are|is) (?:you|anyone) (?:free|available)|who (?:will|can|wants))\b", re.I)
 
 
 def is_review(kind: str, text: str) -> bool:
-    """A review question is asked (a question mark); a suggestion carries suggesting wording. An opener, thanks, or a
-    statement that only takes on or shares a task is neither. The text is the cited remark, which is often one sentence
-    of a longer message, so it counts when it is either a suggestion or a question: the model's label between the two
-    does not decide it."""
+    """A review relation needs a proposal about the document's content or a review question about it. Pure work
+    allocation (taking a section, gathering input, proposing to collaborate), scheduling, check-ins and openers are not
+    one; a concrete content suggestion phrased "I'll add ..." is. The label the model gave (suggestion or question) does
+    not decide it, and the text is the cited remark, not the whole message."""
     for sentence in _SENTENCES.split(text or ""):
         if _task_statement(sentence):
             continue
-        if "?" in sentence:
+        if _REVIEW_CUE.search(sentence) or _TASK_TAKING.search(sentence):  # "I'll start by adding a roadmap section"
             return True
-        if kind != "review_question" and (_REVIEW_CUE.search(sentence) or _TASK_TAKING.search(sentence)):
-            return True  # "I'll start by adding a roadmap section"
-        if kind == "review_question" and _REVIEW_CUE.search(sentence):
+        if "?" in sentence and not _WORKFLOW_Q.search(sentence):
             return True
     return False
+
+
+_GENERIC = frozenset("that this with from have will would could should about there their which these those more some also "
+                     "into your what when then than they them were been being document report section product".split())
+
+
+def shows_remark(remark: str, doc_text: str) -> float:
+    """Share of the remark's distinctive words (stems of four or more letters, generic words removed) that the
+    document's feedback or text also uses: the evidence that a revision carries a remark made on an earlier version."""
+    r = {w for w in _stems(remark) if w not in {g[:5] for g in _GENERIC}}
+    return len(r & _stems(doc_text)) / len(r) if len(r) >= 3 else 0.0
+
+
+# A later revision carries a meeting remark when this share of the remark's distinctive words is in its feedback. On
+# the six dev products (ActionGenie has the only later revisions): of 41 remarks attached to the latest documents
+# 71% reach 0.6 against that document's feedback; the same remarks against the feedback of documents of another type
+# reach it 4% of the time (0.5: 80% and 13%; 0.4: 90% and 26%). The text of a document is not used: against another
+# type's full text the remarks average 0.53 overlap, so it does not discriminate.
+REVISION_EVIDENCE = 0.6
 
 
 # ---- whose document a review is about (13f): the subject is read before the type
 _DOC_I = "(?i:" + sr.DOC_WORDS + ")"
 _NAME = r"[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*"
 _LEAD_SUBJECT = re.compile(rf"(?<![\w-])({_NAME})(?:['\u2019]s)?\s+({_DOC_I})")  # X-Genie Product Vision Document
-_TRAIL_SUBJECT = re.compile(rf"({_DOC_I})\s+(?:of|from|by|for)\s+(?:the\s+)?({_NAME})")  # Product Vision Document of X-Genie
+_TRAIL_SUBJECT = re.compile(rf"({_DOC_I})\s+(of|from|by|for|on|about)\s+(?:the\s+)?({_NAME})")  # ... Document on X-Genie
 _OUR_DOC = re.compile(rf"\b(?:our|my|your)\s+(?:(?:own|final|latest|new|updated|current|draft|revised)\s+)*({_DOC_I})", re.I)
 _NOT_A_SUBJECT = frozenset(
     "the our this that these those new latest final updated draft initial current first next previous prior last old older "
@@ -424,7 +472,7 @@ def _doc_subjects(text: str, own: set[str], known_external: set[str]) -> list[tu
     product by name, or "our ...". A mention that names nobody is not listed."""
     out: list[tuple[int, str, str]] = []
 
-    def judge(name: str, words_before: list[str], words_after: list[str], initial: bool) -> str | None:
+    def judge(name: str, words_before: list[str], words_after: list[str], initial: bool, weak: bool = False) -> str | None:
         words = [*words_before[-4:]] if words_before else []
         if any(_alnum(" ".join(words[i:])) in own for i in range(len(words))):
             return "ours"
@@ -433,6 +481,8 @@ def _doc_subjects(text: str, own: set[str], known_external: set[str]) -> list[tu
         key = _alnum(name)
         if key in known_external:
             return "external"
+        if weak and not (re.search(r"-|\d", name) or re.search(r"[a-z][A-Z]", name)):
+            return None  # "Report on Pricing": after on/about only a name that looks like a product counts
         if (name.lower() in _NOT_A_SUBJECT or len(name) < 3 or not re.search(r"[a-z]", name)
                 or (initial and re.fullmatch(r"[A-Z][a-z]+", name))):
             return None  # a verb opening the sentence, a version word, an acronym: not a product name
@@ -446,8 +496,8 @@ def _doc_subjects(text: str, own: set[str], known_external: set[str]) -> list[tu
         if who:
             out.append((m.start(2), _alnum(m.group(2)), who))
     for m in _TRAIL_SUBJECT.finditer(text):
-        after = re.findall(r"[A-Za-z0-9-]+", text[m.start(2):])[:4]
-        who = judge(m.group(2), [], after, False)
+        after = re.findall(r"[A-Za-z0-9-]+", text[m.start(3):])[:4]
+        who = judge(m.group(3), [], after, False, weak=m.group(2).lower() in ("on", "about"))
         if who:
             out.append((m.start(1), _alnum(m.group(1)), who))
     for m in _OUR_DOC.finditer(text):
@@ -758,15 +808,15 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         if mt.document_type and mt.document_type != PRODUCT_PLANNING:
             docs, why_doc = resolve_review_docs(cat, [c.text for c in mchats] + [mt.document_type], "", doc_prev,
                                                 later_versions=True)
-        for d_ in docs:
-            discusses.add((f"Meeting:{mt.id}", f"Document:{d_.id}"))
+        doc_by_id = {d_.id: d_ for d_ in rec.documents}
+        attached: set[str] = {docs[0].id} if why_doc == "link_and_later_versions" else {d_.id for d_ in docs}
         for rv in ok:
             ref = _str(rv.get("segment_ref"))
             if rv.get("kind") not in REVIEW_KINDS or ref not in speaker_of:
                 drops["document_reviews"]["bad_kind_or_segment"] += 1
                 continue
             seg_text = next((r_.text for r_ in supplied if r_.id == record_of[ref]), "")
-            if not is_review(rv["kind"], cited_remark(seg_text, rv["citations"], record_of[ref])):
+            if not is_review(rv["kind"], cited_remark(seg_text, rv["citations"], record_of[ref], _str(rv.get("text")))):
                 drops["document_reviews"]["not_a_review"] += 1  # an opener or thanks suggests nothing
                 continue
             if not docs:
@@ -778,10 +828,19 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             if res is None or res.status == "unresolved":
                 unresolved_speakers.append({"meeting": mt.id, "segment": ref, "speaker": sp})
                 continue
-            reviews.append({"docs": [d_.id for d_ in docs], "eids": res.ids, "ambiguous": res.ambiguous,
+            rdocs, rwhy = docs, why_doc
+            if why_doc == "link_and_later_versions":  # a later revision needs evidence that it carries this remark
+                remark = _str(rv.get("text")) + " " + cited_remark(seg_text, rv["citations"], record_of[ref], _str(rv.get("text")))
+                rdocs = [docs[0]] + [d_ for d_ in docs[1:]
+                                     if shows_remark(remark, doc_by_id[d_.id].feedback or "") >= REVISION_EVIDENCE]
+                rwhy = "link_and_later_versions" if len(rdocs) > 1 else "link"
+            attached |= {d_.id for d_ in rdocs}
+            reviews.append({"docs": [d_.id for d_ in rdocs], "eids": res.ids, "ambiguous": res.ambiguous,
                             "kind": rv["kind"], "section": _str(rv.get("section")) or None,
                             "text": _str(rv.get("text")), "record": record_of[ref], "citations": rv["citations"],
-                            "speaker": sp, "source_text": seg_text[:600], "doc_basis": why_doc})
+                            "speaker": sp, "source_text": seg_text[:600], "doc_basis": rwhy})
+        for did in sorted(attached):
+            discusses.add((f"Meeting:{mt.id}", f"Document:{did}"))
 
     # ---- competitors named by demo links (rule, no model): known before any session is read
     demo_links = []
@@ -1038,10 +1097,13 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
     # 13f: an explicit task-to-PR statement outranks the title-word reading above. That reading stays in place until
     # here because the membership requests carry its results as examples (the cached requests must not change).
     names_of = {fid: [feature_info[fid]["title"], *cat.features.entries[fid]["aliases"]] for fid in feature_info}
+    task_sources = [(mt_.id, mt_.date, sg_.id, sg_.text) for mt_ in rec.meetings for sg_ in mt_.segments]
+    task_sources += [(m_.id, m_.ts, m_.id, m_.text) for m_ in rec.messages
+                     if not m_.is_bot and not m_.channel_name.startswith("bug-")]
     for link, old_ls in pre_c4.items():
         if not old_ls or any(x["basis"] != "meeting_title" for x in old_ls):
             continue
-        found = explicit_task_features(prs_raw[link].title, rec.meetings, names_of)
+        found = explicit_task_features(prs_raw[link].title, task_sources, names_of)
         if not found:
             continue
         seen = {x["feature"] for x in old_ls} | {x["feature"] for x in dev_links.get(link, [])}
@@ -1442,7 +1504,7 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
         if mid not in msgs or rv.get("kind") not in REVIEW_KINDS:
             drops["reviews"]["bad_message_or_kind"] += 1
             continue
-        if not is_review(rv["kind"], cited_remark(msgs[mid].text, rv["citations"], mid)):
+        if not is_review(rv["kind"], cited_remark(msgs[mid].text, rv["citations"], mid, _str(rv.get("text")))):
             drops["reviews"]["not_a_review"] += 1  # an opener, thanks or plan suggests nothing about the document
             continue
         upto = [m.text for m in msgs.values() if order[m.id] <= order[mid]]
