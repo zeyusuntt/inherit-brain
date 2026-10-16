@@ -26,7 +26,7 @@ def data(P):
         "slack": [slack("m1", 'Customer CUST-0001 reported "Crash on save". @eid_a can you take it?', "2026-01-01T10:00:00", P=P),
                   slack("m2", "On it.", "2026-01-01T10:05:00", user="eid_a", P=P),
                   slack("m3", "The crash has been resolved.", "2026-01-01T11:00:00", user="eid_a", P=P),
-                  slack("m4", f"See {DOC_LINK}", "2026-02-01T11:00:00", ch="ch-dev", name="develop-x-{P}", P=P)],
+                  slack("m4", f"See {DOC_LINK}. Ann Lee will merge Fix crash", "2026-02-01T11:00:00", ch="ch-dev", name="develop-x-{P}", P=P)],
         "documents": [{"id": "design_v1", "author": "eid_a", "type": "Design Doc", "document_link": DOC_LINK,
                        "date": "2026-01-01T00:00:00", "content": "x", "feedback": "- add a diagram"},
                       {"id": "design_v2", "author": "eid_a", "type": "Design Doc", "document_link": DOC_LINK + "2",
@@ -63,7 +63,9 @@ def facts(P, drop=()):
               "ids": ["eid_b", "eid_c"]},
              {"name": "Ann Lee", "meeting_id": "mtg1", "status": "resolved", "candidates": ["eid_a"], "ids": ["eid_a"]}]
     return {"bugs": [bug] + [e for e in events if e["props"]["type"] not in drop] + acted, "semantic": sug,
-            "names_facts": [], "structural": [], "rules": []}, names
+            "names_facts": [], "structural": [],
+            "rules": [{"id": "PR:https://github.com/o/r/pull/1", "kind": "node", "label": "PR",
+                       "props": {"title": "Fix crash"}}]}, names
 
 
 def source(P, drop=()):
@@ -166,9 +168,14 @@ def test_packets_never_read_questions_or_gold(sources, monkeypatch):
     assert "eval.questions" not in ae.__dict__.get("__doc__", "") and not hasattr(ae, "load_questions")
 
 
-def write_round(tmp_path, sources, rnd=1):
+AUD = {w: {"model": "m", "version": "1", "settings": "default", "prompt_hash": "h"} for w in ("codex", "claude", "third")}
+
+
+def write_round(tmp_path, sources, rnd=1, auditors=True):
     packets, sizes = ae.build_packets(sources, rnd, wi_fn, SMALL)
     ae.write_round(packets, sizes, rnd, "bundlesha", tmp_path)
+    if auditors:
+        (tmp_path / f"round-{rnd}" / "auditors.json").write_text(json.dumps(AUD))
     return packets
 
 
@@ -210,6 +217,8 @@ def put(tmp_path, who, name, rows, rnd=1):
 
 def v(pid, verdict, fields=None):
     out = {"packet_id": pid, "verdict": verdict, "reason": "see m1"}
+    if fields is None and pid.startswith("bug_event-"):
+        fields = dict.fromkeys(ae.BUG_FIELDS, "correct") | ({"identity": "incorrect"} if verdict == "incorrect" else {})
     return out | ({"fields": fields} if fields else {})
 
 
@@ -219,10 +228,10 @@ def test_validation_rejects_malformed(sources, tmp_path):
     assert ae.validate_verdict(v(bug["id"], "correct"), bug) is None
     assert ae.validate_verdict(v(bug["id"], "maybe"), bug)
     assert ae.validate_verdict({"packet_id": bug["id"], "verdict": "correct"}, bug)  # no reason
-    assert ae.validate_verdict(v(bug["id"], "correct", {"time": "incorrect"}), bug)  # inconsistent
+    assert ae.validate_verdict(v(bug["id"], "correct", {**dict.fromkeys(ae.BUG_FIELDS, "correct"), "time": "incorrect"}), bug)
     assert ae.validate_verdict(v("other", "correct"), bug)
     rb = next(p for p in packets if p["kind"] == "recall_bug")
-    assert ae.validate_verdict({"packet_id": rb["id"], "items": [{"type": "NOPE", "actor": "a", "time": "t", "message_id": "m"}]}, rb)
+    assert ae.validate_verdict({"packet_id": rb["id"], "items": [{"bug": "m1", "type": "NOPE", "actor": "a", "time": "t", "message_id": "m"}]}, rb)
 
 
 def fill(tmp_path, packets, third=True):
@@ -237,7 +246,7 @@ def fill(tmp_path, packets, third=True):
 
 def recall_items(packet, src):
     if packet["kind"] == "recall_bug":
-        return [{"type": t, "actor": "eid_b", "time": "x", "message_id": m} for t, m in
+        return [{"bug": "m1", "type": t, "actor": "eid_b", "time": "x", "message_id": m} for t, m in
                 [("REPORTED", "m1"), ("ASSIGNED", "m1"), ("RESOLVED", "m3")]]
     return [{"reviewer": "Bob Ray", "source": "mtg1#5"}]
 
@@ -283,6 +292,7 @@ def test_recall_reconciliation_and_comparison(tmp_path):
     srcs = {"P1": source("P1", drop=("RESOLVED",)), "P2": source("P2")}
     packets, sizes = ae.build_packets(srcs, 1, wi_fn, {**SMALL, "recall_bug": 1, "recall_reviewer": 1})
     ae.write_round(packets, sizes, 1, None, tmp_path)
+    (tmp_path / "round-1" / "auditors.json").write_text(json.dumps(AUD))
     rb = next(p for p in packets if p["kind"] == "recall_bug")
     rr = next(p for p in packets if p["kind"] == "recall_reviewer")
     truth = recall_items(rb, None)
@@ -299,7 +309,7 @@ def test_recall_reconciliation_and_comparison(tmp_path):
     assert r["truth"] == 3 and r["matched"] == (2 if miss_p1 else 3)
     assert r["lists_equal"] == 0
     assert s["recall"]["recall_reviewer"]["recall"] == 1.0
-    assert ("RESOLVED|m3" in r["detail"][0]["missed"]) == miss_p1
+    assert ("m1|RESOLVED|m3" in r["detail"][0]["missed"]) == miss_p1
 
 
 def test_recall_keys_normalise_names(sources):
@@ -339,3 +349,193 @@ def test_cli_end_to_end(tmp_path, sources, capsys):
     assert ae.main(["collect", "--round", "1"], root=tmp_path, sources=sources) == 0
     out = capsys.readouterr().out
     assert "complete: False" in out
+
+
+# ---------------------------------------------------------------- fix round 1
+def source_extra(P, n_extra=0):
+    d = data(P)
+    d["slack"] += [slack(f"x{i:03d}", f"more about Fix crash {i}", f"2026-03-01T10:{i % 60:02d}:00", ch="ch-dev",
+                         name="develop-x-{P}", P=P) for i in range(n_extra)]
+    d["slack"].append(slack("late1", "Bob Ray: the Crash on save for Acme keeps coming back, see "
+                            "https://github.com/o/r/pull/1", "2026-04-01T10:00:00", P=P))
+    f, names = facts(P)
+    f["bugs"][0]["props"].update(channel_id="ch-bug", companies=["Acme"], aliases=[])
+    f["bugs"][2]["props"]["fix_pr_links"] = ["https://github.com/o/r/pull/1"]
+    return ae.Source(P, build_records(d, EMP, CUST, P), f, names)
+
+
+def test_later_context_is_complete_and_uncapped():
+    src = source_extra("P1", 150)
+    pr = "PR:https://github.com/o/r/pull/1"
+    x = wi_fn("P1")["newly_unowned"][0]
+    p = ae._whatif_unowned_packet("k", src, x)
+    ids = {r["id"] for r in p["records"]}
+    assert {f"x{i:03d}" for i in range(150)} <= ids and "m4" in ids  # no 60 message cut
+    assert p["meta"]["later_messages"] >= 151 and p["meta"]["chars"] == len(p["text"]) and "later_context_cut" not in p["meta"]
+    assert not hasattr(ae, "MAX_LATER") and pr in p["text"]
+    times = [r["text"].split()[0] for r in p["records"] if r["id"].startswith("x")]
+    assert times == sorted(times)
+
+
+def test_bug_context_is_independent_of_extraction():
+    src = source_extra("P1")
+    ids = {r["id"] for r in ae.bug_context_records(src, "Bug:P1:ch-bug:crash", "2026-01-01T10:00:00")}
+    assert {"m1", "m3"} <= ids
+    # a PR linked on the RESOLVED event is hydrated for every event of the bug, not only the sampled one
+    assert "pr1" in ids
+
+
+def test_bug_fields_are_all_required_and_joint():
+    src = sources_for_validation()
+    bug = next(p for p in src if p["kind"] == "bug_event")
+    ok = dict.fromkeys(ae.BUG_FIELDS, "correct")
+    chk = lambda verdict, f: ae.validate_verdict(  # noqa: E731
+        {"packet_id": bug["id"], "verdict": verdict, "reason": "r", **({"fields": f} if f is not None else {})}, bug)
+    assert chk("correct", ok) is None
+    assert chk("correct", None)  # missing fields are malformed
+    assert chk("correct", {k: "correct" for k in ae.BUG_FIELDS[:4]})  # one field missing
+    assert chk("correct", {**ok, "time": "na"})  # na where the claim has a value
+    assert chk("correct", dict.fromkeys(ae.BUG_FIELDS, "na"))  # the vacuous pass
+    assert chk("correct", {**ok, "status": "incorrect"})
+    assert chk("incorrect", {**ok, "status": "incorrect"}) is None
+    assert chk("incorrect", ok)  # incorrect with no failing field is inconsistent
+
+
+def test_na_allowed_only_where_claim_is_empty():
+    src = source("P1")
+    f, names = facts("P1")
+    f["bugs"][0]["props"]["customer_ids"] = []
+    s2 = ae.Source("P1", src.records, f, names)
+    packets, _ = ae.bug_event_packets({"P1": s2}, 1, random.Random(1))
+    p = packets[0]
+    assert p["claim"]["customer(s) of the bug"] == "none"
+    f_ = dict.fromkeys(ae.BUG_FIELDS, "correct") | {"customer": "na"}
+    assert ae.validate_verdict({"packet_id": p["id"], "verdict": "correct", "reason": "r", "fields": f_}, p) is None
+    assert ae.validate_verdict({"packet_id": p["id"], "verdict": "correct", "reason": "r",
+                                "fields": f_ | {"identity": "na"}}, p)
+
+
+def sources_for_validation():
+    packets, _ = ae.build_packets({"P1": source("P1"), "P2": source("P2")}, 1, wi_fn, SMALL)
+    return packets
+
+
+def test_recall_bug_identity_and_multiplicity(sources):
+    packets, _ = ae.build_packets(sources, 1, wi_fn, SMALL)
+    rb = next(p for p in packets if p["kind"] == "recall_bug")
+    src = sources[rb["product"]]
+    ex = ae.extracted_keys(rb, src)
+    assert ex == Counter({("m1", "REPORTED", "m1"): 1, ("m1", "ASSIGNED", "m1"): 1, ("m1", "RESOLVED", "m3"): 1})
+    wrong = ae.truth_keys("recall_bug", [{"bug": "m2", "type": "RESOLVED", "actor": "a", "time": "t", "message_id": "m3"}], src)
+    assert ae.compare_recall(wrong, ex)["matched"] == 0  # an event of another bug is not recalled
+    twice = Counter({("m1", "ASSIGNED", "m1"): 2})
+    assert ae.compare_recall(twice, ex)["matched"] == 1  # one message may carry several events
+    assert ae.validate_verdict({"packet_id": rb["id"], "items": [{"type": "REPORTED", "actor": "a", "time": "t",
+                                                                  "message_id": "m1"}]}, rb)  # bug is required
+
+
+def test_collect_validates_the_exact_manifest_set(tmp_path, sources):
+    packets = write_round(tmp_path, sources)
+    assert ae.integrity_problems(1, tmp_path) == []
+    victim = tmp_path / "round-1" / "packets" / f"{packets[0]['id']}.json"
+    other = tmp_path / "round-1" / "packets" / f"{packets[1]['id']}.json"
+    other.write_text(other.read_text() + " ")
+    victim.unlink()
+    probs = ae.integrity_problems(1, tmp_path)
+    assert any("missing" in p for p in probs) and any("changed" in p for p in probs)
+    s = ae.collect(1, sources, tmp_path)
+    assert not s["complete"] and s["integrity_problems"]
+    assert not dict((g, ok) for g, ok, _ in ae.gates(s))["complete"]
+
+
+def test_round_is_never_overwritten(tmp_path, sources):
+    write_round(tmp_path, sources)
+    with pytest.raises(FileExistsError):
+        write_round(tmp_path, sources)
+    assert ae.main(["packets", "--round", "1"], root=tmp_path, whatif_fn=wi_fn, sources=sources) == 2
+
+
+def test_name_packet_publishes_rule_and_candidate_evidence(sources):
+    packets, _ = ae.build_packets(sources, 1, wi_fn, {**SMALL, "name_resolution": 6})
+    amb = next(p for p in packets if p["kind"] == "name_resolution" and p["meta"]["status"] == "ambiguous")
+    ids = {r["id"] for r in amb["records"]}
+    assert {"candidate:eid_b", "candidate:eid_c"} <= ids
+    assert "returned" in amb["text"] and "eligible candidates the extractor found" in amb["text"]
+    assert "3 if the speaker" in ae.RUBRICS["name_resolution"] and "tie" in ae.RUBRICS["name_resolution"]
+    cand = next(r for r in amb["records"] if r["id"] == "candidate:eid_b")["text"]
+    assert "directory role PM" in cand and "In the meeting's participants: yes" in cand
+
+
+def test_segment_records_carry_meeting_header_and_neighbours(sources):
+    t = ae.record_text(sources["P1"], "mtg1#5")["text"]
+    assert "document type Design Doc" in t and "date 2026-01-03" in t and "line 4" in t and "Ship it." in t
+
+
+def test_rubrics_state_the_exact_predicates():
+    for k in ("whatif_unowned", "whatif_path"):
+        r = ae.RUBRICS[k]
+        assert "REPORTED, ASSIGNED or REOPENED" in r and "reopened bug is active" in r
+        assert 'state is "open" and merged is "False"' in r and "not implemented" in r and "development" in r
+    assert "use rarely" not in ae.COMMON_PRECISION and "contradict the claim" in ae.COMMON_PRECISION
+
+
+@pytest.mark.parametrize("raw", [{"verdicts": None}, {"packet_id": ["x"], "verdict": "correct"}, "text", 5,
+                                 [{"packet_id": 3}], {"verdicts": {"a": 1}}, [None, "x"]])
+def test_malformed_envelopes_do_not_crash(tmp_path, sources, raw):
+    packets = write_round(tmp_path, sources)
+    put(tmp_path, "codex", "bad", raw)
+    good, stats = ae.load_verdicts(tmp_path / "round-1" / "verdicts" / "codex", ae.load_packets(1, tmp_path))
+    assert good == {} and stats.get("malformed", 0) >= 1
+
+
+def test_batches_are_bounded_by_packets_and_characters():
+    mk = lambda i, n: {"id": f"bug_event-{i}", "kind": "bug_event", "text": "x" * n}  # noqa: E731
+    pk = {p["id"]: p for p in [mk(i, 40_000) for i in range(5)] + [mk(9, 500_000)]}
+    plan = ae._batch_plan(pk, 10)
+    assert all(len(v) <= 3 or len(v) == 1 for v in plan.values())
+    assert ["bug_event-9"] in plan.values()  # an oversized packet goes alone
+    assert sum(len(v) for v in plan.values()) == 6
+    assert all(sum(len(pk[i]["text"]) for i in v) <= ae.BATCH_MAX_CHARS or len(v) == 1 for v in plan.values())
+
+
+def test_auditor_metadata_is_required_and_reported(tmp_path, sources):
+    packets = write_round(tmp_path, sources, auditors=False)
+    assert sum("auditor metadata" in p for p in ae.integrity_problems(1, tmp_path)) == 3
+    (tmp_path / "round-1" / "auditors.json").write_text(json.dumps(AUD))
+    assert ae.integrity_problems(1, tmp_path) == []
+    s = ae.collect(1, sources, tmp_path)
+    rep = (tmp_path / "round-1" / "report.md").read_text()
+    assert "third pass shares a model family with auditor 1" in rep and "codex: model m" in rep
+    assert "batch holds only packets of one kind" in rep
+
+
+def test_gates_output_names_its_scope(tmp_path, capsys):
+    d = tmp_path / "round-1"
+    d.mkdir()
+    (d / "summary.json").write_text(json.dumps({"complete": True, "pending_third": 0, "precision": {}, "recall": {}}))
+    ae.main(["gates", "--round", "1"], root=tmp_path)
+    assert "audit gates only; the dev score gate is in the acceptance report" in capsys.readouterr().out
+
+
+def test_gates_report_is_the_acceptance_interface(tmp_path, sources):
+    packets = write_round(tmp_path, sources)
+    prec = [p for p in packets if not ae.is_recall(p["kind"])]
+    put(tmp_path, "codex", "a", [v(p["id"], "correct") for p in prec])
+    put(tmp_path, "claude", "a", [v(p["id"], "correct") for p in prec])
+    for p in packets:
+        if ae.is_recall(p["kind"]):
+            for w in ("codex", "claude", "third"):
+                put(tmp_path, w, "r" + p["id"], [{"packet_id": p["id"], "items": recall_items(p, None)}])
+    s = ae.collect(1, sources, tmp_path)
+    rd = tmp_path / "round-1"
+    rep = ae.gates_report(rd)
+    assert set(rep) == {"complete", "gates", "pass", "auditors", "prompt_hashes", "sample_hash", "summary_sha256", "report_md"}
+    assert rep["complete"] and rep["pass"] and len(rep["gates"]) == 8
+    assert set(rep["gates"][0]) == {"name", "numerator", "denominator", "threshold", "pass"}
+    assert rep["auditors"] == AUD and rep["sample_hash"] == s["sample_hash"]
+    assert rep["summary_sha256"] == ae.sha256_text((rd / "summary.json").read_text()) and Path(rep["report_md"]).exists()
+    assert ae.main(["gates", "--round", "1"], root=tmp_path) == 0
+    assert ae.gates_report(tmp_path / "round-9") ["pass"] is False
+    (rd / "packets" / f"{packets[0]['id']}.json").unlink()
+    ae.collect(1, sources, tmp_path)
+    assert ae.gates_report(rd)["complete"] is False and ae.gates_report(rd)["pass"] is False

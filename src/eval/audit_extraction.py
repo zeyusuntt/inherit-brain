@@ -21,6 +21,7 @@ import random
 import re
 import sys
 from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -46,7 +47,10 @@ EVENT_TYPES = ("REPORTED", "ASSIGNED", "RESOLVED", "DISMISSED", "REOPENED")
 VERDICTS = ("correct", "incorrect", "uncertain")
 GATE_PRECISION = 0.90
 GATE_RECALL = 0.85
-MAX_LATER = 60  # later-context messages per what-if packet; larger contexts are cut and the cut is recorded
+BATCH_MAX_PACKETS, BATCH_MAX_CHARS = 10, 120_000  # a batch is scheduling only; one oversized packet goes alone
+AUDITOR_KEYS = ("model", "version", "settings", "prompt_hash")
+PR_LINK_RE = re.compile(r"https?://github\.com/[^\s)>\]]+/pull/\d+")
+WINDOW = timedelta(days=3)
 EID_RE = re.compile(r"\beid_[A-Za-z0-9_]+")
 CUST_RE = re.compile(r"\bCUST-\d+\b")
 
@@ -168,7 +172,11 @@ def record_text(src: Source, rid: str) -> dict | None:
         return pr_record(src, src.pr[rid])
     if rid in src.seg:
         s = src.seg[rid]
-        return {"id": rid, "text": f"Meeting {s.meeting_id} line {s.line_no}, {s.speaker or '(no speaker)'}: {s.text}"}
+        m = src.meeting[s.meeting_id]
+        i = m.segments.index(s)
+        around = " | ".join(f"line {x.line_no}, {x.speaker or '(no speaker)'}: {x.text}" for x in m.segments[max(0, i - 3):i + 4])
+        return {"id": rid, "text": f"Meeting {m.id}, document type {m.document_type}, date {m.date}. Cited line "
+                                   f"{s.line_no}, {s.speaker or '(no speaker)'}: {s.text} Surrounding lines: {around}"}
     if rid in src.meeting:
         return meeting_records(src, rid)[0]
     if rid in src.doc:
@@ -260,6 +268,26 @@ def sample_strata(pool: list[tuple[str, str, object]], n: int, rng: random.Rando
 
 
 # ---------------------------------------------------------------- precision packets
+def bug_context_records(src: Source, bug_id: str, since_ts: str) -> list[dict]:
+    """Evidence for a bug's events, independent of what was extracted: the sessions of its event messages; every later
+    session of the bug's channel that mentions its title, a customer's company or any PR link; and the raw record of
+    every PR linked anywhere in the bug's history."""
+    bug = src.node("bugs", bug_id)["props"]
+    events = [e["props"] for e in src.rows("bugs", label="BugEvent") if e["props"]["bug"] == bug_id]
+    recs = message_session_records(src, {e["message_id"] for e in events})
+    keys = [k.casefold() for k in [bug.get("title"), *(bug.get("aliases") or []), *(bug.get("companies") or [])] if k]
+    seen = {r["id"] for r in recs}
+    for sess in sessions(src.channel.get(bug.get("channel_id"), [])):
+        if sess[-1].ts >= since_ts and any(
+                any(k in m.text.casefold() for k in keys) or PR_LINK_RE.search(m.text) for m in sess):
+            recs += [{"id": m.id, "text": fmt_message(src, m)} for m in sess if m.id not in seen]
+            seen.update(m.id for m in sess)
+    links = {l for e in events for l in e.get("fix_pr_links") or []}
+    links |= {e["src_id"].split(":", 1)[1] for e in src.rows("bugs", type="FIXES") if e["dst_id"] == bug_id}
+    links |= {l for r in recs for l in PR_LINK_RE.findall(r["text"])}
+    return recs + [pr_record(src, src.pr_by_link[l]) for l in sorted(links) if l in src.pr_by_link]
+
+
 def bug_event_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tuple[list[dict], dict]:
     pool = []
     for p, src in sorted(sources.items()):
@@ -271,11 +299,7 @@ def bug_event_packets(sources: dict[str, Source], n: int, rng: random.Random) ->
         ep = ev["props"]
         bug = src.node("bugs", ep["bug"])["props"]
         acted = [e["dst_id"].split(":", 1)[1] for e in src.rows("bugs", type="ACTED_BY") if e["src_id"] == ev["id"]]
-        mids = {e["props"]["message_id"] for e in src.rows("bugs", label="BugEvent") if e["props"]["bug"] == ep["bug"]}
-        recs = message_session_records(src, mids)
-        for link in ep.get("fix_pr_links") or []:
-            pr = src.pr_by_link.get(link)
-            recs += [pr_record(src, pr)] if pr else []
+        recs = bug_context_records(src, ep["bug"], ep["ts"])
         claim = {
             "event": f"{ep['type']} event {ev['id']} on message {ep['message_id']}",
             "bug identity": f"'{bug['title']}' (component {bug.get('component')}, channel {bug['channel_name']})",
@@ -330,6 +354,26 @@ def review_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tu
     return out, info
 
 
+def candidate_records(src: Source, row: dict) -> list[dict]:
+    """One evidence record per directory person with the speaker's exact name: the three eligibility tests of the frozen
+    rule (in the meeting, active in the product Slack within +-3 days, @-mentioned in the meeting chat)."""
+    m = src.meeting[row["meeting_id"]]
+    mdt = datetime.fromisoformat(m.date)
+    chats = [c for c in src.records.chats if c.meeting_id == m.id]
+    out = []
+    for eid, e in sorted(src.records.employees.items()):
+        if e["name"].casefold().strip() != row["name"].casefold().strip():
+            continue
+        posts = [x for x in src.records.messages if x.user_id == eid and abs(datetime.fromisoformat(x.ts) - mdt) <= WINDOW]
+        mentioned = any(eid in c.mentions for c in chats)
+        lines = "".join(f"\n    [{x.id}] {x.ts} #{x.channel_name}: {x.text}" for x in posts)
+        out.append({"id": f"candidate:{eid}", "text": (
+            f"Candidate {e['name']} ({eid}), directory role {e['role']}. In the meeting's participants: "
+            f"{'yes' if eid in m.participants else 'no'}. @-mentioned in this meeting's chat: {'yes' if mentioned else 'no'}. "
+            f"Slack posts within 3 days of {m.date}: {len(posts)}.{lines}")})
+    return out
+
+
 def name_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tuple[list[dict], dict]:
     pool = [(f"{p}|{r['meeting_id']}|{r['name']}", f"{p}|{r['status']}", (src, r))
             for p, src in sorted(sources.items()) for r in src.names]
@@ -337,10 +381,11 @@ def name_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tupl
     out = []
     for ident, _, (src, r) in picked:
         recs = meeting_records(src, r["meeting_id"])
-        shown = r["ids"] if r["status"] == "resolved" else r["candidates"]
+        recs += candidate_records(src, r)
         claim = {"speaker label": f"'{r['name']}' in meeting {r['meeting_id']}", "status": r["status"],
-                 ("resolved to" if r["status"] == "resolved" else "ambiguous among"):
-                     ", ".join(src.person(e) for e in shown) or "nobody"}
+                 "eligible candidates the extractor found": ", ".join(src.person(e) for e in r["candidates"]) or "nobody",
+                 "returned (the unique winner if resolved, the tied winners if ambiguous)":
+                     ", ".join(src.person(e) for e in r["ids"]) or "nobody"}
         out.append(make_packet("name_resolution", ident, src, claim=claim, records=recs,
                                meta={"status": r["status"]}, names=[r["name"]]))
     return out, info
@@ -397,33 +442,57 @@ def whatif_packets(sources: dict[str, Source], whatif_fn: Callable[[str], dict],
     return out, info
 
 
-def _cap_later(src: Source, ids: list[str], names: list[str]) -> list[str]:
-    """At most MAX_LATER later messages: the ones that name the item (link or title) first, then the earliest others;
-    kept in record order."""
-    if len(ids) <= MAX_LATER:
-        return ids
-    keys = [k.split(":", 1)[-1].casefold() for k in names if k]
-    named = [i for i in ids if i in src.msg and any(k in src.msg[i].text.casefold() for k in keys)]
-    rest = [i for i in ids if i not in set(named)]
-    keep = set((named + rest)[:MAX_LATER])
-    return [i for i in ids if i in keep]
+def assignment_message(src: Source, item: str) -> str | None:
+    """The message of a bug's latest ASSIGNED event (latest by time, then sequence); None for other items."""
+    evs = [e["props"] for e in src.rows("bugs", label="BugEvent") if e["props"]["bug"] == item and e["props"]["type"] == "ASSIGNED"]
+    return max(evs, key=lambda e: (e["ts"], e.get("seq") or 0))["message_id"] if evs else None
+
+
+def responsibility_context(src: Source, item: str, person: str, start_mid: str | None) -> list[dict]:
+    """Every message after the assignment (bug) or opening (PR) that could show a hand-over, with no cap: all later
+    messages of each channel where the item was discussed (and the bug's own channel), plus all later messages anywhere
+    in the product that name the item (id, title, aliases, PR link or number) or the person (eid or name)."""
+    label, rest = item.split(":", 1)
+    node = src.node("bugs", item) or src.node("rules", item) or src.node("structural", item) or {"props": {}}
+    terms = [t.casefold() for t in [item, node_title(src, item), *(node["props"].get("aliases") or [])] if t]
+    pat = None
+    if label == "PR":
+        terms.append(rest.casefold())
+        num = rest.rsplit("/", 1)[-1]
+        pat = re.compile(rf"pull/{num}(?!\d)|\bPR\s*#?\s*{num}(?!\d)", re.I) if num.isdigit() else None
+    emp = src.records.employees.get(person, {})
+    who = [person.casefold()] + ([emp["name"].casefold()] if emp else [])
+    pr = src.pr_by_link.get(rest) if label == "PR" else None
+    if start_mid in src.msg:
+        ts0, id0 = src.msg[start_mid].ts, start_mid
+    else:
+        ts0, id0 = (pr.created_at if pr else ""), None
+    named = lambda m: any(t in m.text.casefold() for t in terms) or bool(pat and pat.search(m.text))  # noqa: E731
+    chans = {m.channel_id for m in src.records.messages if named(m)} | ({node["props"]["channel_id"]} if node["props"].get("channel_id") else set())
+    keep = [m for m in src.records.messages if (m.ts > ts0 or (m.ts == ts0 and m.id != id0)) and (
+        m.channel_id in chans or named(m) or any(w in m.text.casefold() for w in who))]
+    return [{"id": m.id, "text": fmt_message(src, m)} for m in sorted(keep, key=lambda m: (m.ts, m.id))]
+
+
+def _chars(recs: list[dict]) -> int:
+    return sum(len(r["text"]) for r in recs)
 
 
 def _whatif_unowned_packet(ident: str, src: Source, x: dict) -> dict:
     a = x["assignment"]
     recs = item_records(src, x["item"])
-    later_ids = _cap_later(src, [m["id"] for m in x["later_context"]], [x["item"], x["title"]])
-    later, miss = _hydrate(src, later_ids)
+    start = a.get("message_id") or assignment_message(src, x["item"])
+    later = responsibility_context(src, x["item"], x["person"], start)
     got, miss2 = _hydrate(src, [i for i in [a.get("message_id"), *(a.get("records") or [])] if i])
     claim = {"statement": f"If {src.person(x['person'])} leaves, the {x['label']} '{x['title']}' ({x['item']}) is newly "
                           "unowned: it is open work and this person is its only remaining owner",
              "owner basis": ("latest ASSIGNED event of the bug (assignees of that event)" if x["label"] == "Bug"
                              else "the PR author"),
              "assignment evidence": f"{a['kind']} {a.get('event') or ''} {a.get('ts') or ''}".strip()}
-    cut = max(0, len(x["later_context"]) - MAX_LATER)
-    return make_packet("whatif_unowned", ident, src, claim=claim, records=got + recs + later,
-                       meta={"item": x["item"], "person": x["person"], "later_context_cut": cut,
-                             "unhydrated": miss + miss2}, names=[])
+    out = make_packet("whatif_unowned", ident, src, claim=claim, records=got + recs + later,
+                      meta={"item": x["item"], "person": x["person"], "later_messages": len(later), "unhydrated": miss2})
+    out["meta"]["chars"] = len(out["text"])
+    return out
 
 
 def _edge_records(src: Source, dependent: str, prereq: str, cites) -> tuple[list[dict], int]:
@@ -446,15 +515,20 @@ def _whatif_path_packet(ident: str, src: Source, x: dict) -> dict:
     for e in x["edges"]:
         r, m = _edge_records(src, e["dependent"], e["prerequisite"], e["citations"])
         recs, miss = recs + r, miss + m
+    end = x["path"][-1]
+    resp = responsibility_context(src, end, x["person"], assignment_message(src, end))
+    recs += item_records(src, end) + resp
     steps = [f"{e['dependent']} depends on {e['prerequisite']} (rule {e['rule']}, cited {', '.join(e['citations']) or 'none'})"
              for e in x["edges"]]
     claim = {"statement": f"If {src.person(x['person'])} leaves, '{node_title(src, x['affected'])}' ({x['affected']}) is "
                           "affected: it is open work or a pending feature and it depends, through the path below, "
-                          "on an item that becomes newly unowned",
+                          "on the last item of the path, which becomes newly unowned (open work whose only owner is this person)",
              "path (affected item first, newly unowned item last)": " -> ".join(x["path"]),
              "dependency steps": " | ".join(steps)}
-    return make_packet("whatif_path", ident, src, claim=claim, records=recs,
-                       meta={"path_length": len(x["path"]), "unhydrated": miss})
+    out = make_packet("whatif_path", ident, src, claim=claim, records=recs,
+                      meta={"path_length": len(x["path"]), "unhydrated": miss, "later_messages": len(resp)})
+    out["meta"]["chars"] = len(out["text"])
+    return out
 
 
 # ---------------------------------------------------------------- recall packets (no extraction shown)
@@ -474,8 +548,9 @@ def _spread_products(cands: dict[str, list], n: int, rng: random.Random) -> list
 BUG_TASK = ("List every bug event in channel {name} (product {product}). Use only the records below. Event types: "
             "REPORTED (a bug is introduced or reported), ASSIGNED (someone is asked to take it or takes it), RESOLVED "
             "(reported fixed or closed), DISMISSED (looked at and judged not a bug or no fix needed), REOPENED (comes "
-            "back after resolution). One item per bug per event; a message can hold several events. Give the type, the "
-            "actor (who performed the event), the time (the message timestamp) and the message id.")
+            "back after resolution). One item per bug per event; a message can hold several events. Give the bug "
+            "(the id of the message where that bug was first reported), the type, the actor (who performed the event), "
+            "the time (the message timestamp) and the message id of the event.")
 REVIEW_TASK = ("List every reviewer of document {doc} (type {type}, product {product}): each person who gives a "
                "suggestion, a requested change or a review question about this document, or about a document of this "
                "type when the source names no version. Sources are the document feedback, the meetings of this "
@@ -523,43 +598,62 @@ def recall_reviewer_packets(sources: dict[str, Source], n: int, rng: random.Rand
 COMMON_PRECISION = """You are auditing extracted facts against raw company records. Work only from the records and the
 directory inside each packet. Do not use outside knowledge and do not guess. For each packet decide:
   correct    every part of the claim is supported by the records
-  incorrect  some part is contradicted by the records or has no support in them
-  uncertain  the records cannot decide it either way (use rarely)
+  incorrect  the records contradict the claim, or the records given contain no support for it
+  uncertain  the records support conflicting readings that the packet cannot settle
 Output only a JSON array with one object per packet:
   {"packet_id": "<id>", "verdict": "correct|incorrect|uncertain", "reason": "<one or two sentences naming record ids>"
    [, "fields": {"<field>": "correct|incorrect|na"}]}
 Do not add text outside the JSON."""
 
+OPEN_WORK = """Open work (the frozen definition): an ACTIVE bug, or a PR whose state is "open" and merged is "False".
+A bug is active when its last event, in time order, is REPORTED, ASSIGNED or REOPENED (a reopened bug is active again even
+though it was resolved before; RESOLVED and DISMISSED last means not active). A feature is pending work when it was
+discussed but not implemented, or when it is not implemented (a missing value counts as not implemented) and a PR about
+its development is open and unmerged. Owners: a bug's owners are the assignees of its latest ASSIGNED event (an
+earlier assignment is replaced); a PR's owner is its author."""
+
 RUBRICS = {
-    "bug_event": """Kind bug_event. The claim is one bug event and the bug it belongs to. It is correct only if ALL of
-these hold (joint correctness): identity (the title and component are the bug the records describe at that event),
-customer (the customer ids belong to that bug), assignee (the event's assignees and the bug's current assignees match
-the records), status (the stated status follows from the records, including later messages), time (the event time is
-the timestamp of the cited message). Report each as "fields": {"identity","customer","assignee","status","time"} with
-correct, incorrect or na. The verdict is correct only if no field is incorrect.""",
+    "bug_event": """Kind bug_event. The claim is one bug event and the bug it belongs to. Judge five fields and report all
+five in "fields": {"identity","customer","assignee","status","time"}, each "correct", "incorrect" or "na".
+identity: the title, component and event type describe the bug and the event the records show at that message.
+customer: the customer ids belong to that bug. assignee: the event's assignees and the bug's current assignees match the
+records, including any later reassignment in the later context. status: the stated status follows from the records
+including later sessions and the linked pull request records. time: the event time is the timestamp of the cited message.
+"na" is allowed only for customer or assignee when the claim states none and the records also give none; identity, status
+and time are never "na". The verdict is "correct" only if every field is "correct" (or such an "na"); otherwise
+"incorrect" (or "uncertain" under the general boundary).""",
     "review_relation": """Kind review_relation. The claim says a person suggested a change, or asked a review question,
 about a document. Correct if the person (resolved through the directory) did say it in the source record and it is about
 that document. When the claim is judged at document-type level (several versions exist), it is correct if the source is
 about a document of that type; do not require a specific version. Incorrect if the speaker is another person, the text
 is not a suggestion or review question, or the source is about another document type.""",
-    "name_resolution": """Kind name_resolution. The claim maps a speaker name in one meeting to employee ids. For a
-resolved claim: correct if the records (participants, attendee list, chat, what is said) support that this speaker is
-that employee and no other directory person of the same name is equally likely. For an ambiguous claim: correct if the
-records genuinely do not decide between the listed candidates and the candidates are the directory people who fit the
-name and the meeting; incorrect if the records do decide it, or a plausible candidate is missing.""",
-    "whatif_unowned": """Kind whatif_unowned. Open work is a bug that has not been resolved, dismissed or closed, or a
-pull request that is open and not merged. The owner of a bug is the assignee of its latest ASSIGNED event; the owner of
-a PR is its author. Correct only if the item is open work, the named person is its only owner, and no later record hands
-it over to someone else or closes it.""",
+    "name_resolution": """Kind name_resolution. The claim maps a speaker name in one meeting to employee ids. The frozen
+rule: the eligible candidates are the directory people with exactly that name who are in the meeting's participants, or
+posted in the product Slack within 3 days of the meeting date, or are @-mentioned in the meeting chat (candidate records
+give these facts). One eligible candidate resolves without scoring. Several are scored: 3 if the speaker's own lines
+state a role cue matching the candidate's directory role (the speaker says their own role, such as "as QA I checked"),
+plus 2 if the candidate has a related post within 3 days (a post in a session that names the meeting's document type or
+document link), plus 1 if the candidate is mentioned in the meeting. A unique top score resolves to that candidate; a tie
+for the top score is ambiguous and the tied candidates are returned. The claim lists the eligible candidates the
+extractor found and what it returned. Correct only if the eligible candidates are right and the returned ids follow from
+the rule applied to the records.""",
+    "whatif_unowned": OPEN_WORK + """
+
+Kind whatif_unowned. Correct only if the item is open work, the named person is an owner, no other owner remains, and no
+later record in the later context hands it over to someone else, reassigns it, merges or resolves it, or otherwise
+changes who owns it or whether it is open.""",
     "whatif_edge": """Kind whatif_edge. A dependency means the dependent item cannot be finished before the
 prerequisite. Rules: IMPLEMENTED_BY (a feature depends on the PR that implements it), ABOUT with kind development (a
 feature depends on a development PR about it), FIXES (a bug depends on the PR that fixes it). Correct only if the
 records show that relation between exactly these two items (the cited records name both, or the PR record and the other
 item's records make the link clear).""",
-    "whatif_path": """Kind whatif_path. The claim gives a chain of dependency steps from an affected item to an item that
-becomes newly unowned. Correct only if every step is supported by the records (see the whatif_edge rule), the chain
-joins the steps in order, and the affected item is open work or a pending feature (a bug not yet resolved, an open
-unmerged PR, or a feature discussed but not implemented or with an open development PR).""",
+    "whatif_path": OPEN_WORK + """
+
+Kind whatif_path. The claim gives a chain of dependency steps from an affected item to the last item, which becomes newly
+unowned when the person leaves. Check every component and answer correct only if all hold: (1) each dependency step is
+supported by the records (rules: IMPLEMENTED_BY, ABOUT with kind development, FIXES; the dependent cannot be finished
+before the prerequisite); (2) the steps join in order; (3) the affected item is open work or pending work as defined
+above; (4) the last item is open work, the person is an owner and no other owner remains after the later context.""",
 }
 
 COMMON_RECALL = """You are listing every item of one kind in the raw company records of a packet. Work only from the
@@ -568,7 +662,7 @@ records and the directory in the packet. Be complete and do not invent items. Ou
 Do not add text outside the JSON."""
 
 RECALL_RULES = {
-    "recall_bug": """Each item: {"type": "REPORTED|ASSIGNED|RESOLVED|DISMISSED|REOPENED", "actor": "<eid or name of who
+    "recall_bug": """Each item: {"bug": "<id of the message where this bug was first reported>", "type": "REPORTED|ASSIGNED|RESOLVED|DISMISSED|REOPENED", "actor": "<eid or name of who
 performed it>", "time": "<message timestamp>", "message_id": "<id>", "bug": "<bug title>"}. List one item per bug per
 event. A bug is reported once when it is introduced; it is assigned when someone is asked to take it or takes it; resolved
 when reported fixed or closed; dismissed when judged not a bug; reopened when it returns after resolution.""",
@@ -588,7 +682,7 @@ Output only {"packet_id": "<id>", "items": [...]} in the same item format. You h
 
 
 def prompt_hashes() -> dict[str, str]:
-    texts = {"common_precision": COMMON_PRECISION, "common_recall": COMMON_RECALL, "third_precision": THIRD_PRECISION,
+    texts = {"common_precision": COMMON_PRECISION, "common_recall": COMMON_RECALL, "third_precision": THIRD_PRECISION, "open_work": OPEN_WORK,
              "third_recall": THIRD_RECALL, **{f"rubric:{k}": v for k, v in RUBRICS.items()},
              **{f"recall_rules:{k}": v for k, v in RECALL_RULES.items()}}
     return {k: sha256_text(v) for k, v in sorted(texts.items())} | {"version": PROMPT_VERSION}
@@ -619,8 +713,10 @@ def round_dir(round_n: int, root: Path = AUDIT_DIR) -> Path:
 
 def write_round(packets: list[dict], sizes: dict, round_n: int, bundle_sha: str | None, root: Path = AUDIT_DIR) -> dict:
     d = round_dir(round_n, root)
+    if d.exists():
+        raise FileExistsError(f"{d} exists: a round is never overwritten (failed rounds stay); use the next round number")
     pdir = d / "packets"
-    pdir.mkdir(parents=True, exist_ok=True)
+    pdir.mkdir(parents=True)
     entries = []
     for p in packets:
         body = json.dumps(p, ensure_ascii=False, indent=1, sort_keys=True)
@@ -641,21 +737,48 @@ def load_packets(round_n: int, root: Path = AUDIT_DIR) -> dict[str, dict]:
     return {p["id"]: p for p in (json.loads(f.read_text(encoding="utf-8")) for f in sorted(pdir.glob("*.json")))}
 
 
+def integrity_problems(round_n: int, root: Path = AUDIT_DIR) -> list[str]:
+    """Differences between the manifest and the packet files on disk, and missing auditor metadata."""
+    rd = round_dir(round_n, root)
+    manifest = json.loads((rd / "manifest.json").read_text(encoding="utf-8"))
+    want = {e["id"]: e["sha256"] for e in manifest["packets"]}
+    problems = []
+    have = {f.stem: sha256_text(f.read_text(encoding="utf-8")) for f in (rd / "packets").glob("*.json")}
+    problems += [f"packet missing: {i}" for i in sorted(set(want) - set(have))]
+    problems += [f"packet not in the manifest: {i}" for i in sorted(set(have) - set(want))]
+    problems += [f"packet changed: {i}" for i in sorted(set(want) & set(have)) if want[i] != have[i]]
+    if sha256_text("\n".join(f"{i}:{want[i]}" for i in sorted(want))) != manifest["sample_hash"]:
+        problems.append("sample hash does not match the manifest packet list")
+    aud = rd / "auditors.json"
+    meta = json.loads(aud.read_text(encoding="utf-8")) if aud.exists() else {}
+    for who in ("codex", "claude", "third"):
+        m = meta.get(who)
+        if not isinstance(m, dict) or any(not isinstance(m.get(k), str) or not m[k].strip() for k in AUDITOR_KEYS):
+            problems.append(f"auditor metadata missing or incomplete for {who} (needs {', '.join(AUDITOR_KEYS)})")
+    return problems
+
+
 def is_recall(kind: str) -> bool:
     return kind in RECALL_QUOTAS
 
 
-def _chunks(items: list, size: int) -> list[list]:
-    return [items[i:i + size] for i in range(0, len(items), size)]
-
-
-def _batch_plan(packets: dict[str, dict], size: int) -> dict[str, list[str]]:
-    """Homogeneous batches: precision kinds in chunks of `size`, recall packets one per batch (they are large)."""
+def _batch_plan(packets: dict[str, dict], size: int = BATCH_MAX_PACKETS) -> dict[str, list[str]]:
+    """Scheduling only. Batches are homogeneous by kind (the auditor holds one rubric and nothing else), at most `size`
+    packets and BATCH_MAX_CHARS characters; a packet over the limit goes alone. Recall packets go one per batch."""
     plan = {}
     for kind in KINDS:
         ids = sorted(i for i, p in packets.items() if p["kind"] == kind)
-        for n, chunk in enumerate(_chunks(ids, 1 if is_recall(kind) else size), 1):
-            plan[f"{kind}-{n:02d}"] = chunk
+        cap = 1 if is_recall(kind) else min(size, BATCH_MAX_PACKETS)
+        n, cur, chars = 0, [], 0
+        for i in ids:
+            c = len(packets[i]["text"])
+            if cur and (len(cur) >= cap or chars + c > BATCH_MAX_CHARS):
+                n += 1
+                plan[f"{kind}-{n:02d}"], cur, chars = cur, [], 0
+            cur.append(i)
+            chars += c
+        if cur:
+            plan[f"{kind}-{n + 1:02d}"] = cur
     return plan
 
 
@@ -687,7 +810,7 @@ def validate_verdict(obj, packet: dict, third: bool = False) -> str | None:
         items = obj.get("items")
         if not isinstance(items, list):
             return "items is not a list"
-        need = (("type", "actor", "time", "message_id") if packet["kind"] == "recall_bug" else ("reviewer", "source"))
+        need = (("bug", "type", "actor", "time", "message_id") if packet["kind"] == "recall_bug" else ("reviewer", "source"))
         for it in items:
             if not isinstance(it, dict) or any(not isinstance(it.get(k), str) or not it[k].strip() for k in need):
                 return "item missing a required string field"
@@ -700,11 +823,19 @@ def validate_verdict(obj, packet: dict, third: bool = False) -> str | None:
     if not isinstance(obj.get("reason"), str) or not obj["reason"].strip():
         return "no reason"
     f = obj.get("fields")
-    if f is not None:
-        if not isinstance(f, dict) or any(v2 not in ("correct", "incorrect", "na") for v2 in f.values()):
-            return "bad fields"
-        if packet["kind"] == "bug_event" and v == "correct" and "incorrect" in f.values():
-            return "correct verdict with an incorrect field"
+    if packet["kind"] != "bug_event":
+        return None if f is None or isinstance(f, dict) else "bad fields"
+    if not isinstance(f, dict) or set(f) != set(BUG_FIELDS) or any(x not in ("correct", "incorrect", "na") for x in f.values()):
+        return "a bug event verdict needs all five fields, each correct, incorrect or na"
+    claim = packet["claim"]
+    none_ok = {"customer": claim.get("customer(s) of the bug") == "none",
+               "assignee": claim.get("assignee(s) of this event") == "none" and claim.get("bug current assignee(s)") == "none"}
+    if any(f[k] == "na" and not none_ok.get(k) for k in BUG_FIELDS):
+        return "na is only allowed where the claim has no value (customer, assignee)"
+    if v == "correct" and any(x != "correct" for x in f.values() if x != "na"):
+        return "correct verdict with a field that is not correct"
+    if v == "incorrect" and all(x != "incorrect" for x in f.values()):
+        return "incorrect verdict with no incorrect field"
     return None
 
 
@@ -718,9 +849,18 @@ def load_verdicts(vdir: Path, packets: dict[str, dict]) -> tuple[dict[str, dict]
         except ValueError:
             stats["unreadable_files"] += 1
             continue
-        for obj in (raw if isinstance(raw, list) else raw.get("verdicts", [raw]) if isinstance(raw, dict) else []):
+        if isinstance(raw, dict) and "verdicts" in raw:
+            raw = raw["verdicts"]
+        if isinstance(raw, dict):
+            raw = [raw]
+        if not isinstance(raw, list):
+            stats["malformed"] += 1
+            continue
+        for obj in raw:
             pid = obj.get("packet_id") if isinstance(obj, dict) else None
-            if pid not in packets:
+            if not isinstance(pid, str):
+                stats["malformed"] += 1
+            elif pid not in packets:
                 stats["unknown_packet"] += 1
             elif validate_verdict(obj, packets[pid]) is not None:
                 stats["malformed"] += 1
@@ -757,15 +897,18 @@ def cohen_kappa(pairs: list[tuple[str, str]]) -> float | None:
 # ---------------------------------------------------------------- recall: truth keys and extraction keys
 def truth_keys(kind: str, items: list[dict], src: Source) -> Counter:
     if kind == "recall_bug":
-        return Counter((i["type"].upper().strip(), i["message_id"].strip()) for i in items)
+        return Counter((i["bug"].strip(), i["type"].upper().strip(), i["message_id"].strip()) for i in items)
     return Counter({(src.name_of(i["reviewer"]), i["source"].strip()) for i in items})
 
 
 def extracted_keys(packet: dict, src: Source) -> Counter:
     if packet["kind"] == "recall_bug":
         ch = packet["meta"]["channel_id"]
-        return Counter((ev["props"]["type"], ev["props"]["message_id"]) for ev in src.rows("bugs", label="BugEvent")
-                       if ev["props"]["channel_id"] == ch)
+        evs = [ev["props"] for ev in src.rows("bugs", label="BugEvent") if ev["props"]["channel_id"] == ch]
+        first = {}  # a bug's report message: the message of its earliest REPORTED event
+        for e in sorted((e for e in evs if e["type"] == "REPORTED"), key=lambda e: (e["ts"], e.get("seq") or 0)):
+            first.setdefault(e["bug"], e["message_id"])
+        return Counter((first.get(e["bug"], ""), e["type"], e["message_id"]) for e in evs)
     dst = f"Document:{packet['meta']['document_id']}"
     return Counter({(src.name_of(e["src_id"].split(":", 1)[1]), rid)
                     for e in src.rows("semantic", type="SUGGESTED") if e["dst_id"] == dst for rid in e["src"]})
@@ -773,7 +916,7 @@ def extracted_keys(packet: dict, src: Source) -> Counter:
 
 def compare_recall(truth: Counter, extracted: Counter) -> dict:
     matched = sum(min(n, extracted[k]) for k, n in truth.items())
-    missed = sorted(f"{k[0]}|{k[1]}" for k, n in truth.items() for _ in range(n - min(n, extracted[k])))
+    missed = sorted("|".join(k) for k, n in truth.items() for _ in range(n - min(n, extracted[k])))
     return {"truth": sum(truth.values()), "matched": matched, "missed": missed,
             "extra_in_extraction": sum(extracted.values()) - sum(min(n, extracted[k]) for k, n in truth.items())}
 
@@ -818,8 +961,8 @@ def write_third(round_n: int, size: int = 10, root: Path = AUDIT_DIR) -> list[st
         f.unlink()
     names = []
     for kind in KINDS:
-        ids = [i for i in need if packets[i]["kind"] == kind]
-        for n, chunk in enumerate(_chunks(ids, 1 if is_recall(kind) else size), 1):
+        sub = {i: packets[i] for i in need if packets[i]["kind"] == kind}
+        for n, chunk in enumerate(_batch_plan(sub, size).values(), 1):
             parts = [batch_header(kind, third=True)]
             for pid in chunk:
                 rec = is_recall(kind)
@@ -878,17 +1021,28 @@ def collect(round_n: int, sources: dict[str, Source], root: Path = AUDIT_DIR) ->
     for kind, r in recall.items():
         r["recall"] = round(r["matched"] / r["truth"], 4) if r["truth"] else None
     pend = len(pending_third(round_n, root))
+    problems = integrity_problems(round_n, root)
     rdirs = {w: sha256_text("".join(sha256_text(f.read_text(encoding="utf-8")) for f in sorted((rd / "verdicts" / w).glob("*.json"))))
              if (rd / "verdicts" / w).exists() else None for w in ("codex", "claude", "third")}
     aud = rd / "auditors.json"
-    summary = {"round": round_n, "complete": pend == 0, "pending_third": pend, "sample_hash": manifest["sample_hash"],
+    summary = {"round": round_n, "complete": pend == 0 and not problems, "pending_third": pend,
+               "integrity_problems": problems, "sample_hash": manifest["sample_hash"],
                "prompt_hashes": manifest["prompt_hashes"], "verdict_hashes": rdirs,
                "verdict_file_stats": {w: v[w][1] for w in v}, "sizes": manifest["sizes"], "shortages": manifest["shortages"],
                "precision": cats, "recall": recall,
-               "auditors": json.loads(aud.read_text(encoding="utf-8")) if aud.exists() else None}
+               "auditors": json.loads(aud.read_text(encoding="utf-8")) if aud.exists() else None,
+               "packet_chars": _char_stats(packets)}
     (rd / "summary.json").write_text(json.dumps(summary, indent=1, sort_keys=True), encoding="utf-8")
     (rd / "report.md").write_text(render_report(summary), encoding="utf-8")
     return summary
+
+
+def _char_stats(packets: dict[str, dict]) -> dict:
+    out = {}
+    for kind in KINDS:
+        n = sorted(len(p["text"]) for p in packets.values() if p["kind"] == kind)
+        out[kind] = {"n": len(n), "median": n[len(n) // 2] if n else 0, "max": n[-1] if n else 0}
+    return out
 
 
 def render_report(s: dict) -> str:
@@ -897,7 +1051,17 @@ def render_report(s: dict) -> str:
          "does not establish equivalence to human labels. No source text appears in this report.", "",
          f"- complete: {s['complete']} (third passes still pending: {s['pending_third']})",
          f"- sample hash: {s['sample_hash']}", f"- prompt version: {s['prompt_hashes']['version']}",
-         f"- verdict hashes: {s['verdict_hashes']}", ""]
+         f"- verdict hashes: {s['verdict_hashes']}",
+         f"- integrity problems: {s['integrity_problems'] or 'none'}", ""]
+    L += ["## Method", "",
+          "Each packet is judged on its own and answered per packet. Packets are scheduled in batches for the fan-out: a "
+          f"batch holds only packets of one kind and the rubric, at most {BATCH_MAX_PACKETS} packets and about "
+          f"{BATCH_MAX_CHARS} characters (a larger packet goes alone). The third pass shares a model family with "
+          "auditor 1 (Codex).", "", "## Auditors", ""]
+    for who in ("codex", "claude", "third"):
+        m = (s.get("auditors") or {}).get(who) or {}
+        L.append(f"- {who}: " + ", ".join(f"{k} {m.get(k)}" for k in AUDITOR_KEYS))
+    L.append("")
     if s["shortages"]:
         L.append("Pools smaller than the quota (census, no padding): " + ", ".join(
             f"{k} {v['available']}/{v['requested']}" for k, v in sorted(s["shortages"].items())) + "\n")
@@ -914,17 +1078,42 @@ def render_report(s: dict) -> str:
 
 
 # ---------------------------------------------------------------- gates
-def gates(summary: dict) -> list[tuple[str, bool, str]]:
-    out = [("complete", summary["complete"], f"{summary['pending_third']} third passes pending")]
+def _gate_rows(summary: dict) -> list[dict]:
+    rows = []
     for kind in PRECISION_QUOTAS:
         c = summary["precision"].get(kind)
-        ok = bool(c and c["n"] and c["precision"] is not None and c["precision"] >= GATE_PRECISION and not c["pending"])
-        out.append((f"precision:{kind}", ok, f"{c['correct']}/{c['n']}" if c else "no packets"))
+        n, d = (c["correct"], c["n"]) if c else (0, 0)
+        ok = bool(c and d and c["precision"] is not None and c["precision"] >= GATE_PRECISION and not c["pending"])
+        rows.append({"name": f"precision:{kind}", "numerator": n, "denominator": d, "threshold": GATE_PRECISION, "pass": ok})
     for kind in RECALL_QUOTAS:
         r = summary["recall"].get(kind)
-        ok = bool(r and r["truth"] and not r["pending"] and r["recall"] >= GATE_RECALL)
-        out.append((f"recall:{kind}", ok, f"{r['matched']}/{r['truth']}" if r else "no packets"))
-    return out
+        n, d = (r["matched"], r["truth"]) if r else (0, 0)
+        ok = bool(r and d and not r["pending"] and r["recall"] >= GATE_RECALL)
+        rows.append({"name": f"recall:{kind}", "numerator": n, "denominator": d, "threshold": GATE_RECALL, "pass": ok})
+    return rows
+
+
+def gates(summary: dict) -> list[tuple[str, bool, str]]:
+    out = [("complete", summary["complete"], f"{summary['pending_third']} third passes pending, "
+                                            f"{len(summary.get('integrity_problems') or [])} integrity problems")]
+    return out + [(g["name"], g["pass"], f"{g['numerator']}/{g['denominator']}" if g["denominator"] else "no packets")
+                  for g in _gate_rows(summary)]
+
+
+def gates_report(round_dir: Path) -> dict:
+    """The one entry point for the acceptance report: gate rows, completeness and the disclosure fields of a round."""
+    round_dir = Path(round_dir)
+    sf = round_dir / "summary.json"
+    if not sf.exists():
+        return {"complete": False, "gates": [], "pass": False, "auditors": None, "prompt_hashes": None,
+                "sample_hash": None, "summary_sha256": None, "report_md": str(round_dir / "report.md")}
+    raw = sf.read_text(encoding="utf-8")
+    summary = json.loads(raw)
+    rows = _gate_rows(summary)
+    return {"complete": bool(summary["complete"]), "gates": rows, "pass": bool(summary["complete"] and all(g["pass"] for g in rows)),
+            "auditors": summary.get("auditors"), "prompt_hashes": summary.get("prompt_hashes"),
+            "sample_hash": summary.get("sample_hash"), "summary_sha256": sha256_text(raw),
+            "report_md": str(round_dir / "report.md")}
 
 
 # ---------------------------------------------------------------- live what-if pools and the CLI
@@ -955,7 +1144,11 @@ def main(argv: list[str] | None = None, *, root: Path = AUDIT_DIR, whatif_fn: Ca
         srcs = sources or {p: load_source(p) for p in dev_products()}
         sha = json.loads((BUNDLE_DIR / "manifest.json").read_text())["sha256"] if (BUNDLE_DIR / "manifest.json").exists() else None
         packets, sizes = build_packets(srcs, n, whatif_fn or live_whatif)
-        m = write_round(packets, sizes, n, sha, root)
+        try:
+            m = write_round(packets, sizes, n, sha, root)
+        except FileExistsError as e:
+            print(e)
+            return 2
         print(f"round {n}: {len(packets)} packets, sample hash {m['sample_hash']}")
         for k in KINDS:
             print(f"  {k}: {sizes[k]['actual']} (requested {sizes[k]['requested']}, pool {sizes[k]['available']})")
@@ -972,14 +1165,15 @@ def main(argv: list[str] | None = None, *, root: Path = AUDIT_DIR, whatif_fn: Ca
         print(f"complete: {s['complete']}, pending third passes: {s['pending_third']}")
         print((round_dir(n, root) / "report.md").read_text(encoding="utf-8"))
     else:
-        sf = round_dir(n, root) / "summary.json"
-        if not sf.exists():
+        rep = gates_report(round_dir(n, root))
+        print("audit gates only; the dev score gate is in the acceptance report")
+        if not (round_dir(n, root) / "summary.json").exists():
             print("no summary: run collect first")
             return 1
-        rows = gates(json.loads(sf.read_text(encoding="utf-8")))
-        for g, ok, detail in rows:
-            print(f"{'PASS' if ok else 'FAIL'} {g} {detail}")
-        return 0 if all(ok for _, ok, _ in rows) else 1
+        print(f"{'PASS' if rep['complete'] else 'FAIL'} complete")
+        for g in rep["gates"]:
+            print(f"{'PASS' if g['pass'] else 'FAIL'} {g['name']} {g['numerator']}/{g['denominator']} (threshold {g['threshold']})")
+        return 0 if rep["pass"] else 1
     return 0
 
 
