@@ -11,6 +11,7 @@ import pytest
 from baselines import cards_react, hybrid_once, paper_retriever, paper_tools, react_paper
 from baselines.paper_retriever import QwenEmbedding, build_retriever, paper_texts, union_nodes
 from baselines.paper_tools import Lookups, PaperTools
+from inherit.graph import cards
 from conftest import fake_embed, fake_vec
 from eval.arms import ARMS
 from eval.run import _validate
@@ -535,11 +536,31 @@ def test_a_property_change_with_the_same_counts_changes_the_graph_identity_and_t
 
     monkeypatch.setattr(paper_retriever, "build_retriever", fake_build)
     monkeypatch.setattr(react_paper, "_RETRIEVERS", {})
+    monkeypatch.setattr(react_paper, "_IDENTITIES", {})
     a = react_paper.shared_retriever("cards", P, graph=tg)
     assert react_paper.shared_retriever("cards", P, graph=tg) is a and built == [before]
     tsrv.select_graph(f"herb:{P}").query("MATCH (n:Person {eid: $e}) SET n.name = 'Alice Corrected'", {"e": ALICE})
     assert paper_retriever.graph_identity(tg) != before
+    react_paper.invalidate("cards", P)  # a reload tells the process; the next question sees the new content
     assert react_paper.shared_retriever("cards", P, graph=tg) is not a and len(built) == 2
+
+
+def test_the_graph_identity_is_computed_once_per_product_until_invalidated(tg, monkeypatch):
+    n = []
+    real = paper_retriever.graph_identity
+    monkeypatch.setattr(paper_retriever, "graph_identity", lambda g: n.append(1) or real(g))
+    monkeypatch.setattr(paper_retriever, "build_retriever", lambda *a, **k: object())
+    monkeypatch.setattr(react_paper, "_RETRIEVERS", {})
+    monkeypatch.setattr(react_paper, "_IDENTITIES", {})
+    first = react_paper.shared_retriever("cards", P, graph=tg)
+    for _ in range(5):
+        assert react_paper.shared_retriever("cards", P, graph=tg) is first
+    assert len(n) == 1  # six questions, one scan of the graph
+    monkeypatch.setattr(cards, "CARD_VERSION", "v-next")  # a new card version is a new identity
+    assert react_paper.shared_retriever("cards", P, graph=tg) is not first and len(n) == 2
+    react_paper.invalidate()
+    react_paper.shared_retriever("cards", P, graph=tg)
+    assert len(n) == 3
 
 
 def test_the_raw_process_cache_is_keyed_by_the_bundle_content(tmp_path, monkeypatch):
@@ -547,11 +568,14 @@ def test_the_raw_process_cache_is_keyed_by_the_bundle_content(tmp_path, monkeypa
     monkeypatch.setattr(paper_retriever, "build_retriever",
                         lambda texts, cache_dir, embed_model=None, identity=None: seen_ids.append(identity) or object())
     monkeypatch.setattr(react_paper, "_RETRIEVERS", {})
+    monkeypatch.setattr(react_paper, "_IDENTITIES", {})
     b = [bundle(slack=[slack_msg("eid_a1000001", "hi", "20260610-0-aaaaa")])]
     monkeypatch.setattr(react_paper, "load_bundle", lambda d, p: b[0])
     first = react_paper.shared_retriever("raw", "acme")
     assert react_paper.shared_retriever("raw", "acme") is first
     b[0] = bundle(slack=[slack_msg("eid_a1000001", "hi corrected", "20260610-0-aaaaa")])
+    assert react_paper.shared_retriever("raw", "acme") is first  # memoized until the loader invalidates
+    react_paper.invalidate("raw", "acme")
     assert react_paper.shared_retriever("raw", "acme") is not first and len(set(seen_ids)) == 2
 
 

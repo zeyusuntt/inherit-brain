@@ -16,11 +16,13 @@ from typing import Callable
 from baselines import paper_retriever, paper_tools
 from baselines.paper_tools import PaperTools
 from inherit import agent
+from inherit.graph import cards
 from inherit.data.bundle import BUNDLE_DIR, load_bundle, load_metadata
 
 ARM = "A0"
 _RETRIEVERS: dict[tuple, paper_retriever.PaperRetriever] = {}
-_LOCK = threading.Lock()
+_IDENTITIES: dict[tuple, str] = {}
+_LOCK = threading.RLock()
 
 
 def config() -> dict:
@@ -33,17 +35,36 @@ def load_lookups(product: str, bundle_dir: Path = BUNDLE_DIR) -> paper_tools.Loo
     return paper_tools.Lookups(load_bundle(bundle_dir, product), employees, customers)
 
 
-def shared_retriever(kind: str, product: str, *, graph=None, bundle_dir: Path = BUNDLE_DIR):
-    """One retriever per (kind, product, content identity) in this process; the index itself is persisted under
-    data/cache/baselines. A changed bundle or graph has another identity, so it never reuses a stale retriever."""
+def _identity(kind: str, product: str, graph, bundle_dir: Path):
+    """(texts or a callable producing them, content identity). The caller holds the lock."""
     if kind == "raw":
         texts = paper_retriever.paper_texts(load_bundle(bundle_dir, product))
-        identity = paper_retriever.texts_identity(texts)
-    else:
-        texts, identity = (lambda: paper_retriever.card_texts(graph)), paper_retriever.graph_identity(graph)
+        return texts, paper_retriever.texts_identity(texts)
+    return (lambda: paper_retriever.card_texts(graph)), paper_retriever.graph_identity(graph)
+
+
+def invalidate(kind: str | None = None, product: str | None = None) -> None:
+    """Forget the memoized content identity and retriever of (kind, product); None matches all. Call it after a graph
+    reload or a bundle change; the next question recomputes the identity and builds or loads the matching index."""
     with _LOCK:
-        key = (kind, product, identity)
+        for table in (_IDENTITIES, _RETRIEVERS):
+            for k in [k for k in table if kind in (None, k[0]) and product in (None, k[1])]:
+                del table[k]
+
+
+def shared_retriever(kind: str, product: str, *, graph=None, bundle_dir: Path = BUNDLE_DIR):
+    """One retriever per (kind, product) in this process. The content identity (hash of the bundle text, or of the
+    frozen graph and card version) is computed once per product per process and reused by later questions; the
+    persisted index is keyed by it, so a changed corpus never loads a stale index. After a reload call `invalidate`."""
+    with _LOCK:
+        mkey = (kind, product, cards.CARD_VERSION if kind == "cards" else "")
+        if mkey not in _IDENTITIES:
+            _IDENTITIES[mkey] = _identity(kind, product, graph, bundle_dir)[1]
+        identity = _IDENTITIES[mkey]
+        key = (*mkey, identity)
         if key not in _RETRIEVERS:
+            texts = (lambda: paper_retriever.card_texts(graph)) if kind == "cards" \
+                else (lambda: paper_retriever.paper_texts(load_bundle(bundle_dir, product)))
             _RETRIEVERS[key] = paper_retriever.build_retriever(
                 texts, paper_retriever.CACHE_ROOT / kind / product, identity=identity)
         return _RETRIEVERS[key]
