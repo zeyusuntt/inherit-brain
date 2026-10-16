@@ -47,3 +47,17 @@ def register(arm: Arm) -> Arm:
         raise ValueError(f"arm {arm.name!r} is already registered")
     ARMS[arm.name] = arm
     return arm
+
+
+def _register_agent_arms() -> None:
+    """A5, A4 and A4c (and their dev twins for pilots) differ only in the toolset; budgets, prompt and answer
+    handling are the same agent. Imported late: the agent builds its results from this module's ArmResult."""
+    from inherit import agent
+
+    for name, toolset in (("A5", "full"), ("A4", "depth1"), ("A4c", "depth1_chain")):
+        for arm_name in (name, f"dev-{name.lower()}"):
+            register(Arm(arm_name, lambda inp, _n=arm_name, _t=toolset: agent.answer(inp, toolset=_t, arm=_n),
+                         config=agent.arm_config(toolset), prompt_versions={"agent": agent.PROMPT_VERSION}))
+
+
+_register_agent_arms()
