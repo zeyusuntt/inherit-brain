@@ -33,14 +33,14 @@ from inherit.contracts import CallUsage, ExecInput, FinalAnswer, TraceOp, Usage
 from inherit.graph import cards
 from inherit.llm import BudgetExceeded
 from inherit.memory import Finding, Session
-from inherit.ontology import SIGNATURES
+from inherit.ontology import NODE_KEYS, SIGNATURES
 from inherit.tools import depth1
 from inherit.tools.catalog import TOOLS
 from inherit.tools.depth1 import CALL_CAP, Episode, ToolError
 from inherit.tools.guard import guard, guard_evidence
 from inherit.tools.trace import Trace
 
-PROMPT_VERSION = "agent/v1"
+PROMPT_VERSION = "agent/v2"
 TOOLSETS = ("full", "depth1", "depth1_chain")
 SERVER = "6.0"  # the FalkorDB server the agents read (bridges uses the native algorithm there)
 MAX_TOOL_CALLS = CALL_CAP  # 12
@@ -71,6 +71,8 @@ Final answer: reply with only one JSON object, and nothing else:
 {"answer_text": "...", "answer_ids": ["..."], "evidence_ids": ["..."], "outcome": "..."}
 - answer_text: the answer in plain sentences. Name only people, companies and items that appear in tool results; put every value that is graded (employee ids, company names, PR links, URLs) in answer_ids as well.
 - answer_ids: the answer values themselves, bare: employee ids such as eid_xxxxxxxx, company names, PR links or URLs. No label prefixes (write eid_xxxxxxxx, not Person:eid_xxxxxxxx). Use [] when you give no such values.
+- Lists and ties: when a ranking returns several rows tied at the top, answer_ids lists every tied row. For a list question, answer_ids holds every returned answer value, not a sample. For a question that asks for content (features, suggestions, issues, claims), answer_text includes the detail fields the tools returned (feature details, suggestion texts, claim texts), not only titles.
+- Nothing found: when the tool results contain nothing that answers what was asked, do not state a negative fact (not "No X reported ..." or "X has no ...") and do not add related facts, people or ids. Set outcome to not_in_graph (or unknown_name when a name could not be found), leave answer_ids empty, and say the records do not contain the information, naming what you searched.
 - evidence_ids: record ids (messages, transcript segments, documents) that the tools returned and that support the answer.
 - outcome, one of:
   path: you answered from tool results.
@@ -276,6 +278,21 @@ def _bare(ids: list[str]) -> list[str]:
     return list(dict.fromkeys(_QUALIFIED.sub("", i) for i in ids))
 
 
+REFUSAL_TEXT = "I could not find information in the records to answer this question. Searched: {searched}."
+_LABEL_PREFIX = re.compile(rf"^({'|'.join(sorted(NODE_KEYS, key=len, reverse=True))}):")
+
+
+def refusal_text(tools_used: list[str], rows: list[list[dict]]) -> str:
+    """The one canonical refusal wording, the same for every arm: what was searched, by tool and node label."""
+    names = list(dict.fromkeys(tools_used))
+    labels = sorted({m.group(1) for group in rows for r in group for ref in r.get("refs") or []
+                     if isinstance(ref, str) and (m := _LABEL_PREFIX.match(ref))})
+    searched = ", ".join(names) if names else "no tool returned results"
+    if labels:
+        searched += f" (node types: {', '.join(labels)})"
+    return REFUSAL_TEXT.format(searched=searched)
+
+
 def _from_memory(f: Finding) -> "ArmResult":
     from eval.arms import ArmResult
 
@@ -424,6 +441,8 @@ class _Loop:
         self.dropped = dropped + [{"value": v, "where": "evidence", "reason": "not in any returned row"}
                                   for v in ev_dropped]
         outcome = self.model_outcome
+        if outcome in REFUSALS and not ids:  # one canonical refusal for every arm
+            text = refusal_text([e["tool"] for e in self.envelopes if "error" not in e], self.guard_rows)
         if ids and outcome in REFUSALS:
             outcome, text = "path", f"{', '.join(ids)}. {text}".strip()
         elif not ids and not text.strip():

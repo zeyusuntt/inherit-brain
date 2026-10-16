@@ -16,6 +16,7 @@ from inherit.contracts import ExecInput, QuestionKey, TraceOp
 from inherit.llm import ChatResult
 from inherit.memory import Finding, Session
 
+CANON = "I could not find information in the records to answer this question. Searched: "
 QB = f"Which company has the most unresolved bugs in {P}?"
 QP = f"Who opened {pr(1)} in {P}?"
 TOOLSETS = ("full", "depth1", "depth1_chain")
@@ -131,7 +132,8 @@ def test_all_zero_rows_gives_not_in_graph_listing_what_was_searched(tg):
     text = "I searched the Customer nodes for BlueWave and the FIXES edges on its bugs: no rows."
     res, _ = run(tg, [T(("fix_trail", {"customer": "BlueWave"})), J(text, outcome="not_in_graph")], q=q)
     assert res.final.outcome == "not_in_graph" and res.final.answer_ids == []
-    assert "Customer" in res.final.answer_text and "FIXES" in res.final.answer_text
+    assert res.final.answer_text.startswith(CANON) and "Searched: fix_trail" in res.final.answer_text
+    assert "BlueWave" not in res.final.answer_text.split("Searched")[0]  # the model's own wording is replaced
     assert res.envelopes[0]['rows'] == []
 
 
@@ -562,3 +564,35 @@ def test_bug_board_ignores_the_product_name_as_a_component(tg, comp):
 
 def test_the_prompt_says_the_graph_is_already_scoped_to_the_product():
     assert "scoped to the product" in agent.SYSTEM_PROMPT and "component" in agent.SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize("toolset", TOOLSETS)
+def test_refusals_use_one_canonical_text_in_every_toolset(tg, toolset):
+    call = ("resolve_person", {"name": "Zed Nobody"}) if toolset == "full" else ("resolve", {"text": "Zed Nobody"})
+    res, _ = run(tg, [T(call), J("No one named Zed Nobody ever worked on anything.", outcome="unknown_name")],
+                 q=f"What did Zed Nobody work on in {P}?", toolset=toolset)
+    t = res.final.answer_text
+    assert res.final.outcome == "unknown_name" and t.startswith(CANON) and t.endswith(".")
+    assert "No one named" not in t and call[0] in t
+
+
+def test_a_refusal_with_no_tool_results_still_gets_the_template(tg):
+    res, _ = run(tg, [J("Nothing.", outcome="not_in_graph")])
+    assert res.final.answer_text == CANON + "no tool returned results."
+
+
+def test_the_template_names_the_node_types_searched(tg):
+    res, _ = run(tg, [T(("resolve_entity", {"text": "TechCorp"})), J("x", outcome="not_in_graph")])
+    assert "resolve_entity (node types: Customer)" in res.final.answer_text
+
+
+def test_ambiguous_and_partial_keep_the_models_own_text(tg):
+    res, _ = run(tg, [T(board()), J("BlueWave has the most; the rest is missing.", ["BlueWave"], outcome="partial")])
+    assert res.final.answer_text.startswith("BlueWave has the most")
+
+
+def test_the_common_prompt_has_the_refusal_and_list_rules():
+    p = agent.SYSTEM_PROMPT
+    assert "do not state a negative fact" in p and "not_in_graph" in p
+    assert "tied at the top, answer_ids lists every tied row" in p and "detail fields" in p
+    assert agent.PROMPT_VERSION == "agent/v2"
