@@ -582,3 +582,32 @@ def test_dropping_function_words_makes_during_the_same_as_in(tmp_path):
     out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
     assert chat.link_calls == []  # (a session call for the missing product area is separate)
     assert out.report["events"]["unmatched"] == 0
+
+
+def test_model_cannot_open_a_bug_from_a_lifecycle_message(tmp_path):
+    bad = {"local_id": "x9", "title": "Duplicate Log Entries for Manual Actions again", "aliases": [], "component": None,
+           "impact_text": "", "customer_ids": [], "message_id": "20260125-0-g0001",
+           "citations": [fx.cite("20260125-0-g0001", "reopened the bug")]}
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[fx.LEAK_BUG]),
+                                   "20260125-1-g0002": fx.session_json(bugs=[bad], events=[fx.REASSIGN_EVENT])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, tmp=tmp_path)
+    assert len(nodes(out.facts, "Bug")) == 3
+    assert out.report["dropped"]["bugs"] == {"lifecycle_message": 1}
+
+
+def test_reintroduced_title_that_contains_an_earlier_bug_is_the_same_bug(tmp_path):
+    slack = [
+        ("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
+        ("20260111-1-b0002", fx.IAN, "2026-01-11T09:02:00",
+         f"First up, we have a 'Data Integrity Issue'. Customer CUST-0047 is affected. @{fx.EMMA}, can you take this?"),
+        ("20260121-0-c0001", fx.IAN, "2026-01-21T09:00:00", fx.B_INTRO),
+        ("20260121-1-c0002", fx.IAN, "2026-01-21T09:02:00",
+         f"First up, we have a 'Data Integrity Issue in Trend Reports'. Customer CUST-0108 is affected. "
+         f"@{fx.BOB}, can you take this?"),
+    ]
+    out, _ = run(chat=fx.ScriptedChat(), rec=fx.records(slack=slack), tmp=tmp_path)
+    [b] = nodes(out.facts, "Bug").values()
+    assert b.props["customer_ids"] == ["CUST-0047", "CUST-0108"]
+    assert "Data Integrity Issue in Trend Reports" in b.props["aliases"]
+    assert b.props["current_assignees"] == [fx.BOB]

@@ -43,6 +43,8 @@ NOFIX = re.compile(
     r"by design|won'?t fix", re.I)
 GENERIC_CUE = re.compile(RESOLVED_AUX.pattern + "|" + REOPEN.pattern + "|" + NOFIX.pattern + r"|\bre-?assign\w*|"
                          r"duplicate of", re.I)
+LIFECYCLE = re.compile(RESOLVED_AUX.pattern + "|" + REOPEN.pattern + "|" + NOFIX.pattern + r"|\blooked into the (?:reported )?"
+                       r"(?:issue|bug)", re.I)
 LOOKED_INTO = re.compile(r"\blooked into the (?:reported )?(?:issue|bug)\s+(?:about|regarding|with|on|where)\s+(.+)",
                          re.I | re.S)
 ABOUT_RES = re.compile(r"\b(?:the|this|that) (?:bug|issue)\s+(?:about|regarding|with|related to)\s+(.+?),?\s+"

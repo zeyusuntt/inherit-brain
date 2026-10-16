@@ -151,8 +151,14 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
     bugs = []
     for b in ok_bugs:
         title, mid = str(b.get("title") or "").strip(), b.get("message_id")
-        if not title or mid not in msgs or mid in parse_handled(parse):
-            drop("bugs", "bad_title_or_message" if not title or mid not in msgs else "already_parsed")
+        if not title or mid not in msgs:
+            drop("bugs", "bad_title_or_message")
+            continue
+        if br.LIFECYCLE.search(msgs[mid].text):
+            drop("bugs", "lifecycle_message")  # a resolution, dismissal or reopening names a bug, it does not open one
+            continue
+        if mid in parse_handled(parse):
+            drop("bugs", "already_parsed")
             continue
         if any(repo_scope(x, cat.product_repos) == "external" for x in br.pr_links(msgs[mid].text)):
             drop("bugs", "look_alike_message")  # an open-source look-alike message never introduces a customer bug
@@ -394,8 +400,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
             # ---- bugs: register, merge with prior bugs by title or alias
             for b in [*parse.bugs, *m_bugs]:
                 m = by_id[b["message_id"]]
-                k = key_of(b["title"])
-                bug_id = registry.get(k) or f"Bug:{rec.product}:{channel_id}:{br.slug(b['title'])}"
+                bug_id = find_bug(b["title"], m.ts)[0] or f"Bug:{rec.product}:{channel_id}:{br.slug(b['title'])}"
                 local_bug[b["local_id"]] = bug_id
                 if bug_id in ch_bugs:
                     tgt = ch_bugs[bug_id]
