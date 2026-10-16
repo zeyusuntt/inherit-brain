@@ -40,7 +40,7 @@ from inherit.tools.depth1 import CALL_CAP, Episode, ToolError, fold
 from inherit.tools.guard import guard, guard_evidence
 from inherit.tools.trace import Trace
 
-PROMPT_VERSION = "agent/v4"
+PROMPT_VERSION = "agent/v5"
 TOOLSETS = ("full", "depth1", "depth1_chain")
 SERVER = "6.0"  # the FalkorDB server the agents read (bridges uses the native algorithm there)
 MAX_TOOL_CALLS = CALL_CAP  # 12
@@ -52,7 +52,7 @@ MAX_REMINDERS = 2
 MAX_TOTAL_MODEL_CALLS = 24
 RESERVED_FINAL_CALLS = 2
 MAX_OUTPUT_TOKENS = 1024
-INPUT_TOKEN_BUDGET = 40_000
+INPUT_TOKEN_BUDGET = 60_000
 DEADLINE_S = 300.0
 
 MODEL_OUTCOMES = frozenset({"path", "not_in_graph", "unknown_name", "ambiguous_name", "partial"})
@@ -70,18 +70,18 @@ How to work
 5. Stop when you can answer, or when the tools show the answer is not in the graph."""
 
 ANSWER_INSTRUCTIONS = """Final answer: reply with only one JSON object, and nothing else:
-{"answer_text": "...", "answer_ids": ["..."], "evidence_ids": ["..."], "outcome": "..."}
+{"answer_text": "...", "answer_ids": ["..."], "outcome": "...", "evidence_ids": ["..."]}
 - answer_text: the answer in plain sentences. Name only people, companies and items that appear in the records or tool results you were given; put every value that is graded (employee ids, company names, PR links, URLs) in answer_ids as well.
 - answer_ids: the answer values themselves, bare: employee ids such as eid_xxxxxxxx, company names, PR links or URLs. A company is answered by its name, never by its CUST- id: when you only have a customer id, turn it into the company name. No label prefixes (write eid_xxxxxxxx, not Person:eid_xxxxxxxx). Use [] when you give no such values.
 - Lists and ties: when a ranking returns several rows tied at the top, answer_ids lists every tied row (every tied answer value). For a list question, answer_ids holds every returned answer value, not a sample. For a question that asks for content (features, suggestions, issues, claims), answer_text includes the detail fields you were given (feature details, suggestion texts, claim texts), not only titles.
 - Nothing found: when the records or tool results contain nothing that answers what was asked, do not state a negative fact (not "No X reported ..." or "X has no ...") and do not add related facts, people or ids. Set outcome to not_in_graph (or unknown_name when a name could not be found), leave answer_ids empty, and say the records do not contain the information, naming what you searched.
-- evidence_ids: record ids (messages, transcript segments, documents) that you were given and that support the answer.
 - outcome, one of:
   path: you answered from the records or tool results.
   unknown_name: a name the question depends on could not be found. answer_ids must be [].
   not_in_graph: the entities were found but every relation the question needs returned nothing. Say what you searched. answer_ids must be [].
   ambiguous_name: a name matches several candidates that you cannot tell apart. Name all of them.
-  partial: some of what was asked was found and some was not. Give what you found and say what is missing."""
+  partial: some of what was asked was found and some was not. Give what you found and say what is missing.
+- evidence_ids (last field): at most 10 distinct record ids (messages, transcript segments, documents) that you were given and that support the answer. Never repeat an id.""" 
 
 SYSTEM_PROMPT = SYSTEM_PROMPT_HEAD + "\n\n" + ANSWER_INSTRUCTIONS
 
@@ -198,6 +198,19 @@ class _Full:
         return env, rows
 
 
+def schema_guidance() -> str:
+    """The graph schema for the depth-1 tools, generated from the ontology: the node labels and, one line per edge
+    type, its endpoint labels and direction. Identical for A4 and A4c."""
+    lines = ["Node labels: " + ", ".join(sorted(cards.ALLOWLIST)) + ". A node id is <Label>:<key>.",
+             "Edge types (source -> target labels; direction out follows the arrow from the root, in goes against it):"]
+    for edge in sorted(set(SIGNATURES) - cards.EXCLUDED_EDGES):
+        by_src: dict[str, list[str]] = {}
+        for src, dst in sorted(SIGNATURES[edge]):
+            by_src.setdefault(src, []).append(dst)
+        lines.append(f"{edge}: " + "; ".join(f"{src} -> {', '.join(dsts)}" for src, dsts in by_src.items()))
+    return "\n".join(lines)
+
+
 class _Depth1:
     """A4 (strict) and A4c (chained): resolve, get_card, neighbors."""
 
@@ -231,7 +244,7 @@ class _Depth1:
                 "the root is the edge target. `where` maps a card field (id, label, name or a property) to a value "
                 "or a list of values. `agg` count returns only the number of matches; group needs `group_field` and "
                 "returns the distinct values with counts. The product is a valid root by its name (resolve the name as written "
-                "in the question). Use `where` on neighbour card fields to narrow large expansions.",
+                "in the question). Use `where` on neighbour card fields to narrow large expansions.\n" + schema_guidance(),
                 {"type": "object", "properties": {
                     "root_id": {"type": "string"}, "edge_type": {"type": "string", "enum": edges},
                     "direction": {"type": "string", "enum": ["out", "in"]}, "where": {"type": "object"},
@@ -258,16 +271,61 @@ class _Depth1:
 
 
 # ---------------------------------------------------------------- answer parsing
+MAX_EVIDENCE = 10
+_STR_ITEM = re.compile(r'\s*"((?:[^"\\]|\\.)*)"\s*(,|\])?')
+
+
+def _salvage(text: str) -> dict | None:
+    """An unfinished final evidence_ids list (the model hit the output cap mid-list): when everything before it is a
+    complete prefix of the object, drop the incomplete last item and close the list and the object. Graded fields are
+    never reconstructed: the prefix must parse on its own."""
+    k = text.rfind('"evidence_ids"')
+    if k < 0:
+        return None
+    head = text[:k].rstrip()
+    rest = text[k + len('"evidence_ids"'):].lstrip()
+    if not head.endswith(",") or not rest.startswith(":"):
+        return None
+    rest = rest[1:].lstrip()
+    if not rest.startswith("["):
+        return None
+    pos, items = 1, []
+    while (m := _STR_ITEM.match(rest, pos)) is not None:
+        items.append(json.loads('"' + m.group(1) + '"'))
+        pos = m.end()
+        if m.group(2) == "]":
+            return None  # the list was finished: the failure is elsewhere, not an unfinished list
+        if m.group(2) is None:
+            break
+    tail = rest[pos:].strip()
+    if tail and not tail.startswith('"'):
+        return None  # only an unterminated last string may be discarded
+    try:
+        d = json.loads(head[:-1] + "}")
+    except ValueError:
+        return None
+    if not isinstance(d, dict) or "evidence_ids" in d:
+        return None
+    d["evidence_ids"] = items
+    d["salvaged_evidence"] = True
+    return d
+
+
 def _parse(content: str) -> tuple[dict | None, str]:
-    """(fields, "") or (None, reason)."""
+    """(fields, "") or (None, reason). Evidence ids are deduplicated and capped at MAX_EVIDENCE. An unfinished final
+    evidence_ids list is salvaged (`salvaged_evidence` is then True); nothing else invalid is."""
     text = (content or "").strip()
     m = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", text, re.S)
     if m:
         text = m.group(1)
+    else:
+        text = re.sub(r"^```(?:json)?\s*", "", text)
     try:
         d = json.loads(text)
     except ValueError:
-        return None, "not valid JSON"
+        d = _salvage(text)
+        if d is None:
+            return None, "not valid JSON"
     if not isinstance(d, dict):
         return None, "not a JSON object"
     if not isinstance(d.get("answer_text"), str):
@@ -277,6 +335,7 @@ def _parse(content: str) -> tuple[dict | None, str]:
             return None, f"{k} must be a list of strings"
     if not isinstance(d.get("outcome"), str) or d["outcome"] not in MODEL_OUTCOMES:
         return None, f"outcome must be one of {sorted(MODEL_OUTCOMES)}"
+    d["evidence_ids"] = list(dict.fromkeys(d["evidence_ids"]))[:MAX_EVIDENCE]
     return d, ""
 
 
@@ -341,6 +400,7 @@ class _Loop:
         self.cap_hit = self.budget_stop = self.repaired = False
         self.tool_calls = 0
         self.reminders = 0
+        self.salvaged = False
         self.ties: list[list[str]] = []  # answer values of each rank=max result (its top tie)
         self.tie_completed: list[str] = []
         self.model_outcome: str | None = None
@@ -511,6 +571,7 @@ class _Loop:
             except AnswerRejected as e:
                 return self.fail(f"final answer rejected: {e}")
         self.model_outcome = fields["outcome"]
+        self.salvaged = bool(fields.get("salvaged_evidence"))
         asked = _bare(fields["answer_ids"])
         rows = self.guard_rows
         support = getattr(self.tools, "support", None)
@@ -538,7 +599,7 @@ class _Loop:
         from eval.arms import ArmResult
 
         diag = {"toolset": self.toolset, "model_outcome": self.model_outcome, "budget_stop": self.budget_stop,
-                "cap_hit": self.cap_hit, "reminded": self.reminders > 0, "reminders": self.reminders, "tie_completed": self.tie_completed,
+                "cap_hit": self.cap_hit, "salvaged_evidence": self.salvaged, "reminded": self.reminders > 0, "reminders": self.reminders, "tie_completed": self.tie_completed,
                 "searched": searched([e["tool"] for e in self.envelopes if "error" not in e and "tool" in e], self.guard_rows), "repaired": self.repaired, "tool_calls": self.tool_calls,
                 "model_calls": len(self.calls), "dropped": self.dropped}
         return ArmResult(final, list(self.calls), [*self.envelopes, {"agent": diag}], failure)

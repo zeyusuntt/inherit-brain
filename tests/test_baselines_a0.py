@@ -296,7 +296,7 @@ def test_malformed_json_after_repair_without_a_call_for_the_fallback_is_run_fail
 
 
 def test_a_budget_stop_without_an_answer_uses_the_fallback():
-    steps = [T(("retrieve_all", {"query": "x"}), prompt=39_000), Say("no json"), Say("no json"),
+    steps = [T(("retrieve_all", {"query": "x"}), prompt=59_000), Say("no json"), Say("no json"),
              J("Alice", ids=[ALICE_ID], evidence=["m1"])]
     res, m, r = run_a0(steps)
     assert res.envelopes[-1]["agent"]["budget_stop"] is True
@@ -305,8 +305,8 @@ def test_a_budget_stop_without_an_answer_uses_the_fallback():
 
 # ---------------------------------------------------------------- the input stopping policy covers nested calls (C1)
 def test_a_metadata_call_after_the_input_budget_is_spent_is_not_sent_even_within_one_batch():
-    two = T(("name_to_id_search", {"content": "Alice"}), ("name_to_id_search", {"content": "Bob"}), prompt=39_000)
-    steps = [two, Say(json.dumps({"names": ["Alice Chen"]}), prompt=2_000),  # 41,000 spent after the first
+    two = T(("name_to_id_search", {"content": "Alice"}), ("name_to_id_search", {"content": "Bob"}), prompt=59_000)
+    steps = [two, Say(json.dumps({"names": ["Alice Chen"]}), prompt=2_000),  # 61,000 spent after the first
              J("Alice", ids=[ALICE_ID]), D(done="yes")]
     res, m, _ = run_a0(steps)
     assert len(m.calls) == 4  # turn, one extraction, final answer, verification: the second extraction never ran
@@ -316,7 +316,7 @@ def test_a_metadata_call_after_the_input_budget_is_spent_is_not_sent_even_within
 
 
 def test_an_extraction_call_is_checked_against_the_budget_before_it_is_sent():
-    res, m, _ = run_a0([T(("id_to_name_search", {"content": "x" * 90_000})), J("none", outcome="not_in_graph"),
+    res, m, _ = run_a0([T(("id_to_name_search", {"content": "x" * 130_000})), J("none", outcome="not_in_graph"),
                         D(done="yes")])
     assert [c["arm"] for c in m.calls].count("A0") == 3 and m.calls[1]["tools"] is None  # no extraction call
     assert m.calls[1]["response_format"] == {"type": "json_object"}

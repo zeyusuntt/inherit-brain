@@ -381,13 +381,13 @@ def test_budget_limits_calls_and_reserves_the_last_two_for_finalisation():
 
 
 def test_budget_input_policy_stops_non_final_calls_only():
-    b = a2.QuestionBudget(model=scripted(tokens=39_000))
+    b = a2.QuestionBudget(model=scripted(tokens=59_000))
     call(b)
     with pytest.raises(a2.BudgetStop):
-        call(b, text="x" * 4000)  # 39,000 used + 2,000 estimated > 40,000
-    call(b, text="short")  # 39,000 + 2 stays within the budget
+        call(b, text="x" * 4000)  # 59,000 used + 2,000 estimated > 60,000
+    call(b, text="short")  # 59,000 + 2 stays within the budget
     call(b, final=True, text="x" * 4000)  # finalisation is not stopped by the input policy
-    assert b.input_tokens == 39_000 * 3
+    assert b.input_tokens == 59_000 * 3
 
 
 def test_budget_deadline_is_checked_before_and_after_each_call():

@@ -291,7 +291,7 @@ def test_final_json_of_the_wrong_shape_is_invalid(tg, bad):
 
 
 def test_input_token_budget_stops_tool_calls_and_forces_the_final_answer(tg):
-    res, m = run(tg, [T(board(), prompt=30_000), J("BlueWave.", ["BlueWave"])])
+    res, m = run(tg, [T(board(), prompt=45_000), J("BlueWave.", ["BlueWave"])])
     assert len(m.calls) == 2 and m.calls[1]["tools"] is None
     assert res.final.outcome == "path" and res.final.answer_ids == ["BlueWave"]
     assert res.envelopes[-1]["agent"]["budget_stop"] is True
@@ -304,8 +304,8 @@ def test_token_budget_does_not_bind_when_the_history_is_small(tg):
 
 
 def test_the_budget_estimate_uses_actual_usage_plus_the_new_tool_result(tg):
-    # 39,000 used, and the next call would carry the last prompt plus the new result: over 40,000
-    res, m = run(tg, [T(board(), prompt=39_000), J("BlueWave.", ["BlueWave"])])
+    # 59,000 used, and the next call would carry the last prompt plus the new result: over 60,000
+    res, m = run(tg, [T(board(), prompt=59_000), J("BlueWave.", ["BlueWave"])])
     assert len(m.calls) == 2 and m.calls[1]["tools"] is None
 
 
@@ -656,7 +656,6 @@ def test_a_refusal_with_no_tool_call_at_all_gets_the_reminder(tg):
 
 def test_the_v3_prompt_rules():
     p = agent.SYSTEM_PROMPT
-    assert agent.PROMPT_VERSION == "agent/v4"
     for frag in ("never a filter and never an entity to resolve", "Add a filter only when the question states it",
                  "full phrase from the question", "all statuses", "do not replace them with values from unrelated"):
         assert frag in p
@@ -761,3 +760,104 @@ def test_every_arm_carries_the_identical_answer_instructions_and_no_second_copy(
     for mod in (agent, graphrag_sdk_arm, hybrid_once, long_context, paper_tools):
         assert inspect.getsource(mod).count(marker) == (1 if mod is agent else 0), mod.__name__
     assert re.search(r"CUST-", agent.ANSWER_INSTRUCTIONS)
+
+
+# ---------------------------------------------------------------- agent/v5: answer format, parser, schema guidance
+V5_HEAD = '{"answer_text": "The answer.", "answer_ids": ["a1"], "outcome": "path", "evidence_ids": '
+
+
+def test_the_v5_answer_format_is_ordered_and_capped():
+    t = agent.ANSWER_INSTRUCTIONS
+    assert '{"answer_text": "...", "answer_ids": ["..."], "outcome": "...", "evidence_ids": ["..."]}' in t
+    assert "at most 10 distinct record ids" in t
+    assert t.index("- outcome, one of") < t.index("- evidence_ids")
+    assert agent.PROMPT_VERSION == "agent/v5"
+
+
+def test_valid_replies_are_unchanged_and_evidence_is_deduplicated_and_capped():
+    ev = [f"r{i}" for i in range(12)] + ["r0", "r1"]
+    f, err = agent._parse(V5_HEAD + json.dumps(ev) + "}")
+    assert err == "" and f["evidence_ids"] == ev[:10] and "salvaged_evidence" not in f
+    g, _ = agent._parse(V5_HEAD + '["x", "x", "y"]}')
+    assert g["evidence_ids"] == ["x", "y"] and g["answer_ids"] == ["a1"]
+
+
+def test_an_unfinished_final_evidence_list_is_salvaged_without_the_cut_item():
+    # the A1f failure shape: repetition cut mid-item at the token cap
+    cut = V5_HEAD + '["20260611-3-5f298", "20260611-3-5f299", "20260611-3-5f298", "20260611-3-5f2'
+    f, err = agent._parse(cut)
+    assert f is not None and f["evidence_ids"] == ["20260611-3-5f298", "20260611-3-5f299"]
+    assert f["salvaged_evidence"] is True and f["answer_ids"] == ["a1"] and f["outcome"] == "path"
+    f2, _ = agent._parse(V5_HEAD + '["r1", "r2", ')
+    assert f2["evidence_ids"] == ["r1", "r2"] and f2["salvaged_evidence"] is True
+    f3, _ = agent._parse(V5_HEAD + "[")
+    assert f3["evidence_ids"] == [] and f3["salvaged_evidence"] is True
+    f4, _ = agent._parse("```json\n" + V5_HEAD + '["r1", "r')
+    assert f4["evidence_ids"] == ["r1"]
+
+
+@pytest.mark.parametrize("bad", [
+    '{"answer_text": "The answer.", "answer_ids": ["a1", "a',                      # cut inside answer_ids
+    '{"answer_text": "The ans',                                                     # cut inside answer_text
+    '{"answer_text": "x", "answer_ids": ["a1"], "evidence_ids": ["r1", "r',          # outcome missing (old order)
+    '{"answer_text": "x", "answer_ids": ["a1"], "outcome": "bogus", "evidence_ids": ["r1", "r',
+    V5_HEAD + '["r1"]',                                                             # list closed, object not
+    V5_HEAD + '["r1"]} trailing',
+    '{"answer_text": "x", "answer_ids": ["a1" "a2"], "outcome": "path", "evidence_ids": ["r1", "r',  # broken earlier
+])
+def test_nothing_else_is_salvaged(bad):
+    f, err = agent._parse(bad)
+    assert f is None and err
+
+
+def test_the_loop_records_the_salvage_in_its_envelope(tg):
+    res, _ = run(tg, [T(board()), Say(V5_HEAD.replace("a1", "BlueWave") + '["rec-b3-0", "rec-b')])
+    assert res.final.answer_ids == ["BlueWave"] and res.envelopes[-1]["agent"]["salvaged_evidence"] is True
+    ok, _ = run(tg, [T(board()), J("BlueWave.", ["BlueWave"])])
+    assert ok.envelopes[-1]["agent"]["salvaged_evidence"] is False
+
+
+def test_every_arm_parses_through_the_shared_parser_and_records_the_salvage():
+    import inspect
+
+    from baselines import graphrag_sdk_arm, hybrid_once, long_context, paper_tools
+
+    for mod in (hybrid_once, long_context, graphrag_sdk_arm):
+        src = inspect.getsource(mod)
+        assert "agent._parse" in src and "salvaged_evidence" in src, mod.__name__
+    assert "_parse" in inspect.getsource(paper_tools)  # the fallback answer uses the same parser
+
+
+def test_the_shared_loop_budget_is_60k():
+    assert agent.INPUT_TOKEN_BUDGET == 60_000
+    assert agent.arm_config("full")["input_token_budget"] == 60_000
+
+
+def test_versions_are_bumped():
+    from baselines import graphrag_sdk_arm, long_context, paper_tools
+
+    assert (paper_tools.PROMPT_VERSION, long_context.PROMPT_VERSION, graphrag_sdk_arm.PROMPT_VERSION) == (
+        "baselines/a0/v3", "baselines/a1f/v3", "a2/v4")
+
+
+def test_the_depth1_schema_guidance_is_generated_and_identical_for_both_toolsets(tg):
+    from inherit.graph import cards
+    from inherit.ontology import SIGNATURES
+
+    texts = {}
+    for strict in (True, False):
+        specs = {s["function"]["name"]: s["function"]["description"] for s in agent._Depth1(tg, P, QB, strict).specs()}
+        texts[strict] = specs["neighbors"]
+    guide = agent.schema_guidance()
+    assert guide in texts[True] and guide in texts[False]
+    for label in cards.ALLOWLIST:
+        assert label in guide
+    for edge, pairs in SIGNATURES.items():
+        if edge in cards.EXCLUDED_EDGES:
+            assert edge not in guide
+            continue
+        line = next(l for l in guide.splitlines() if l.startswith(f"{edge}:"))
+        for src, dst in pairs:
+            assert src in line and dst in line
+    assert "HAS: Product -> " in guide and "PR" in next(l for l in guide.splitlines() if l.startswith("HAS:"))
+    assert "PullRequest" not in guide

@@ -35,7 +35,7 @@ from inherit.contracts import TraceOp
 from inherit.tools.depth1 import ToolError
 from inherit.tools.guard import _TRAIL, ID_RE
 
-PROMPT_VERSION = "baselines/a0/v2"
+PROMPT_VERSION = "baselines/a0/v3"
 PAPER_ROLES = ("Marketing Manager, Engineering Lead, VP of Engineering, Software Engineer, QA Specialist, "
                "Product Manager, Technical Architect, UX Researcher, Marketing Research Analyst, Chief Product Officer")
 

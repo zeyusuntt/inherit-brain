@@ -58,7 +58,7 @@ from inherit.data.bundle import BUNDLE_DIR, load_bundle, load_metadata
 from inherit.data.split import split
 from inherit.tools.guard import guard, guard_evidence
 
-PROMPT_VERSION = "a2/v3"
+PROMPT_VERSION = "a2/v4"
 ARM_BUILD, ARM_ANSWER = "a2-build", "A2"  # the one meter name per phase; ARM_ANSWER is also the registered arm name
 SAMPLE_SEED, SAMPLE_SIZE = 20261015, 6  # the pre-registered draw of held-out products A2 runs on
 BUILD_CAP_USD, ANSWER_CAP_USD = 1.70, 0.3  # build cap raised from 1.0 by the controller to finish the AnomalyForce dev build
@@ -693,6 +693,7 @@ def answer(inp: ExecInput, *, opener: Callable | None = None, model: Callable | 
         if fields is None:
             return done(f"SDK answer not convertible to the shared schema: {err}")
     diag["model_fields"] = dict(fields)
+    diag["salvaged_evidence"] = bool(fields.get("salvaged_evidence"))
     # Shared answer handling: support only from the retrieved context (never the question), complete tokens only,
     # the output guard on the text, then the canonical refusal and the consistency rule.
     seen = Seen()

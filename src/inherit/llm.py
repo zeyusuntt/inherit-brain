@@ -61,19 +61,40 @@ def _client(arm: str, base_url: str | None) -> openai.OpenAI:
     return openai.OpenAI(**kw, max_retries=0, timeout=_timeout())
 
 
-def _call(fn, **kw):
+_sleep = time.sleep
+QUOTA_BACKOFF_S = (20.0, 40.0, 80.0)  # a 429 is a quota window: wait it out; at most this many retries, any arm
+MAX_RETRY_AFTER_S = 120.0
+
+
+def _retry_after(e: openai.APIStatusError) -> float | None:
     try:
-        raw = fn(**kw)
-    except openai.APITimeoutError as e:
-        raise TimeoutError(
-            "metering proxy did not answer in time; it may still be finishing billed attempts, check GET /spend"
-        ) from e
-    except openai.APIConnectionError as e:
-        raise RuntimeError("metering proxy is not reachable; start it with `uv run python -m inherit.proxy`") from e
-    except openai.APIStatusError as e:
-        if e.status_code == 402:
-            raise BudgetExceeded(str(e)) from e
-        raise
+        v = float(e.response.headers.get("retry-after"))
+    except (TypeError, ValueError):
+        return None
+    return min(max(v, 0.0), MAX_RETRY_AFTER_S)
+
+
+def _call(fn, **kw):
+    attempt = 0
+    while True:
+        try:
+            raw = fn(**kw)
+            break
+        except openai.APITimeoutError as e:
+            raise TimeoutError(
+                "metering proxy did not answer in time; it may still be finishing billed attempts, check GET /spend"
+            ) from e
+        except openai.APIConnectionError as e:
+            raise RuntimeError("metering proxy is not reachable; start it with `uv run python -m inherit.proxy`") from e
+        except openai.APIStatusError as e:
+            if e.status_code == 402:
+                raise BudgetExceeded(str(e)) from e
+            if e.status_code == 429 and attempt < len(QUOTA_BACKOFF_S):  # the proxy settles each 4xx at 0 USD
+                wait = _retry_after(e)
+                _sleep(QUOTA_BACKOFF_S[attempt] if wait is None else wait)
+                attempt += 1
+                continue
+            raise
     return raw, float(raw.headers["X-Inherit-Cost-USD"])
 
 

@@ -30,7 +30,7 @@ LIMIT = 262_144
 OUTPUT_HEADROOM = 2_048
 TOKENIZER_PATH = ROOT / "data" / "cache" / "tokenizer" / "tokenizer.json"
 TOKENIZER_REPO = "Qwen/Qwen3-30B-A3B-Instruct-2507"
-PROMPT_VERSION = "baselines/a1f/v2"
+PROMPT_VERSION = "baselines/a1f/v3"
 
 SYSTEM = ("You are a helpful AI assistant. Use the following product context to answer the given multi-hop question. "
           "Use reasoning to find the answer in the context. If the answer cannot be found in the context, say so "
@@ -193,7 +193,8 @@ def run(inp, *, arm: str = "A1f", model: Callable | None = None, bundle_dir=BUND
         use = Usage(res.prompt_tokens, res.completion_tokens, res.cost_usd, 1)
         return ArmResult(FinalAnswer(outcome, text, ids, evidence, [], use), calls,
                          [{"agent": {"toolset": "long_context", "variant": variant, "request_tokens": n,
-                                     "model_outcome": fields_out["outcome"], "model_calls": 1}}])
+                                     "model_outcome": fields_out["outcome"], "model_calls": 1,
+                                     "salvaged_evidence": bool(fields_out.get("salvaged_evidence"))}}])
     except BudgetExceeded:
         return _failed("budget_exceeded", calls)
     except Exception as e:  # noqa: BLE001 - any failure is this question's terminal run_failed
