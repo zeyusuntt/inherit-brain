@@ -97,7 +97,7 @@ def whatif_facts(chain: int = 5, reverse_chain: bool = False) -> Facts:
     }
     for n, (state, merged, authors) in prs.items():
         link = pr(n)
-        nodes.append(N("PR", link, link=link, title=f"PR {n}", summary=f"Summary of PR {n}", state=state, merged=merged,
+        nodes.append(N("PR", link, link=link, title="Stabilize export retries" if n == 7 else f"PR {n}", summary=f"Summary of PR {n}", state=state, merged=merged,
                        open_unmerged=state == "open" and not merged))
         has(f"PR:{link}")
         edges.extend(_e("OPENED", f"Person:{a}", f"PR:{link}", [f"rec-pr{n}"]) for a in authors)
@@ -148,6 +148,8 @@ def whatif_facts(chain: int = 5, reverse_chain: bool = False) -> Facts:
             ("20260502-0-m0004", "2026-05-02T11:00:00", "ch1", "an earlier remark about Solo bug"),
             ("20260609-0-p0001", "2026-06-09T09:00:00", "ch3", f"Review needed: {pr(1)}"),
             ("20260609-1-p0002", "2026-06-09T10:00:00", "ch3", "Quinn will take this one over"),
+            ("20260610-0-p0004", "2026-06-10T09:00:00", "ch5", "Stabilize export retries is stuck"),
+            ("20260610-1-p0005", "2026-06-10T10:00:00", "ch5", "Quinn will take it from here"),
             ("20260609-2-p0003", "2026-06-09T11:00:00", "ch4", "nothing to do with it")]
     for mid, ts, ch, text in msgs:
         nodes.append(N("Message", mid, id=mid, ts=ts, channel_id=ch, text=text, user_id=ZED))

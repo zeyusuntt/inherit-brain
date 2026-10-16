@@ -396,10 +396,13 @@ def test_audit_samples_carry_evidence_and_later_context(wi):
     assert ("Feature:f_via_na", f"PR:{fx.pr(5)}") in edges or len(edges) < a["shortages"]["dependency_edges"]["available"]
     paths = {p["affected"]: p for p in a["affected_paths"]}
     assert paths["Bug:bfix"]["path"] == ["Bug:bfix", f"PR:{fx.pr(1)}"] and paths["Bug:bfix"]["edges"][0]["citations"] == ["20260610-0-fff01"]
-    assert a["cutoff"] == "20260609-2-p0003"
+    assert a["cutoff"] == "20260610-1-p0005"
     pr1 = items[f"PR:{fx.pr(1)}"]  # a hand-over in a channel that mentioned the PR, without repeating link or title
     assert pr1["assignment"]["pr"]["authors"] == [PID] and pr1["assignment"]["pr"]["summary"] == "Summary of PR 1"
     assert {m["id"] for m in pr1["later_context"]} == {"20260609-0-p0001", "20260609-1-p0002"}
+    # a PR named only by its title: the channel is found by the title, the hand-over has neither link nor title
+    pr7 = items[f"PR:{fx.pr(7)}"]
+    assert {m["id"] for m in pr7["later_context"]} == {"20260610-0-p0004", "20260610-1-p0005"}
 
 
 def test_audit_sample_sizes_are_capped_and_seeded(wi):

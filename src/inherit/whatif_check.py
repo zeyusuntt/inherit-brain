@@ -167,11 +167,16 @@ def audit_samples(snap: Snapshot, results: dict[str, WhatIf], *, seed: int, n_un
         start = _position(after_id) if after_id else (-1, -1)
         if n.label == "PR":  # PR nodes have no channel: the channels that mention the PR, from its first mention on
             pat = mentions(n)
-            hit = [m for m in msgs if pat and pat.search(m["text"] or "")]
+
+            def named(m):  # link / number pattern, or the title or an alias (the same matcher as other items)
+                t = m["text"] or ""
+                return bool(pat and pat.search(t)) or any(x in t.casefold() for x in names)
+
+            hit = [m for m in msgs if named(m)]
             chans = {m["channel_id"] for m in hit}
             first = min((_position(m["id"]) for m in hit), default=None)
             return [m for m in msgs if first is not None and _position(m["id"]) >= first and m["channel_id"] in chans
-                    or (pat and pat.search(m["text"] or ""))]
+                    or named(m)]
         return [m for m in msgs if _position(m["id"]) > start
                 and ((n.props.get("channel_id") and m["channel_id"] == n.props["channel_id"])
                      or any(x in (m["text"] or "").casefold() for x in names))]
