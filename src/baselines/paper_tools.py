@@ -29,6 +29,7 @@ import time
 from collections import defaultdict
 from typing import Any
 
+from inherit import agent
 from inherit.agent import JSON_FORMAT, AnswerRejected, _parse
 from inherit.contracts import TraceOp
 from inherit.tools.depth1 import ToolError
@@ -113,17 +114,7 @@ FALLBACK_PROMPT = ("Context information is below.\n---------------------\n{conte
                    "Given the context information and not prior knowledge, answer the query.\n"
                    "Query: {question}\n\n{format}")
 
-ANSWER_FORMAT = """Reply with only one JSON object, and nothing else:
-{"answer_text": "...", "answer_ids": ["..."], "evidence_ids": ["..."], "outcome": "..."}
-- answer_text: the answer in plain sentences. Name only people, companies and items that appear in the retrieved text or tool results; put every value that is graded (employee ids, company names, PR links, URLs) in answer_ids as well.
-- answer_ids: the answer values themselves, bare: employee ids such as eid_xxxxxxxx, company names, PR links or URLs. A company is answered by its name (for example BlueWave), never by its CUST- id: when you only have a customer id, turn it into the name with the company lookup if you have one. No label prefixes (write eid_xxxxxxxx, not Person:eid_xxxxxxxx). Use [] when you give no such values.
-- evidence_ids: record ids (messages, transcript segments, documents) that the retrieved text or tools returned and that support the answer.
-- outcome, one of:
-  path: you answered from the sources.
-  unknown_name: a name the question depends on could not be found. answer_ids must be [].
-  not_in_graph: the sources contain nothing that answers the question. Say what you searched. answer_ids must be [].
-  ambiguous_name: a name matches several candidates that you cannot tell apart. Name all of them.
-  partial: some of what was asked was found and some was not. Give what you found and say what is missing."""
+ANSWER_FORMAT = agent.ANSWER_INSTRUCTIONS  # the one answer-instruction text of every arm; never a copy
 
 CONTEXT = """You are an intelligent assistant designed to answer questions about products using a variety of enterprise data sources.
 
@@ -152,7 +143,7 @@ How to work
 4. You have at most 12 tool calls and a limited reading budget, so ask for what you need and no more.
 5. Stop when you can answer, or when the tools show the answer is not in the sources.
 
-Final answer: """
+"""
 
 
 def system_prompt(cards: bool = False) -> str:

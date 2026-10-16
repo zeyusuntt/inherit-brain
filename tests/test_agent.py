@@ -656,7 +656,7 @@ def test_a_refusal_with_no_tool_call_at_all_gets_the_reminder(tg):
 
 def test_the_v3_prompt_rules():
     p = agent.SYSTEM_PROMPT
-    assert agent.PROMPT_VERSION == "agent/v3"
+    assert agent.PROMPT_VERSION == "agent/v4"
     for frag in ("never a filter and never an entity to resolve", "Add a filter only when the question states it",
                  "full phrase from the question", "all statuses", "do not replace them with values from unrelated"):
         assert frag in p
@@ -734,3 +734,30 @@ def test_every_arm_that_uses_the_shared_format_shares_the_helper():
 
     for mod in (hybrid_once, long_context):
         assert "apply_consistency" in inspect.getsource(mod) and "refusal_text" not in inspect.getsource(mod)
+
+
+def test_every_arm_carries_the_identical_answer_instructions_and_no_second_copy():
+    import hashlib
+    import inspect
+    import re
+
+    from baselines import graphrag_sdk_arm, hybrid_once, long_context, paper_tools
+
+    want = hashlib.sha256(agent.ANSWER_INSTRUCTIONS.encode()).hexdigest()
+    prompts = {"agent": agent.SYSTEM_PROMPT, "a0v": hybrid_once.SYSTEM, "a1f": long_context.SYSTEM,
+               "a2": graphrag_sdk_arm.ANSWER_SYSTEM, "paper_fallback": paper_tools.FALLBACK_PROMPT.format(
+                   context="c", question="q", format=paper_tools.ANSWER_FORMAT)}
+    for fn in [f for _, f in inspect.getmembers(paper_tools, inspect.isfunction) if "cards" in inspect.signature(f).parameters]:
+        try:
+            prompts["paper_" + fn.__name__] = fn(cards=False)
+        except TypeError:
+            pass
+    assert len(prompts) >= 5
+    for name, text in prompts.items():
+        assert text.count(agent.ANSWER_INSTRUCTIONS) == 1, name
+        i = text.index(agent.ANSWER_INSTRUCTIONS)
+        assert hashlib.sha256(text[i:i + len(agent.ANSWER_INSTRUCTIONS)].encode()).hexdigest() == want
+    marker = "answer_ids: the answer values themselves"
+    for mod in (agent, graphrag_sdk_arm, hybrid_once, long_context, paper_tools):
+        assert inspect.getsource(mod).count(marker) == (1 if mod is agent else 0), mod.__name__
+    assert re.search(r"CUST-", agent.ANSWER_INSTRUCTIONS)

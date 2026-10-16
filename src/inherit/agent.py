@@ -40,7 +40,7 @@ from inherit.tools.depth1 import CALL_CAP, Episode, ToolError, fold
 from inherit.tools.guard import guard, guard_evidence
 from inherit.tools.trace import Trace
 
-PROMPT_VERSION = "agent/v3"
+PROMPT_VERSION = "agent/v4"
 TOOLSETS = ("full", "depth1", "depth1_chain")
 SERVER = "6.0"  # the FalkorDB server the agents read (bridges uses the native algorithm there)
 MAX_TOOL_CALLS = CALL_CAP  # 12
@@ -59,7 +59,7 @@ MODEL_OUTCOMES = frozenset({"path", "not_in_graph", "unknown_name", "ambiguous_n
 REFUSALS = frozenset({"not_in_graph", "unknown_name"})
 JSON_FORMAT = {"type": "json_object"}
 
-SYSTEM_PROMPT = """You answer questions about one company's product from a knowledge graph. You can read the graph only through the tools you are given.
+SYSTEM_PROMPT_HEAD = """You answer questions about one company's product from a knowledge graph. You can read the graph only through the tools you are given.
 
 How to work
 1. Find facts with the tools. Never answer from memory or guess: every person, company, link and fact in your answer must come from a tool result.
@@ -67,21 +67,23 @@ How to work
 3. Add a filter only when the question states it: no current or previous release scope, no merged or pending state, no status restriction unless the question asks for one (for a list of companies or people affected by issues in a component, use all statuses). Pass the full phrase from the question to feature, component and topic parameters, not a shortened phrase.
 3b. If one name matches several people (namesakes), name every candidate and say the name is ambiguous. Do not pick one.
 4. Build the final answer from the rows of the call that answers the relation the question asks about; do not replace them with values from unrelated later lookups. You have at most 12 tool calls and a limited reading budget, so ask for what you need and no more. A result marked truncated has a cursor for the next page; a page counts as a call.
-5. Stop when you can answer, or when the tools show the answer is not in the graph.
+5. Stop when you can answer, or when the tools show the answer is not in the graph."""
 
-Final answer: reply with only one JSON object, and nothing else:
+ANSWER_INSTRUCTIONS = """Final answer: reply with only one JSON object, and nothing else:
 {"answer_text": "...", "answer_ids": ["..."], "evidence_ids": ["..."], "outcome": "..."}
-- answer_text: the answer in plain sentences. Name only people, companies and items that appear in tool results; put every value that is graded (employee ids, company names, PR links, URLs) in answer_ids as well.
-- answer_ids: the answer values themselves, bare: employee ids such as eid_xxxxxxxx, company names, PR links or URLs. No label prefixes (write eid_xxxxxxxx, not Person:eid_xxxxxxxx). Use [] when you give no such values.
-- Lists and ties: when a ranking returns several rows tied at the top, answer_ids lists every tied row (every tied answer value). For a list question, answer_ids holds every returned answer value, not a sample. For a question that asks for content (features, suggestions, issues, claims), answer_text includes the detail fields the tools returned (feature details, suggestion texts, claim texts), not only titles.
-- Nothing found: when the tool results contain nothing that answers what was asked, do not state a negative fact (not "No X reported ..." or "X has no ...") and do not add related facts, people or ids. Set outcome to not_in_graph (or unknown_name when a name could not be found), leave answer_ids empty, and say the records do not contain the information, naming what you searched.
-- evidence_ids: record ids (messages, transcript segments, documents) that the tools returned and that support the answer.
+- answer_text: the answer in plain sentences. Name only people, companies and items that appear in the records or tool results you were given; put every value that is graded (employee ids, company names, PR links, URLs) in answer_ids as well.
+- answer_ids: the answer values themselves, bare: employee ids such as eid_xxxxxxxx, company names, PR links or URLs. A company is answered by its name, never by its CUST- id: when you only have a customer id, turn it into the company name. No label prefixes (write eid_xxxxxxxx, not Person:eid_xxxxxxxx). Use [] when you give no such values.
+- Lists and ties: when a ranking returns several rows tied at the top, answer_ids lists every tied row (every tied answer value). For a list question, answer_ids holds every returned answer value, not a sample. For a question that asks for content (features, suggestions, issues, claims), answer_text includes the detail fields you were given (feature details, suggestion texts, claim texts), not only titles.
+- Nothing found: when the records or tool results contain nothing that answers what was asked, do not state a negative fact (not "No X reported ..." or "X has no ...") and do not add related facts, people or ids. Set outcome to not_in_graph (or unknown_name when a name could not be found), leave answer_ids empty, and say the records do not contain the information, naming what you searched.
+- evidence_ids: record ids (messages, transcript segments, documents) that you were given and that support the answer.
 - outcome, one of:
-  path: you answered from tool results.
+  path: you answered from the records or tool results.
   unknown_name: a name the question depends on could not be found. answer_ids must be [].
-  not_in_graph: the entities were found but every relation the question needs returned nothing. Say which node labels and relations you searched. answer_ids must be [].
-  ambiguous_name: a name matches several candidates that the tools cannot tell apart. Name all of them.
+  not_in_graph: the entities were found but every relation the question needs returned nothing. Say what you searched. answer_ids must be [].
+  ambiguous_name: a name matches several candidates that you cannot tell apart. Name all of them.
   partial: some of what was asked was found and some was not. Give what you found and say what is missing."""
+
+SYSTEM_PROMPT = SYSTEM_PROMPT_HEAD + "\n\n" + ANSWER_INSTRUCTIONS
 
 FINAL_NUDGE = ("The tool budget is used up. Give your final answer now, as the single JSON object described in the "
                "instructions, using only what the tools returned.")

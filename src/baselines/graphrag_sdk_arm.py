@@ -581,19 +581,9 @@ def build(product: str, bundle_dir=BUNDLE_DIR, *, replace: bool = False) -> dict
 
 
 # ---------------------------------------------------------------- answering
-ANSWER_SYSTEM = """You answer questions about one company's product using only the context the user message gives you. The context was retrieved from a knowledge graph built from the product's Slack channels, documents, meetings, pull requests, URLs and the employee and customer directories. Never answer from memory; every person, company, link and fact must come from the context. A name the context does not contain is unknown; do not substitute a similar one. If one name matches several people, name every candidate and say it is ambiguous.
+ANSWER_SYSTEM = ("""You answer questions about one company's product using only the context the user message gives you. The context was retrieved from a knowledge graph built from the product's Slack channels, documents, meetings, pull requests, URLs and the employee and customer directories. Never answer from memory; every person, company, link and fact must come from the context. A name the context does not contain is unknown; do not substitute a similar one. If one name matches several people, name every candidate and say it is ambiguous.
 
-Reply with only one JSON object, and nothing else:
-{"answer_text": "...", "answer_ids": ["..."], "evidence_ids": ["..."], "outcome": "..."}
-- answer_text: the answer in plain sentences, naming only people, companies and items that appear in the context.
-- answer_ids: the answer values themselves, bare: employee ids such as eid_xxxxxxxx, company names, PR links or URLs. No label prefixes. Use [] when you give no such values.
-- evidence_ids: record ids (Slack message ids such as 20260611-3-5f298, meeting ids, document ids) that appear in the context and support the answer.
-- outcome, one of:
-  path: you answered from the context.
-  unknown_name: a name the question depends on is not in the context. answer_ids must be [].
-  not_in_graph: the entities were found but the context holds nothing that answers the question. answer_ids must be [].
-  ambiguous_name: a name matches several candidates the context cannot tell apart. Name all of them.
-  partial: some of what was asked was found and some was not. Give what you found and say what is missing."""
+""" + agent.ANSWER_INSTRUCTIONS)
 
 ANSWER_TEMPLATE = "<context>\n{context}\n</context>\n\nQuestion: {question}\n\nReply with only the JSON object."
 
