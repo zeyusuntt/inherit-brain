@@ -37,7 +37,7 @@ Versions of every prompt and protocol:
 
 - Every arm uses model M, `Qwen/Qwen3-30B-A3B-Instruct-2507` on Nebius, at the settings in the configuration hash. Embeddings: `Qwen3-Embedding-8B`, 1,024 dimensions.
 - Every model call goes through one local metering proxy with a 50 USD hard cap for the whole project and a sub-cap per arm (section 7). A call that would cross a cap is refused.
-- Agent arms (A5, A4, A4c, A0, A0f) share one loop with the same limits: at most 12 tool calls, 24 model calls, 60,000 cumulative input tokens and 300 seconds per question; 1,024 output tokens per model call. The input budget was raised from 40,000 after a dev pilot in which A4 stopped on it in 22 of 48 questions (pre-registered rule: above a quarter, raise it for every loop arm and pilot again).
+- Agent arms (A5, A4, A4c, A0, A0f) share one loop with the same limits: at most 12 tool calls, 24 model calls, 60,000 cumulative input tokens and 300 seconds per question; 1,024 output tokens per model call. The input budget was raised from 40,000 after a dev pilot in which A4 stopped on it in 22 of 48 questions (pre-registered rule: above a quarter, raise it for every loop arm and pilot again). In the second pilot, at 60,000, A4 stopped in 41 of 48 (it uses whatever budget it gets), A0 in 17 of 48 instead of 33, and no loop arm's pilot score rose. The budget stays at 60,000 because it starves A0, the comparator of H1, less; raising it further would not fit the 50 USD cap.
 - A1f, A0v and A2 answer with one model call over their own context. A1f's call holds the whole product (about 110,000 to 140,000 tokens), so the loop's cumulative budget does not bind it; its limit is the model's 262,144-token context.
 
 ## 5. The four frozen protocols
@@ -61,7 +61,7 @@ Every arm answers in the same JSON shape with the same answer instructions (prom
 
 {{arms_table}}
 
-A2 (GraphRAG-SDK 1.4.0 with its automatic ontology) runs on a seeded sample of held-out products because its graph build costs about 0.55 USD per product: {{a2_sample}}. Any arm run on a product subset is compared with A5 on the same products only, and its denominators are those products' questions.
+A2 (GraphRAG-SDK 1.4.0 with its automatic ontology) runs on a seeded sample of held-out products because its graph build costs about 0.55 USD per product: {{a2_sample}}. No question family is multi-hop under the rule in section 11, so H3 is not estimable and A4 carries no confirmatory hypothesis. A4, A4c and A0f therefore run on one seeded prefix of the held-out products (seed 20261015), sized from the pilot costs so the whole project stays under the cap; the products are listed in the table above. Any arm run on a product subset is compared with A5 and A0 on the same products only, and its denominators are those products' questions.
 
 How the differences are read:
 - A0f minus A0: the effect of the pre-extracted representation on a retrieval agent (representation and retrieved content change together).
