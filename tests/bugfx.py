@@ -31,7 +31,8 @@ B_ACK1 = "Got it! I'll start looking into the duplicate log entries issue right 
 B_TITLE2 = ("Next, we have 'Inefficient Database Query Optimization'. This is causing slow response times in Backend "
             "Processing & Task Queue Management. Customer CUST-0108 is affected. Can you take this one?")
 B_ACK2 = "Sure thing! I'll dive into the database queries."
-B_TITLE3 = "Lastly, there's a memory leak issue in the suggestion rendering. It hits customer CUST-0064."
+B_TITLE3 = ("Lastly, there's a memory leak issue in the suggestion rendering. It affects the User Interface & Frontend "
+            "Performance. It hits customer CUST-0064.")
 C_INTRO = "Hi team, I've found some interesting open-source bugs that might help us."
 C_EXT = ("First, a bug in PostgreSQL titled 'Duplicate Log Entries for Transaction Rollbacks'. This is similar to our "
          "'Duplicate Log Entries for Manual Actions' issue. https://github.com/postgres/postgres/pull/3")

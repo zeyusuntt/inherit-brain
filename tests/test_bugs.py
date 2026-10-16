@@ -433,3 +433,86 @@ def test_model_bug_from_a_look_alike_message_is_rejected(tmp_path):
     out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
     assert len(nodes(out.facts, "Bug")) == 3
     assert out.report["dropped"]["bugs"] == {"look_alike_message": 1}
+
+
+def test_model_citation_is_repaired_to_the_verbatim_title_and_counted(tmp_path):
+    # the quote joins two sentences and drops the markup, the title itself is verbatim in the cited message
+    text = ("Lastly, we have **Memory Leak in Suggestion Rendering** (priority **High**). It hits customer CUST-0064.")
+    slack = [r if r[0] != "20260111-5-b0006" else (r[0], r[1], r[2], text) for r in fx.SLACK]
+    bad = dict(fx.LEAK_BUG, citations=[fx.cite("20260111-5-b0006", "Memory Leak in Suggestion Rendering. It hits")])
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[bad]),
+                                   "20260125-1-g0002": fx.session_json(events=[fx.REASSIGN_EVENT])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    assert len(nodes(out.facts, "Bug")) == 3
+    assert out.report["repaired_citations"] == 1
+    assert "dropped" not in out.report or "bugs" not in out.report["dropped"]
+
+
+@pytest.mark.parametrize("typ,text,ok", [
+    ("RESOLVED", "I'll take it on again and start with the retry logic.", False),
+    ("RESOLVED", "I've fixed it by adding a retry. PR: https://github.com/salesforce/Mini/pull/32", True),
+    ("DISMISSED", "I'll revisit the design and see.", False),
+    ("DISMISSED", "After a review this is expected behavior.", True),
+    ("REOPENED", "Thanks, I will check.", False),
+    ("REOPENED", "The customer says it is still happening.", True),
+])
+def test_model_event_needs_wording_that_fits_its_type(tmp_path, typ, text, ok):
+    slack = [r if r[0] != "20260125-1-g0002" else (r[0], r[1], r[2], text) for r in fx.SLACK]
+    ev = dict(fx.REASSIGN_EVENT, type=typ, assignee_eids=[], citations=[fx.cite("20260125-1-g0002", text[:20])])
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[fx.LEAK_BUG]),
+                                   "20260125-1-g0002": fx.session_json(events=[ev])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    dropped = out.report["dropped"].get("events", {})
+    assert (dropped == {}) is ok
+    if not ok:
+        assert dropped == {"no_evidence_for_type": 1}
+
+
+# ---------------------------------------------------------------- product areas (components)
+
+def _area_slack(text2):
+    return [
+        ("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
+        ("20260111-1-b0002", fx.IAN, "2026-01-11T09:02:00", fx.B_TITLE1),
+        ("20260111-2-b0003", fx.EMMA, "2026-01-11T09:05:00", fx.B_ACK1),
+        ("20260111-3-b0004", fx.IAN, "2026-01-11T09:10:00", text2),
+        ("20260111-4-b0005", fx.BOB, "2026-01-11T09:12:00", fx.B_ACK2),
+    ]
+
+
+AREA_TEXT = ("Next, we have 'Inefficient Database Query Optimization'. This is slowing down the database "
+             "performance for customer CUST-0108. Can you take this one?")
+
+
+def _area_answer(component, quote="the database performance"):
+    return fx.session_json() if component is None else json.dumps({"bugs": [], "events": [], "external": [],
+        "components": [{"bug_ref": "rb2", "component": component, "citations": [fx.cite("20260111-3-b0004", quote)]}]})
+
+
+def test_missing_area_is_asked_of_the_model_and_must_be_written_in_the_message(tmp_path):
+    chat = fx.ScriptedChat(script={"20260111-3-b0004": _area_answer("database performance")})
+    out, _ = run(chat=chat, rec=fx.records(slack=_area_slack(AREA_TEXT)), tmp=tmp_path)
+    assert len(chat.session_calls) == 1
+    assert "BUGS WITHOUT A PRODUCT AREA" in chat.session_calls[0]["user"]
+    b = bug_by_title(out.facts, "Inefficient Database Query Optimization")
+    assert b.props["component"] == "database performance"
+
+
+def test_area_not_written_in_the_message_is_ignored_and_counted(tmp_path):
+    chat = fx.ScriptedChat(script={"20260111-3-b0004": _area_answer("Network Layer")})
+    out, _ = run(chat=chat, rec=fx.records(slack=_area_slack(AREA_TEXT)), tmp=tmp_path)
+    assert bug_by_title(out.facts, "Inefficient Database Query Optimization").props["component"] is None
+    assert out.report["dropped"]["components"] == {"not_in_message": 1}
+
+
+def test_area_spellings_collapse_to_one_display_form(tmp_path):
+    # the first intake writes "Database Management & Logging System"; this one writes it in lower case with "and"
+    text2 = ("Next, we have 'Inefficient Database Query Optimization'. This is slowing the database management and "
+             "logging system for customer CUST-0108. Can you take this one?")
+    chat = fx.ScriptedChat(script={"20260111-3-b0004": _area_answer("database management and logging system",
+                                                                    "database management and logging system")})
+    out, _ = run(chat=chat, rec=fx.records(slack=_area_slack(text2)), tmp=tmp_path)
+    comps = {b.props["component"] for b in nodes(out.facts, "Bug").values()}
+    assert comps == {"Database Management & Logging System"}

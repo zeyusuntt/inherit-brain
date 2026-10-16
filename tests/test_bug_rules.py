@@ -147,3 +147,82 @@ def test_non_product_pr_link_is_not_a_fix_link():
     ])
     [e] = parse_session(sessions(rec.messages)[0], build_catalog(rec), rec.customers).events
     assert e["fix_pr_links"] == ["https://github.com/salesforce/Mini/pull/31"]
+
+
+def test_markdown_bold_titles_are_read_like_quotes():
+    rec = fx.records(slack=[
+        ("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
+        ("20260111-1-b0002", fx.IAN, "2026-01-11T09:02:00",
+         f"First up, we have a security concern: **Weak Encryption Protocols for Data Transmission**. The API is using "
+         f"outdated protocols. This affects API Security & Access Control. Impacted customer is CUST-0041. @{fx.EMMA}, "
+         f"this one's for you."),
+        ("20260115-0-d0001", fx.BOB, "2026-01-15T11:00:00",
+         "Hi team, the bug titled **Weak Encryption Protocols for Data Transmission** has been resolved."),
+    ])
+    p = parse_session(sessions(rec.messages)[0], build_catalog(rec), rec.customers)
+    assert [b["title"] for b in p.bugs] == ["Weak Encryption Protocols for Data Transmission"]
+    assert p.bugs[0]["customer_ids"] == ["CUST-0041"] and p.bugs[0]["component"] == "API Security & Access Control"
+    [e] = parse_session(sessions(rec.messages)[1], build_catalog(rec), rec.customers).events
+    assert e["type"] == "RESOLVED" and e["mention"] == "Weak Encryption Protocols for Data Transmission"
+
+
+def _intake(*rows):
+    base = [("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO)]
+    rec = fx.records(slack=base + [(f"20260111-{i + 1}-b00{i + 2:02d}", a, f"2026-01-11T09:{i + 1:02d}:00", t)
+                                   for i, (a, t) in enumerate(rows)])
+    return parse_session(sessions(rec.messages)[0], build_catalog(rec), rec.customers)
+
+
+def test_thanks_mention_of_the_previous_assignee_is_not_an_assignee():
+    p = _intake((fx.IAN, f"Thanks, @{fx.BOB}! Next, we have 'Inefficient Database Query Optimization'. This is a "
+                         f"critical issue in the API Security area. Customer ID: CUST-0108. @{fx.EMMA}, can you take "
+                         f"this one?"))
+    [a] = [e for e in p.events if e["type"] == "ASSIGNED"]
+    assert a["assignee_eids"] == [fx.EMMA]
+
+
+def test_assignment_in_a_follow_up_message_of_the_lead():
+    p = _intake(
+        (fx.IAN, "First up, we have an issue titled 'Inefficient Database Query Optimization'. Slow responses. "
+                 "This is impacting customer CUST-0108."),
+        (fx.IAN, f"@{fx.EMMA}, this one's for you. Can you take a look and optimize it?"),
+        (fx.EMMA, "Got it!"),
+        (fx.IAN, "Next, we have a 'Failed Data Backup Restoration' issue. Restores fail. Impacted customer CUST-0047."),
+        (fx.IAN, f"@{fx.BOB}, you're also assigned to this one."),
+    )
+    a = [(e["message_id"], e["assignee_eids"], e["mention"]) for e in p.events if e["type"] == "ASSIGNED"]
+    assert a == [("20260111-2-b0003", [fx.EMMA], "Inefficient Database Query Optimization"),
+                 ("20260111-5-b0006", [fx.BOB], "Failed Data Backup Restoration")]
+
+
+def test_no_assignment_is_invented_when_only_a_thanks_mention_exists():
+    p = _intake((fx.IAN, f"Thanks, @{fx.BOB}! Next, we have 'Inefficient Database Query Optimization'. "
+                         f"Customer ID: CUST-0108."))
+    assert not [e for e in p.events if e["type"] == "ASSIGNED"]
+
+
+def test_component_without_ampersand():
+    from inherit.extract.bug_rules import component_of
+    assert component_of("This affects API Security and could expose data. Impacted customer is CUST-0041.") == "API Security"
+    assert component_of("This is impacting the Backend Data Processing, and it is slow.") == "Backend Data Processing"
+    assert component_of("This affects the Report Generation Module and is impacting Customer ID: CUST-0064.") \
+        == "Report Generation Module"
+    assert component_of("It is impacting Customer CUST-0064 badly.") is None
+    assert component_of("This impacts Database Performance and is critical for time-sensitive scenarios. Customer "
+                        "CUST-0097 is affected.") == "Database Performance"
+    assert component_of("This affects the User Interface & Front-End Rendering, causing blank pages") \
+        == "User Interface & Front-End Rendering"
+
+
+def test_component_other_phrasings():
+    from inherit.extract.bug_rules import component_of
+    assert component_of("The indexes are slow in the Database Performance area. This is impacting CUST-0059.") \
+        == "Database Performance"
+    assert component_of("Our AI model is overfitting. This is impacting Customer CUST-0006. The affected area is the "
+                        "AI Scoring Algorithm.") == "AI Scoring Algorithm"
+    assert component_of("This is a critical security issue in the API Security area, potentially exposing data.") \
+        == "API Security"
+    assert component_of("Users see a slow page. The affected area is our Database Management & Replication layer.") \
+        == "Database Management & Replication"
+    assert component_of("Customers are experiencing delays due to locking. This is impacting our database "
+                        "performance, especially for CUST-0024.") is None

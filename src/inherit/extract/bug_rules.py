@@ -12,21 +12,24 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from inherit.data.records import parse_mentions
 from inherit.extract.catalog import PR_LINK_RE, repo_of, repo_scope
 from inherit.extract.cite import _QUOTES
 from inherit.extract.structural import CUST_RE, _links
 
 RULES_VERSION = "bug_rules/v1"
 
-QUOTE_RE = re.compile(r"""(?<!\w)(['"])(?=\S)(.{3,200}?)(?<=\S)\1(?!\w)""", re.S)
+# 'Title', "Title" or **Title** (markdown bold). Group 2 holds quoted text, group 3 the bold text; use `qtext`.
+QUOTE_RE = re.compile(r"""(?<!\w)(['"])(?=\S)(.{3,200}?)(?<=\S)\1(?!\w)|\*\*(?=\S)(.{3,200}?)(?<=\S)\*\*""", re.S)
 SENT_BOUNDARY = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9'\"])")
 INTAKE_OPENER = re.compile(r"\bcustomers?\b.{0,30}\breport(?:ing|ed)\b|\breported by customers\b", re.I | re.S)
 INTAKE_CUE = re.compile(r"\b(?:first up|next|lastly|finally|we have|there'?s an?|there is an?)\b", re.I)
 BUG_WORD = re.compile(r"\b(?:issue|bug|problem|vulnerability|leak)\b", re.I)
 TITLED = re.compile(r"\btitled\b", re.I)
 ASSIGN_CUE = re.compile(
-    r"\b(?:can you|could you|would you|will you|please|this one'?s (?:for|also for) you|this one is for you"
-    r"|take (?:this|it|care)|handle|assign|over to you|look into|have a look|pick (?:this|it) up)\b", re.I)
+    r"\b(?:can you|could you|would you|will you|please|this one'?s (?:for|also for) you|this one is (?:also )?for you"
+    r"|take (?:this|it|care)|handle|assign|over to you|look into|have a look|pick (?:this|it) up|for you\b"
+    r"|you'?re (?:also |up|assigned|on )|also assigned|up again)", re.I)
 ACK_START = re.compile(r"^\W*(?:got it|sure|absolutely|on it|will do|no problem|understood|certainly|of course|yes|"
                        r"i'?ll|i will|i can|i'?m on)\b", re.I)
 ACK_BODY = re.compile(r"\b(?:look|dive|tackle|investigat|work|start|take|handle|prioriti[sz]e|fix|address|check|"
@@ -75,7 +78,15 @@ def slug(title: str) -> str:
     return "-".join(re.findall(r"[a-z0-9]+", straight(title).casefold()))
 
 
+AFFECTS_RE = re.compile(rf"\b(?:affect(?:s|ing)?|impact(?:s|ing)?)\s+(?:the |our )?({_CAP}(?: {_CAP}){{0,4}})")
+AREA_IS_RE = re.compile(rf"\baffected area is (?:the |our )?({_CAP}(?: {_CAP}){{0,4}})")
+IN_AREA_RE = re.compile(rf"\bin (?:the |our )({_CAP}(?: {_CAP}){{0,4}}) area\b")
+_NOT_COMPONENT = frozenset({"Customer", "Customers", "CUST", "Users", "Admins", "Sales", "Impacted", "Both", "Several"})
+
+
 def component_of(text: str) -> str | None:
+    """The product area a bug intro names: `A B & C D` first, else the capitalised phrase after affects/impacts
+    (`This affects API Security and ...`). Never a customer phrase. None when the text names no capitalised area."""
     t = straight(text)
     for m in COMPONENT_RE.finditer(t):
         left = m.group(1).split(" ")
@@ -83,6 +94,15 @@ def component_of(text: str) -> str | None:
             left = left[1:]
         if left:
             return " ".join(left) + " & " + m.group(2)
+    for rx in (AREA_IS_RE, IN_AREA_RE):
+        m = rx.search(t)
+        if m:
+            return m.group(1)
+    for m in AFFECTS_RE.finditer(t):
+        words = m.group(1).split(" ")
+        if words[0] in _NOT_COMPONENT or words[0].startswith("CUST"):
+            continue
+        return " ".join(words)
     return None
 
 
@@ -94,6 +114,27 @@ def sentence_span(text: str, pos: int) -> tuple[int, int]:
         elif b.start() >= pos:
             return start, b.start()
     return start, len(text)
+
+
+def qtext(m) -> str:
+    return m.group(2) or m.group(3)
+
+
+def assignees_in(text: str, author: str) -> list[str]:
+    """Employee ids @mentioned in the sentences that carry an assignment cue. A mention elsewhere ("Thanks, @eid_x!"
+    thanking the previous assignee) is not an assignee."""
+    out: list[str] = []
+    start = 0
+    spans = []
+    for b in SENT_BOUNDARY.finditer(text):
+        spans.append((start, b.start()))
+        start = b.end()
+    spans.append((start, len(text)))
+    for a, b in spans:
+        sent = text[a:b]
+        if ASSIGN_CUE.search(sent):
+            out += [x for x in parse_mentions(sent) if x != author and x not in out]
+    return out
 
 
 def quote_at(text: str, pos: int) -> str:
@@ -108,6 +149,11 @@ def first_quote(text: str, start: int = 0, end: int | None = None):
 
 def quotes(text: str) -> list:
     return list(QUOTE_RE.finditer(straight(text)))
+
+
+def area_key(text: str) -> str:
+    """Comparison key of a product area: case-folded words, `&` and `and` equal."""
+    return " ".join(w for w in re.findall(r"[a-z0-9]+", straight(text).casefold().replace("&", " and ")))
 
 
 def cust_ids(text: str) -> list[str]:
@@ -131,6 +177,7 @@ class SessionParse:
     residual: list[str] = field(default_factory=list)
     handled: set[str] = field(default_factory=set)
     reopen: bool = False
+    no_area: list[str] = field(default_factory=list)  # local ids of rules bugs whose text names no product area
 
 
 def _cite(m, quote: str) -> dict:
@@ -149,6 +196,7 @@ def parse_session(session, cat, customers) -> SessionParse:
     looked_into = LOOKED_INTO.search(straight(opener.text))
     claimed: set[str] = set()  # messages whose lifecycle role is settled (rules event, or deliberately not a cue)
     counter = 0
+    bug_rows: list[tuple] = []
 
     def ev(type_, m, mention, cites, local_bug=None, assignees=(), fix=()):
         p.events.append({"type": type_, "message_id": m.id, "mention": mention, "local_bug": local_bug,
@@ -181,9 +229,9 @@ def parse_session(session, cat, customers) -> SessionParse:
             if len(ext) != 1 or not qs:
                 p.residual.append(m.id)
                 continue
-            title = qs[0].group(2)
+            title = qtext(qs[0])
             ours = OUR_QUOTE.search(straight(text))
-            similar = ours.group(2) if ours else (qs[1].group(2) if len(qs) > 1 else None)
+            similar = ours.group(2) if ours else (qtext(qs[1]) if len(qs) > 1 else None)
             owner_repo = "/".join(repo_of(ext[0]))
             cites = [_cite(m, title), _cite(m, ext[0])]
             if similar:
@@ -202,7 +250,7 @@ def parse_session(session, cat, customers) -> SessionParse:
             qm = first_quote(sent)
             about = ABOUT_RES.search(straight(sent))
             if qm:
-                mention = qm.group(2)
+                mention = qtext(qm)
             elif about:
                 mention = text[a:b][about.start(1):about.end(1)]
             if mention:
@@ -225,7 +273,7 @@ def parse_session(session, cat, customers) -> SessionParse:
             sent = text[a:b]
             qm = first_quote(sent)
             if qm:
-                ev("REOPENED", m, qm.group(2), [_cite(m, sent.strip())])
+                ev("REOPENED", m, qtext(qm), [_cite(m, sent.strip())])
             elif i == 0 or m.user_id == opener.user_id:
                 p.residual.append(m.id)
             claimed.add(m.id)
@@ -236,7 +284,7 @@ def parse_session(session, cat, customers) -> SessionParse:
             (intake_session and i in intake_idx and i > 0 and (cust_ids(text) or (INTAKE_CUE.search(text) and BUG_WORD.search(text))))
             or (TITLED.search(text) and cust_ids(text) and not looked_into))
         if intake_like:
-            titles = list(dict.fromkeys(q.group(2) for q in qs))
+            titles = list(dict.fromkeys(qtext(q) for q in qs))
             if len(titles) != 1:
                 p.residual.append(m.id)
                 claimed.add(m.id)
@@ -252,24 +300,41 @@ def parse_session(session, cat, customers) -> SessionParse:
                            "citations": cites, "source": "rules"})
             p.handled.add(m.id)
             claimed.add(m.id)
-            if mentions and ASSIGN_CUE.search(text):
-                ev("ASSIGNED", m, title, [_cite(m, quote_at(text, text.find("@eid_")))], local_bug=lid,
-                   assignees=mentions)
-            elif mentions:
-                p.residual.append(m.id)
-            else:
-                nxt = next((k for k in intake_idx if k > i), len(msgs))
-                for k in range(i + 1, nxt):
-                    r = msgs[k]
-                    if r.user_id != m.user_id and ACK_START.search(r.text) and ACK_BODY.search(r.text):
-                        ev("ASSIGNED", r, title, [_cite(r, quote_at(r.text, 0))], local_bug=lid, assignees=[r.user_id])
-                        claimed.add(r.id)
-                        break
+            bug_rows.append((i, lid, title, m))
             continue
         if intake_session and i in intake_idx and i > 0 and not looked_into and INTAKE_CUE.search(text) \
                 and BUG_WORD.search(text):
             p.residual.append(m.id)
             claimed.add(m.id)
+
+    # ---------------------------------------------------------------- assignment of each introduced bug
+    bug_idx = [r[0] for r in bug_rows]
+    for n, (i, lid, title, m) in enumerate(bug_rows):
+        text = m.text
+        nxt = next((k for k in bug_idx if k > i), len(msgs))
+        own = assignees_in(text, m.user_id)
+        if own:
+            ev("ASSIGNED", m, title, [_cite(m, quote_at(text, text.find(f"@{own[0]}")))], local_bug=lid, assignees=own)
+            continue
+        if parse_mentions(text) and ASSIGN_CUE.search(text):  # a cue and a mention that do not sit together
+            p.residual.append(m.id)
+            continue
+        for k in range(i + 1, nxt):  # the lead assigns in a follow-up message
+            f = msgs[k]
+            got = assignees_in(f.text, m.user_id) if f.user_id == m.user_id and k in intake_idx else []
+            if got:
+                ev("ASSIGNED", f, title, [_cite(f, quote_at(f.text, f.text.find(f"@{got[0]}")))], local_bug=lid,
+                   assignees=got)
+                break
+        else:
+            for k in range(i + 1, nxt):  # no mention: the first responder takes it
+                r = msgs[k]
+                if r.user_id != m.user_id and ACK_START.search(r.text) and ACK_BODY.search(r.text):
+                    ev("ASSIGNED", r, title, [_cite(r, quote_at(r.text, 0))], local_bug=lid, assignees=[r.user_id])
+                    claimed.add(r.id)
+                    break
+
+    p.no_area = [b["local_id"] for b in p.bugs if not b["component"]]
 
     # ---------------------------------------------------------------- dismissal: "I looked into the reported issue"
     if looked_into:
@@ -277,7 +342,7 @@ def parse_session(session, cat, customers) -> SessionParse:
         end = SENT_BOUNDARY.search(sent)
         first = sent[: end.start()] if end else sent
         qm = QUOTE_RE.search(straight(first))
-        mention = qm.group(2) if qm else re.sub(r"^(?:the|a|an)\s+", "", first.strip().rstrip(".!? "), flags=re.I)
+        mention = qtext(qm) if qm else re.sub(r"^(?:the|a|an)\s+", "", first.strip().rstrip(".!? "), flags=re.I)
         cue = next((m for m in msgs if m.user_id == opener.user_id and NOFIX.search(m.text)), None)
         if cue is not None and mention:
             cm = NOFIX.search(cue.text)

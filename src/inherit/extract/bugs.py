@@ -20,7 +20,7 @@ from inherit import llm
 from inherit.extract import bug_rules as br
 from inherit.extract.bugstate import derive_bug, sort_events
 from inherit.extract.catalog import build_catalog, repo_scope
-from inherit.extract.cite import SourceRecord, normalise, validate_items
+from inherit.extract.cite import SourceRecord, normalise, validate_citation, validate_items
 from inherit.extract.llm_extract import Caller
 from inherit.extract.prompts import BUG_LINK_SYSTEM, BUG_SESSION_SYSTEM, BUGS_PROMPT_VERSION
 from inherit.extract.sessions import sessions
@@ -34,6 +34,13 @@ EVENT_TYPES = ("REPORTED", "ASSIGNED", "RESOLVED", "DISMISSED", "REOPENED")
 MODEL_EVENT_TYPES = EVENT_TYPES[1:]
 TYPE_RANK = {t: i for i, t in enumerate(EVENT_TYPES)}
 EID_RE = re.compile(r"\beid_[A-Za-z0-9_]+")
+# Wording an actor message must contain for a model event of that type (the model over-reads follow-up chatter).
+EVIDENCE = {
+    "RESOLVED": re.compile(r"resolv|\bfix|patch|deploy|\bmerged?\b|releas|shipp|\bclosed?\b|pull/\d+", re.I),
+    "DISMISSED": re.compile(br.NOFIX.pattern + r"|no action|dismiss|\bclos|not (?:going|planning) to", re.I),
+    "REOPENED": re.compile(r"re-?open|\bagain\b|\bstill\b|resurfac|persist|recur|regress|came back|not (?:fixed|resolved)",
+                           re.I),
+}
 
 
 @dataclass
@@ -53,7 +60,7 @@ def _msg_line(m, employees) -> str:
     return f"[{m.id}] {m.ts} {name} ({m.user_id}): {m.text}"
 
 
-def build_session_request(session, parse, rec, cat) -> tuple[list[dict], int]:
+def build_session_request(session, parse, rec, cat, known_areas=()) -> tuple[list[dict], int]:
     """(chat messages, max_tokens) for one session. The model sees the numbered messages, what the rules already
     parsed, the messages they could not parse and the catalogue entries for PR links found in the text."""
     msgs = [m for m in session if not m.is_bot]
@@ -79,11 +86,16 @@ def build_session_request(session, parse, rec, cat) -> tuple[list[dict], int]:
     if parse.reopen:
         lines.append("This session contains a reopening. Report who is assigned to or takes the bug afterwards, and "
                      "any resolution or dismissal stated in the follow-up messages.")
+    if parse.no_area:
+        by_lid = {b["local_id"]: b for b in parse.bugs}
+        lines += ["", "BUGS WITHOUT A PRODUCT AREA (report `components` for these):"]
+        lines += [f"- {lid} '{by_lid[lid]['title']}' in {by_lid[lid]['message_id']}" for lid in parse.no_area]
+        lines.append("KNOWN AREAS in this product: " + (", ".join(known_areas) or "none yet"))
     text = "\n".join(m.text for m in msgs)
     prs = [p for p in cat.prs if p.link in set(br.pr_links(text))]
     if prs:
         lines += ["", "PRODUCT PULL REQUESTS LINKED IN THESE MESSAGES:"] + [f"- {p.link} {p.title}" for p in prs]
-    n = len(parse.residual) + (2 if parse.reopen else 0)
+    n = len(parse.residual) + (2 if parse.reopen else 0) + len(parse.no_area)
     max_tokens = min(4000, 600 + 350 * n)
     return [{"role": "system", "content": BUG_SESSION_SYSTEM}, {"role": "user", "content": "\n".join(lines)}], max_tokens
 
@@ -125,7 +137,7 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src):
     def drop(kind, reason):
         dropped[kind][reason] += 1
 
-    bugs_raw = [b for b in (data.get("bugs") or []) if isinstance(b, dict)]
+    bugs_raw = [_repaired(b, msgs, sess_src, rep) for b in (data.get("bugs") or []) if isinstance(b, dict)]
     ok_bugs, bad = validate_items(bugs_raw, sess_src, ALLOWED)
     for reason, n in bad.items():
         dropped["bugs"][reason] += n
@@ -139,9 +151,13 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src):
             drop("bugs", "look_alike_message")  # an open-source look-alike message never introduces a customer bug
             continue
         cids = [c for c in dict.fromkeys(b.get("customer_ids") or []) if isinstance(c, str) and c in text]
+        comp = b.get("component") if isinstance(b.get("component"), str) and b.get("component").strip() else None
+        if comp and not area_in(comp, msgs[mid].text):
+            drop("components", "not_in_message")
+            comp = None
         bugs.append({"local_id": f"x:{b.get('local_id')}", "title": title,
                      "aliases": [a for a in (b.get("aliases") or []) if isinstance(a, str) and a.strip()],
-                     "component": b.get("component") if isinstance(b.get("component"), str) else None,
+                     "component": comp,
                      "impact_text": str(b.get("impact_text") or ""), "customer_ids": cids, "message_id": mid,
                      "citations": b["citations"], "source": "model"})
 
@@ -160,6 +176,9 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src):
             continue
         if mid in handled:
             rep["ignored_model_events"] += 1
+            continue
+        if typ in EVIDENCE and not EVIDENCE[typ].search(msgs[mid].text):
+            drop("events", "no_evidence_for_type")
             continue
         assignees = [a for a in dict.fromkeys(e.get("assignee_eids") or []) if isinstance(a, str)]
         if typ == "ASSIGNED" and not assignees:
@@ -188,7 +207,7 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src):
                        "local_bug": local, "assignee_eids": assignees, "fix_pr_links": fix,
                        "citations": e["citations"], "source": "model"})
 
-    ex_raw = [x for x in (data.get("external") or []) if isinstance(x, dict)]
+    ex_raw = [_repaired(x, msgs, sess_src, rep) for x in (data.get("external") or []) if isinstance(x, dict)]
     ok_ex, bad = validate_items(ex_raw, sess_src, ALLOWED)
     for reason, n in bad.items():
         dropped["external"][reason] += n
@@ -204,7 +223,50 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src):
         externals.append({"link": link[0], "title": str(x["title"]).strip(), "project": "/".join(br.repo_of(link[0])),
                           "similar_mention": sim if isinstance(sim, str) and sim.strip() else None,
                           "message_id": mid, "citations": x["citations"], "source": "model"})
-    return bugs, events, externals
+    areas = {}
+    comp_raw = [c for c in (data.get("components") or []) if isinstance(c, dict)]
+    ok_comp, bad = validate_items(comp_raw, sess_src, ALLOWED)
+    for reason, n in bad.items():
+        dropped["components"][reason] += n
+    by_lid = {b["local_id"]: b for b in parse.bugs}
+    for c in ok_comp:
+        lid, comp = c.get("bug_ref"), c.get("component")
+        if lid not in parse.no_area or not isinstance(comp, str) or not comp.strip():
+            drop("components", "bad_ref_or_empty")
+        elif not area_in(comp, msgs[by_lid[lid]["message_id"]].text):
+            drop("components", "not_in_message")
+        else:
+            areas[lid] = comp.strip()
+    return bugs, events, externals, areas
+
+
+def canonical_areas(variants) -> dict[str, str]:
+    """area key -> display form. Spellings that differ only by case or `&` versus `and` fold into one: the capitalised
+    form, then the most frequent, then the one with `&`."""
+    count: Counter = Counter(v for v in variants if v)
+    best: dict[str, str] = {}
+    for v in sorted(count, key=lambda v: (not v[:1].isupper(), -count[v], "&" not in v, v)):
+        best.setdefault(br.area_key(v), v)
+    return best
+
+
+def area_in(component: str, text: str) -> bool:
+    k = br.area_key(component)
+    return bool(k) and f" {k} " in f" {br.area_key(text)} "
+
+
+def _repaired(item: dict, msgs, sess_src, rep) -> dict:
+    """A bug or look-alike whose citations all fail but whose title is a verbatim span of its own message (the model
+    usually joined sentences or dropped markup in the quote) is cited by the title itself. Counted in the report."""
+    mid, title = item.get("message_id"), str(item.get("title") or "").strip()
+    if mid not in msgs or not title:
+        return item
+    if any(validate_citation(c, sess_src, ALLOWED).ok for c in item.get("citations") or [] if isinstance(c, dict)):
+        return item
+    if normalise(title) in normalise(msgs[mid].text):
+        rep["repaired_citations"] += 1
+        return {**item, "citations": [{"record_id": mid, "quote": title}]}
+    return item
 
 
 def parse_handled(parse) -> set:
@@ -224,7 +286,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
     by_id = {m.id: m for m in bug_msgs}
     rep = {"dropped": defaultdict(Counter), "ignored_model_events": 0, "extraction_failures": [],
            "unmatched_events": [], "fix_links_not_in_catalogue": [], "sessions": 0, "model_sessions": 0,
-           "residual_messages": 0, "unlinked_external": [], "rules_dropped": Counter()}
+           "residual_messages": 0, "unlinked_external": [], "rules_dropped": Counter(), "repaired_citations": 0}
     src_all = {m.id: SourceRecord(m.id, "message", "text", m.text) for m in bug_msgs}
 
     nodes: dict[str, Node] = {}
@@ -240,6 +302,11 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
     all_bugs: dict[str, dict] = {}
     all_events: list[dict] = []
     all_externals: list[dict] = []
+
+    known_areas = list(canonical_areas(
+        b["component"] for msgs in by_channel.values()
+        for sess in sessions(sorted(msgs, key=lambda m: _dt(m.ts)))
+        for b in br.parse_session(sess, cat, rec.customers).bugs if b["component"]).values())
 
     for channel_id, msgs in by_channel.items():
         msgs = sorted(msgs, key=lambda m: _dt(m.ts))
@@ -288,16 +355,19 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                 setattr(parse, attr, kept)
             rep["residual_messages"] += len(parse.residual)
             m_bugs, m_events, m_ext = [], [], []
-            if parse.residual or parse.reopen:
+            if parse.residual or parse.reopen or parse.no_area:
                 rep["model_sessions"] += 1
-                req, mt = build_session_request(session, parse, rec, cat)
+                req, mt = build_session_request(session, parse, rec, cat, known_areas)
                 data, reason = caller.json_call("session", req, mt)
                 if data is None:
                     rep["extraction_failures"].append({"kind": "session", "channel_id": channel_id,
                                                        "messages": [m.id for m in session if not m.is_bot],
                                                        "reason": reason})
                 else:
-                    m_bugs, m_events, m_ext = _clean_session_answer(data, session, parse, rec, cat, rep, sess_src)
+                    m_bugs, m_events, m_ext, areas = _clean_session_answer(data, session, parse, rec, cat, rep,
+                                                                           sess_src)
+                    for b in parse.bugs:
+                        b["component"] = b["component"] or areas.get(b["local_id"])
             local_bug: dict[str, str] = {}
             # ---- bugs: register, merge with prior bugs by title or alias
             for b in [*parse.bugs, *m_bugs]:
@@ -391,6 +461,11 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
         all_bugs.update(ch_bugs)
         all_events += [dict(e, msg_pos=pos[e["message_id"]], channel_id=channel_id) for e in ch_events]
         all_externals += ch_externals
+
+    canon = canonical_areas(b["component"] for b in all_bugs.values())
+    for b in all_bugs.values():
+        if b["component"]:
+            b["component"] = canon[br.area_key(b["component"])]
 
     # ---------------------------------------------------------------- numbering, facts, derived states
     by_msg: dict[str, list[dict]] = defaultdict(list)
@@ -499,7 +574,8 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                   "cost_usd": round(caller.cost_usd, 6)},
         "extraction_failures": rep["extraction_failures"],
         "dropped": {k: dict(v) for k, v in rep["dropped"].items()},
-        "rules_dropped": dict(rep["rules_dropped"]), "ignored_model_events": rep["ignored_model_events"],
+        "rules_dropped": dict(rep["rules_dropped"]), "repaired_citations": rep["repaired_citations"],
+        "ignored_model_events": rep["ignored_model_events"],
         "estimate": {"prompt_tokens": caller.est_in, "completion_tokens": caller.est_out,
                      "projected_usd": round(caller.projected_usd(), 6)} if dry else None,
     }

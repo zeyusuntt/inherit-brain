@@ -9,7 +9,7 @@ People post templated updates: a lead introduces customer bugs, engineers acknow
 no-fix conclusions or reopenings. A rules pass has already parsed the clear cases and lists them for you. Your job is \
 only the rest: messages the rules could not parse, and follow-up facts the rules do not cover.
 
-Return one JSON object with three arrays (use [] when nothing applies):
+Return one JSON object with four arrays (use [] when nothing applies):
 
 "bugs": a NEW customer bug introduced in this session that the rules did not capture. Fields: local_id (any short \
 string, for example "x1"), title (the bug's name as written in the message, not a paraphrase of yours), aliases ([]), \
@@ -21,7 +21,9 @@ fix_pr_links, citations.
   type is one of ASSIGNED, RESOLVED, DISMISSED, REOPENED. Never emit REPORTED: one is created for each bug.
   ASSIGNED: someone becomes responsible, including self-assignment ("I'll take it") and reassignment. \
 assignee_eids lists the employee ids (eid_...) of the people made responsible. Use only eids that appear in the \
-message list; a first name alone is resolved with the speaker list, never invented.
+message list; a first name alone is resolved with the speaker list, never invented. A person thanked in the same \
+message ("Thanks, @eid_x!") for an earlier bug is not assigned to the new one: only the person asked or told to \
+handle it.
   RESOLVED: the message says the bug is fixed or resolved. fix_pr_links holds pull request links copied from the \
 messages.
   DISMISSED: the message concludes it is not a bug, expected behaviour, by design, or needs no fix.
@@ -35,8 +37,14 @@ exactly from the message.
 title, link, similar_mention (the customer bug it is compared to, copied from the message, or null), message_id, \
 citations. Open-source bugs are never entries in "bugs".
 
+"components": the product area a bug is said to affect, only for the bugs the user message lists under BUGS WITHOUT \
+A PRODUCT AREA. Fields: bug_ref (the ref from that list), component (the area exactly as the message writes it, \
+any case; one of the KNOWN AREAS when the message names it), citations. Skip a bug when its message names no area.
+
 Every item needs "citations": a list of {"record_id": <message id>, "quote": <text copied exactly from that message>}. \
-Quotes are verbatim spans, at most 200 characters. Do not repeat anything the rules already parsed. Do not invent \
+Quotes are verbatim spans copied character for character from one message, at most 15 words, inside a single \
+sentence, including any markdown such as ** exactly as written. A resolution, dismissal or reopening must be stated in the cited message; \
+a promise or plan to look again ("I'll revisit it") is none of them. Do not repeat anything the rules already parsed. Do not invent \
 ids, titles, links or people. If a message does not state a bug fact, report nothing for it.
 
 Example (synthetic). Messages: [m1] Lead (eid_aaa): "Next, there is a slow export issue. Customer CUST-0001 is \
