@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import socket
 import threading
 import time
@@ -33,11 +34,17 @@ class Upstream:
         self.default = default
         self.requests = []
         self.lock = threading.Lock()
+        self.delay = 0.0
 
     def __call__(self, request):
         with self.lock:
             self.requests.append(request)
-            status, body = self.queue.popleft() if self.queue else self.default
+            item = self.queue.popleft() if self.queue else self.default
+        if self.delay:
+            time.sleep(self.delay)
+        if isinstance(item, Exception):
+            raise item
+        status, body = item
         if isinstance(body, bytes):
             return httpx2.Response(status, content=body)
         return httpx2.Response(status, json=body)
@@ -338,3 +345,138 @@ def test_proxy_openai_kwargs():
     kw = llm.proxy_openai_kwargs("a1")
     assert kw["default_headers"] == {"X-Inherit-Arm": "a1"}
     assert kw["base_url"].startswith("http://127.0.0.1:") and kw["api_key"]
+
+
+# ---- proxy fix round 1 ------------------------------------------------------
+
+from inherit import config
+
+
+@pytest.fixture
+def dummy_env(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text(
+        "NEBIUS_API_KEY=sk-dummy-from-dotenv\nNEBIUS_BUDGET_USD=5\nNEBIUS_BASE_URL=http://x/v1/\n"
+    )
+    monkeypatch.setattr(config, "ROOT", tmp_path)
+    monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
+    monkeypatch.delenv("NEBIUS_BUDGET_USD", raising=False)
+    config.load_settings.cache_clear()
+    yield tmp_path
+    config.load_settings.cache_clear()
+
+
+def test_clients_never_see_the_key(dummy_env):
+    s = config.load_settings()
+    assert s.budget_usd == 5
+    assert "NEBIUS_API_KEY" not in os.environ
+    assert not hasattr(s, "nebius_api_key") and "sk-dummy" not in repr(s)
+    llm._client("a", None)
+    assert "NEBIUS_API_KEY" not in os.environ
+    assert config.load_upstream_secret() == "sk-dummy-from-dotenv"
+    assert "NEBIUS_API_KEY" not in os.environ
+
+
+def test_upstream_401_echoing_key_is_redacted(tmp_path):
+    up = Upstream((401, {"error": {"message": f"bad key {KEY}"}}))
+    c, _ = make(tmp_path, up)
+    r = c.post("/v1/chat/completions", json=body(), headers=H)
+    assert r.status_code == 401 and KEY not in r.text and "[redacted]" in r.text
+
+
+def test_non_json_5xx_wrapped_in_json(tmp_path):
+    up = Upstream(default=(502, b"<html>Bad Gateway</html>"))
+    c, _ = make(tmp_path, up)
+    r = c.post("/v1/chat/completions", json=body(), headers=H)
+    assert r.status_code == 502
+    assert r.json()["error"]["type"] == "upstream_error" and "Bad Gateway" in r.json()["error"]["message"]
+
+
+@pytest.mark.parametrize("exc", [httpx2.ReadTimeout("slow"), httpx2.ConnectError("down")])
+def test_timeout_and_connection_error_settle_full(tmp_path, exc):
+    up = Upstream(default=exc)
+    c, _ = make(tmp_path, up)
+    r = c.post("/v1/chat/completions", json=body(), headers=H)
+    assert r.status_code == 502 and r.json()["error"]["type"] == "upstream_unreachable"
+    evs = events(tmp_path)
+    assert [e["type"] for e in evs] == ["reserve", "settle"] and evs[1]["cost"] == evs[0]["amount"]
+    assert len(up.requests) == 1
+
+
+def fail_settles(meter, times):
+    real = meter._append
+    n = {"left": times}
+
+    def flaky(ev):
+        if ev["type"] == "settle" and n["left"] > 0:
+            n["left"] -= 1
+            raise OSError("disk full")
+        return real(ev)
+
+    meter._append = flaky
+
+
+def test_settle_fails_once_falls_back_to_full(tmp_path):
+    up = Upstream()
+    c, m = make(tmp_path, up)
+    fail_settles(m, 1)
+    r = c.post("/v1/chat/completions", json=body(), headers=H)
+    assert r.status_code == 500 and r.json()["error"]["type"] == "ledger_error"
+    evs = events(tmp_path)
+    assert [e["type"] for e in evs] == ["reserve", "settle"] and evs[1]["cost"] == evs[0]["amount"]
+
+
+@pytest.mark.parametrize("upstream", [(200, OK), (400, {"error": {"message": "no"}}), (500, {"error": {}})])
+def test_settle_always_fails_keeps_reservation_after_restart(tmp_path, upstream):
+    up = Upstream(default=upstream)
+    c, m = make(tmp_path, up)
+    fail_settles(m, 99)
+    r = c.post("/v1/chat/completions", json=body(), headers=H)
+    assert r.status_code == 500 and r.json()["error"]["type"] == "ledger_error"
+    reserve = events(tmp_path)[0]["amount"]
+    replay = Meter(cap_usd=1.0, path=tmp_path / "meter.jsonl")
+    assert replay.spent("t") == pytest.approx(reserve / 10**12)  # still counted at its ceiling
+    assert len(up.requests) == 1  # no retry once the ledger is broken
+
+
+def test_bug_file_failure_still_logs_error_and_answers(tmp_path, caplog):
+    huge = {**OK, "usage": {"prompt_tokens": 10_000_000, "completion_tokens": 10}}
+    up = Upstream((200, huge))
+    bad = tmp_path / "is_a_dir"
+    bad.mkdir()
+    c, _ = make(tmp_path, up, bug_path=bad)
+    with caplog.at_level(logging.ERROR):
+        r = c.post("/v1/chat/completions", json=body(), headers=H)
+    assert r.status_code == 200
+    assert "usage above reservation" in caplog.text and "could not write" in caplog.text
+
+
+def test_embeddings_reject_stream_and_n(tmp_path):
+    up = Upstream(default=(200, EMB_OK))
+    c, _ = make(tmp_path, up)
+    for extra in ({"stream": True}, {"n": 2}):
+        r = c.post("/v1/embeddings", json={"model": EMBED_MODEL, "input": "x", **extra}, headers=H)
+        assert r.status_code == 400
+    assert up.requests == [] and not (tmp_path / "meter.jsonl").exists()
+
+
+def test_deadline_stops_new_attempts(tmp_path):
+    up = Upstream(default=(500, {"error": {}}))
+    up.delay = 0.2
+    c, _ = make(tmp_path, up, deadline=0.3)
+    r = c.post("/v1/chat/completions", json=body(), headers=H)
+    assert r.status_code == 504 and r.json()["error"]["type"] == "deadline_exceeded"
+    assert len(up.requests) == 2  # third attempt never started
+    evs = events(tmp_path)
+    assert [e["type"] for e in evs].count("reserve") == [e["type"] for e in evs].count("settle") == 2
+
+
+def test_client_timeout_is_distinct_from_unreachable(live, monkeypatch):
+    url, up, _ = live
+    up.delay = 1.0
+    monkeypatch.setattr(llm, "_timeout", lambda: 0.2)
+    with pytest.raises(TimeoutError, match="/spend"):
+        llm.chat([{"role": "user", "content": "x"}], arm="t", base_url=url)
+
+
+def test_client_timeout_exceeds_proxy_deadline():
+    assert llm._timeout() >= config.load_settings().proxy_deadline_s + 30

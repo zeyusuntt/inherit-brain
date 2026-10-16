@@ -50,6 +50,7 @@ def create_app(
     sleep: Callable[[float], None] = time.sleep,
     default_max_tokens: int = 1024,
     timeout: float = 300.0,
+    deadline: float = 600.0,
     bug_path: Any = None,
 ) -> FastAPI:
     app = FastAPI(title="inherit metering proxy")
@@ -57,7 +58,20 @@ def create_app(
     base = upstream_base_url.rstrip("/")
     bug_file = bug_path or meter.path.with_name("meter_bugs.jsonl")
 
+    key_bytes = upstream_key.encode()
+
+    def redact(b: bytes) -> bytes:
+        return b.replace(key_bytes, b"[redacted]") if key_bytes else b
+
     def finish(status: int, content: bytes, cost_pu: int, reserved_pu: int) -> Response:
+        """Pass an upstream body through, redacted. Non-JSON bodies are wrapped in a JSON error."""
+        content = redact(content)
+        try:
+            json.loads(content)
+        except ValueError:
+            content = json.dumps(
+                {"error": {"type": "upstream_error", "message": content.decode("utf-8", "replace")[:500]}}
+            ).encode()
         return Response(
             content=content,
             status_code=status,
@@ -68,8 +82,23 @@ def create_app(
             },
         )
 
+    def ledger_error() -> JSONResponse:
+        return _err(500, "ledger_error", "could not record the cost; the reservation stays counted")
+
+    def safe(fn: Callable, *args: Any) -> bool:
+        try:
+            fn(*args)
+            return True
+        except Exception as e:
+            log.error("ledger write failed: %s", type(e).__name__)
+            return False
+
     def forward(path: str, content: bytes, model: str, ceiling: int, arm: str, extra: dict) -> Response:
+        start = time.monotonic()
         for attempt in range(MAX_RETRIES + 1):
+            remaining = deadline - (time.monotonic() - start)
+            if attempt > 0 and remaining <= 0:
+                return _err(504, "deadline_exceeded", "proxy deadline reached; no new attempt started")
             try:
                 r = meter.reserve_pu(ceiling, arm, model)
             except BudgetExceeded as e:
@@ -79,20 +108,24 @@ def create_app(
                     base + path,
                     content=content,
                     headers={"Authorization": f"Bearer {upstream_key}", "Content-Type": "application/json"},
+                    timeout=max(remaining, 0.1),
                 )
             except httpx2.HTTPError as e:
-                meter.settle_full(r)  # sent, outcome unknown: keep the whole ceiling
                 log.warning("upstream %s failed: %s", path, type(e).__name__)
+                if not safe(meter.settle_full, r):  # sent, outcome unknown: keep the whole ceiling
+                    return ledger_error()
                 return _err(502, "upstream_unreachable", type(e).__name__)
             status = resp.status_code
             if 400 <= status < 500:
-                meter.settle_unbilled(r, status)
+                if not safe(meter.settle_unbilled, r, status):
+                    return ledger_error()
                 if status == 429 and attempt < MAX_RETRIES:
                     sleep(2**attempt)
                     continue
                 return finish(status, resp.content, 0, r.amount)
-            if status >= 500 or status != 200:
-                meter.settle_full(r)
+            if status != 200:
+                if not safe(meter.settle_full, r):
+                    return ledger_error()
                 if status >= 500 and attempt < MAX_RETRIES:
                     sleep(2**attempt)
                     continue
@@ -105,22 +138,20 @@ def create_app(
                 ct = usage.get("completion_tokens", 0) if path.endswith("/embeddings") else usage["completion_tokens"]
                 cost_pu = meter.cost_pu(model, pt, ct)
             except Exception:
-                meter.settle_full(r)
+                if not safe(meter.settle_full, r):
+                    return ledger_error()
                 return _err(502, "bad_upstream_response", "upstream 200 without valid usage")
-            try:
-                meter.settle(r, pt, ct, **extra)
-            except Exception:
-                try:
-                    meter.settle_full(r)
-                except Exception:
-                    pass  # the open reservation still counts at its full ceiling
-                log.exception("settle failed")
-                return _err(500, "ledger_error", "could not record the cost")
+            if not safe(lambda: meter.settle(r, pt, ct, **extra)):
+                safe(meter.settle_full, r)  # else the open reservation still counts at its ceiling
+                return ledger_error()
             if cost_pu > r.amount:
-                with open(bug_file, "a") as f:
-                    f.write(json.dumps({"ts": time.time(), "arm": arm, "model": model, "path": path,
-                                        "reserved": r.amount, "cost": cost_pu}) + "\n")
                 log.error("usage above reservation arm=%s model=%s reserved=%s cost=%s", arm, model, r.amount, cost_pu)
+                try:
+                    with open(bug_file, "a") as f:
+                        f.write(json.dumps({"ts": time.time(), "arm": arm, "model": model, "path": path,
+                                            "reserved": r.amount, "cost": cost_pu}) + "\n")
+                except Exception as e:
+                    log.error("could not write %s: %s", bug_file, type(e).__name__)
             return finish(200, resp.content, cost_pu, r.amount)
         raise AssertionError("unreachable")
 
@@ -136,6 +167,10 @@ def create_app(
             return _err(400, "invalid_json", "body must be an object")
         if payload.get("model") not in meter.prices:
             return _err(400, "unknown_model", "model is not in the price table")
+        if payload.get("stream"):
+            return _err(400, "unsupported", "stream is not supported")
+        if payload.get("n", 1) != 1:
+            return _err(400, "unsupported", "n must be 1")
         return arm, payload
 
     def chat_sync(raw: bytes, request: Request) -> Response:
@@ -143,10 +178,6 @@ def create_app(
         if isinstance(parsed, JSONResponse):
             return parsed
         arm, body = parsed
-        if body.get("stream"):
-            return _err(400, "unsupported", "stream is not supported")
-        if body.get("n", 1) != 1:
-            return _err(400, "unsupported", "n must be 1")
         msgs = body.get("messages")
         if not isinstance(msgs, list) or not msgs:
             return _err(400, "invalid_request", "messages must be a non-empty list")
@@ -224,6 +255,7 @@ def main() -> None:
         upstream_key=load_upstream_secret(),
         meter=Meter(s.budget_usd, s.meter_path),
         default_max_tokens=s.default_max_tokens,
+        deadline=s.proxy_deadline_s,
     )
     uvicorn.run(app, host="127.0.0.1", port=s.proxy_port, log_level="info")
 

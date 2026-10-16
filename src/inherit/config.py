@@ -8,7 +8,7 @@ from functools import lru_cache
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -34,6 +34,7 @@ class Settings:
     budget_usd: float
     proxy_port: int = 8787
     default_max_tokens: int = 1024
+    proxy_deadline_s: float = 600.0  # total time across all upstream attempts of one request
     model: str = MODEL
     embed_model: str = EMBED_MODEL
     meter_path: Path = ROOT / "runs" / "meter.jsonl"
@@ -42,20 +43,25 @@ class Settings:
     )
 
 
+def _env() -> dict[str, str]:
+    """The .env file overlaid by the real environment. Never writes to os.environ,
+    so the upstream key does not leak into client processes or their children."""
+    return {**{k: v for k, v in dotenv_values(ROOT / ".env").items() if v is not None}, **os.environ}
+
+
 @lru_cache(maxsize=1)
 def load_settings() -> Settings:
-    load_dotenv(ROOT / ".env")
-    budget = float(os.environ["NEBIUS_BUDGET_USD"])
+    env = _env()
+    budget = float(env["NEBIUS_BUDGET_USD"])
     if not math.isfinite(budget) or budget < 0 or budget > PROJECT_CAP_USD:
         raise ValueError(f"NEBIUS_BUDGET_USD must be between 0 and {PROJECT_CAP_USD}")
     return Settings(
-        nebius_base_url=os.environ.get("NEBIUS_BASE_URL", "https://api.tokenfactory.nebius.com/v1/"),
+        nebius_base_url=env.get("NEBIUS_BASE_URL", "https://api.tokenfactory.nebius.com/v1/"),
         budget_usd=budget,
-        proxy_port=int(os.environ.get("PROXY_PORT", "8787")),
+        proxy_port=int(env.get("PROXY_PORT", "8787")),
     )
 
 
 def load_upstream_secret() -> str:
-    """The upstream provider key. Only inherit.proxy may call this."""
-    load_dotenv(ROOT / ".env")
-    return os.environ["NEBIUS_API_KEY"]
+    """The upstream provider key. Only inherit.proxy may call this. Not exported to os.environ."""
+    return _env()["NEBIUS_API_KEY"]

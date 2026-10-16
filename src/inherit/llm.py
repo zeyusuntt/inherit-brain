@@ -39,17 +39,26 @@ def proxy_openai_kwargs(arm: str) -> dict:
     return {"base_url": proxy_url(), "api_key": "proxy", "default_headers": {"X-Inherit-Arm": arm}}
 
 
+def _timeout() -> float:
+    # Outlast the proxy's total deadline so a client never gives up while attempts are still billed.
+    return load_settings().proxy_deadline_s + 30.0
+
+
 def _client(arm: str, base_url: str | None) -> openai.OpenAI:
     kw = proxy_openai_kwargs(arm)
     if base_url:
         kw["base_url"] = base_url
     # The proxy retries and meters; the SDK must not resend anything.
-    return openai.OpenAI(**kw, max_retries=0, timeout=320.0)
+    return openai.OpenAI(**kw, max_retries=0, timeout=_timeout())
 
 
 def _call(fn, **kw):
     try:
         raw = fn(**kw)
+    except openai.APITimeoutError as e:
+        raise TimeoutError(
+            "metering proxy did not answer in time; it may still be finishing billed attempts, check GET /spend"
+        ) from e
     except openai.APIConnectionError as e:
         raise RuntimeError("metering proxy is not reachable; start it with `uv run python -m inherit.proxy`") from e
     except openai.APIStatusError as e:
