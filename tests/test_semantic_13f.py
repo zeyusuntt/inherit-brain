@@ -383,20 +383,30 @@ def test_plans_negations_and_questions_are_not_completion(text):
     assert completed(text) is False
 
 
-UPDATED = "We've reviewed and updated the real-time alerts delivery. Everything is in place."
-
-
-def test_a_feature_bound_completion_sentence_makes_the_feature_implemented_despite_an_open_pr(tmp_path):
+def test_a_completion_sentence_alone_does_not_create_an_implemented_event(tmp_path):
+    # sentence-level reconciliation was removed: only the model's events (validated by completed()) count
     rec = fx.records()
-    segs = list(fx.M1_SEGS) + [(10, "Ben Ray", UPDATED)]
+    segs = list(fx.M1_SEGS) + [(10, "Ben Ray", "We've reviewed and updated the real-time alerts delivery. Everything is in place.")]
     rec.meetings[0] = fx.meeting(fx.M1, "2026-03-01T10:00:00", "product-planning",
                                  [fx.ANN, fx.BEN, fx.CY, fx.SAM1, fx.SAM2, fx.EVE], segs)
     out, _ = run(None, rec, tmp_path)
+    assert nodes(out.facts, "Feature")[ALERTS].props["implemented"] is False
+    assert not [e for e in nodes(out.facts, "FeatureEvent").values() if e.props["record_id"] == f"{fx.M1}#10"]
+
+
+def test_a_model_implemented_event_with_a_completed_update_sentence_is_accepted(tmp_path):
+    text = "We've reviewed and updated the real-time alerts delivery. Everything is in place."
+    m1 = json.loads(fx.M1_ANSWER)
+    m1["feature_events"].append({"feature_ref": "f1", "kind": "implemented", "reason": None, "pr": None,
+                                 "segment_ref": f"{fx.M1}#10", "citations": [fx.cite(f"{fx.M1}#10", "We've reviewed and updated")]})
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+    rec = fx.records()
+    rec.meetings[0] = fx.meeting(fx.M1, "2026-03-01T10:00:00", "product-planning",
+                                 [fx.ANN, fx.BEN, fx.CY, fx.SAM1, fx.SAM2, fx.EVE], list(fx.M1_SEGS) + [(10, "Ben Ray", text)])
+    out, _ = run(chat, rec, tmp_path)
     f = nodes(out.facts, "Feature")[ALERTS].props
     assert f["implemented"] is True and f["discussed_not_implemented"] is False  # PR 3 for alerts is still open
-    ev = [e for e in nodes(out.facts, "FeatureEvent").values() if e.props["kind"] == "implemented"
-          and e.props["feature"] == ALERTS and e.props["record_id"] == f"{fx.M1}#10"]
-    assert len(ev) == 1 and ev[0].props["citations"][0]["quote"].startswith("We've reviewed and updated")
 
 
 def test_a_planned_update_does_not_make_the_feature_implemented(tmp_path):
@@ -455,3 +465,24 @@ def test_a_placement_under_the_features_own_task_is_kept(tmp_path):
     out, _ = run(None, _rec_enum(ENUM, PLACE), tmp_path)  # standard membership already files PR 6 under predictive analytics
     assert _about(out, 6) == {(f"PR:{P}6", PRED)}
     assert out.report["pr_quarantined"] == []
+
+
+PR12 = "Predictive Model Evaluation Status Cards"
+
+
+def test_a_statement_naming_a_longer_pr_title_does_not_identify_the_shorter_one(tmp_path):
+    rec = _rec_enum(ENUM, "Next, we have predictive analytics. Dee, you're assigned to build Predictive Model Evaluation "
+                          "Status Cards. Can you confirm?")
+    rec.prs.append(fx.pr(12, PR12, summary="Cards."))
+    out, _ = run(_wrong_membership(), rec, tmp_path)
+    assert _about(out, 6) == {(f"PR:{P}6", ALERTS)}  # the statement is about PR 12; nothing is said about PR 6
+    assert out.report["pr_quarantined"] == []
+
+
+def test_a_pr_number_or_link_identifies_the_pr_and_articles_in_a_title_are_ignored(tmp_path):
+    out, _ = run(_wrong_membership(), _rec_enum(ENUM, "Next, we have predictive analytics. Dee, you're assigned to PR#6."),
+                 tmp_path)
+    assert _about(out, 6) == set()
+    out2, _ = run(_wrong_membership(), _rec_enum(ENUM, "Next, we have predictive analytics. Dee, you're assigned to the "
+                                                      "predictive model evaluation."), tmp_path / "b")
+    assert _about(out2, 6) == set()

@@ -479,23 +479,45 @@ def _cover(task: str, other: str) -> float:
     return len(st & _stems(other)) / len(st) if len(st) >= 2 else 0.0
 
 
-def quarantined_links(dev_links, titles: dict[str, str], pr_titles: dict[str, str], sources) -> list[dict]:
-    """PR associations the bundle contradicts: a segment or message that speaks the PR (most of its title words) with
-    task wording places its work under one task of a separately enumerated list ("refining the user interface"), and the
-    feature the PR was filed under is, by its own title, a different task of the same list. Nothing is regrouped or
-    reassigned; the association is only dropped. A PR placed under two different tasks is left alone."""
+_ARTICLES = re.compile(r"\b(?:the|a|an|our)\b")
+
+
+def _plain(text: str) -> str:
+    return " ".join(_ARTICLES.sub(" ", normalise(text)).split())
+
+
+def identifies_pr(text: str, pr, others) -> bool:
+    """True when a statement names exactly this PR: its link, its number ("PR#6", ".../pull/6"), or its full title
+    (articles ignored) with no longer title of another PR containing it inside the same statement. `pr` and `others` are
+    (link, number, title)."""
+    link, number, title = pr
+    if link in text or re.search(r"\bPRs?\s*#?\s*" + re.escape(number) + r"\b|/pull/" + re.escape(number) + r"\b", text, re.I):
+        return True
+    nt, flat = _plain(title), _plain(text)
+    if not nt or nt not in flat:
+        return False
+    return not any(len(_plain(t)) > len(nt) and nt in _plain(t) and _plain(t) in flat for _, _, t in others)
+
+
+def quarantined_links(dev_links, titles: dict[str, str], prs, sources) -> list[dict]:
+    """PR associations the bundle contradicts: a segment or message that identifies the PR (see `identifies_pr`; a fuzzy
+    resemblance never does) and, with task wording, places its work under one task of a separately enumerated list
+    ("refining the user interface"), while the feature the PR was filed under is, by its own title, a different task of
+    the same list. Nothing is regrouped or reassigned; the association is only dropped. A PR placed under two different
+    tasks, or not identified, is left alone. `prs`: (link, number, title) of the product's PRs."""
     enums = [(rid, items) for _, _, rid, raw in sources for items in [enumerated_tasks(raw)] if items]
     if not enums:
         return []
+    by_link = {p[0]: p for p in prs}
     out = []
     for link, ls_ in dev_links.items():
-        pst = _stems(pr_titles.get(link, ""))
-        if len(pst) < 3:
+        if link not in by_link:
             continue
+        pst = _stems(by_link[link][2])
+        others = [p for p in prs if p[0] != link and _plain(p[2]) != _plain(by_link[link][2])]
         placed: dict[tuple[int, int], dict] = {}
         for _, _, rid, raw in sources:
-            have = _stems(raw)
-            if len(pst & have) / len(pst) < 0.8 or not _TASK_CUE.search(raw):
+            if not _TASK_CUE.search(raw) or not identifies_pr(raw, by_link[link], others):
                 continue
             # an item counts only if some of its words are not the PR title's own (the title cannot name the task)
             scored = sorted(((_cover(item, raw), (e, i)) for e, (_, items) in enumerate(enums)
@@ -1196,7 +1218,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         dev_links[link] = [keep]
         winner_of[link] = win["feature"]
     quarantined = quarantined_links(dev_links, {fid: feature_info[fid]["title"] for fid in feature_info},
-                                    {link: prs_raw[link].title for link in dev_links}, task_sources)
+                                    [(p_.link, p_.number, p_.title) for p_ in cat.prs if p_.repo_scope == "product"],
+                                    task_sources)
     for q in quarantined:  # drop only the contradicted association
         dev_links[q["pr"]] = [x for x in dev_links[q["pr"]] if x["feature"] != q["feature"]]
         if not dev_links[q["pr"]]:
@@ -1334,33 +1357,6 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 "citations": c["citations"], "author": None, "target": cid, "reporters": []})
             doc_obs_n[d.id] += 1
     observations += doc_observations
-
-    # feature-bound completion sentences of meetings: an explicit "we've updated X, it is in place" about a feature is an
-    # implemented event even when the model did not report it (or it was rejected) and a PR for it is still open
-    have_impl = {(e["feature"], e["record"]) for e in fevents if e["kind"] == "implemented"}
-    reconciled_events = 0
-    for mt_ in rec.meetings:
-        for sg_ in mt_.segments:
-            for sent in _SENTENCES.split(sg_.text):
-                if not completed(sent) or rolled_back(sent):
-                    continue
-                st_ = _stems(sent)
-                hits = []
-                for fid_, names_ in names_of.items():
-                    cov = [len(ns & st_) / len(ns) if len(ns) >= 2 else 0.0 for ns in map(_stems, names_)]
-                    if max(cov, default=0.0) >= 2 / 3:
-                        hits.append(((max(cov), cov[0]), fid_))
-                hits.sort(reverse=True)
-                if not hits or (len(hits) > 1 and hits[0][0] <= hits[1][0]) or (hits[0][1], sg_.id) in have_impl:
-                    continue
-                good, _ = validate_items([{"citations": [{"record_id": sg_.id, "quote": sent.strip()}]}],
-                                         [SourceRecord(sg_.id, "segment", "text", sg_.text)], MEETING_ALLOWED)
-                if not good:
-                    continue
-                fevents.append({"feature": hits[0][1], "kind": "implemented", "reason": None, "date": mt_.date,
-                                "record": sg_.id, "citations": good[0]["citations"], "prs": [], "source": "meeting"})
-                have_impl.add((hits[0][1], sg_.id))
-                reconciled_events += 1
 
     # number events per record (R13) and build event nodes
     per_record: Counter = Counter()
@@ -1540,7 +1536,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         "feature_events": dict(Counter(e["kind"] for e in fevents)),
         "contributions": dict(Counter(c["kind"] for c in contributions)),
         "contributors": len({e for c in contributions for e in c["eids"]}),
-        "pr_conflicts": conflicts, "pr_quarantined": quarantined, "completion_events_reconciled": reconciled_events, "events_unattached": events_unattached, "unresolved_reviews": unresolved_reviews,
+        "pr_conflicts": conflicts, "pr_quarantined": quarantined, "events_unattached": events_unattached, "unresolved_reviews": unresolved_reviews,
         "pr_membership": {"bugfix_prs_excluded": len(bugfix), "by_basis": dict(Counter(l_["basis"] for ls in dev_links.values() for l_ in ls[:1])),
                           "unassigned": unassigned, "features_with_prs": len({f for fl in feat_of_pr.values() for f in fl})},
         "pr_decisions": {"by_action": dict(decision_prs), "unresolved_prs": state.get("unresolved_prs", [])},
