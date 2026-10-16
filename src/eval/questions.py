@@ -118,3 +118,15 @@ def load_questions(split_name: Literal["dev", "held"], raw_dir: Path = RAW_DIR) 
             out.append(Question(q.key, q.text, q.type, q.gold, q.citations, template(q.text, n) in dev_templates))
     _validate_frozen("held", dev, out)
     return out
+
+
+def unseen_held_templates() -> list[tuple[str, str]]:
+    """The only held-out read of the family step (R10): the sorted distinct (template, type) pairs of held
+    answerable questions whose template does not occur in dev. Strings only: no Question, key, product, gold,
+    citation or per-product count leaves this function. A template with two types is one pair with the types
+    joined by "/"."""
+    types: dict[str, set[str]] = {}
+    for q in load_questions("held"):
+        if q.type != "unanswerable" and q.seen is False:
+            types.setdefault(template(q.text, q.product), set()).add(q.type)
+    return sorted((t, "/".join(sorted(ts))) for t, ts in types.items())

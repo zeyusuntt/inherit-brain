@@ -237,8 +237,9 @@ def paired_bootstrap(
 def compute_bootstraps(
     by_arm: dict[str, list[Graded]], multihop: set[str], clusters: list[str] | None = None, n: int = 10000,
     seed: int = SEED, *, canonical_keys: set[str] | None = None, pilot: bool = False,
-) -> dict[str, BootResult]:
+) -> dict[str, BootResult | None]:
     """The three pre-registered intervals. H3_all is the all-questions difference, reported next to H3.
+    An empty `multihop` set gives H3 = None (not estimable) and still computes H3_all.
     Unless pilot=True, every arm must grade exactly the canonical held answerable key set (no missing, no
     duplicate key); canonical_keys defaults to the held split's."""
     if not pilot:
@@ -251,7 +252,7 @@ def compute_bootstraps(
     return {
         "H1": paired_bootstrap_full(by_arm["A5"], by_arm["A0"], clusters, n, seed),
         "H2": paired_bootstrap_full(by_arm["A5"], by_arm["A1f"], clusters, n, seed),
-        "H3": paired_bootstrap_full(by_arm["A5"], by_arm["A4"], clusters, n, seed, keys=multihop),
+        "H3": paired_bootstrap_full(by_arm["A5"], by_arm["A4"], clusters, n, seed, keys=multihop) if multihop else None,
         "H3_all": paired_bootstrap_full(by_arm["A5"], by_arm["A4"], clusters, n, seed),
     }
 
@@ -259,10 +260,14 @@ def compute_bootstraps(
 # ---------------------------------------------------------------- pre-registered multi-hop family
 def read_multihop_families(prereg_text: str) -> set[str]:
     """Families are listed in PREREG.md, one per line: `multi-hop family: <normalised question template>`,
-    where the template is `eval.questions.template` output."""
+    where the template is `eval.questions.template` output. An empty set is written as the single line
+    `multi-hop families: none` (R11). Neither form, or both, is an error."""
     fams = {m.group(1).strip() for m in re.finditer(r"^multi-hop family:\s*(.+)$", prereg_text, re.IGNORECASE | re.MULTILINE)}
-    if not fams:
-        raise ValueError("PREREG has no 'multi-hop family:' lines")
+    none = re.search(r"^multi-hop families:\s*none\s*$", prereg_text, re.IGNORECASE | re.MULTILINE)
+    if fams and none:
+        raise ValueError("PREREG has both 'multi-hop family:' lines and 'multi-hop families: none'")
+    if not fams and not none:
+        raise ValueError("PREREG has no 'multi-hop family:' lines and no 'multi-hop families: none'")
     return fams
 
 
@@ -281,14 +286,20 @@ def decide(summary_by_arm: dict[str, dict], boot: dict[str, Any]) -> dict[str, d
     a5, a1f = summary_by_arm["A5"], summary_by_arm["A1f"]
     d1, l1, _ = _ci(boot["H1"])
     d2, l2, _ = _ci(boot["H2"])
-    d3, l3, _ = _ci(boot["H3"])
+    all_q = _ci(boot["H3_all"]) if "H3_all" in boot else None
+    if boot["H3"] is None:  # no pre-registered multi-hop family (R11): nothing to bootstrap
+        h3 = {"estimable": False, "status": "not estimable", "diff": None, "lo": None, "pass": False,
+              "prior_expectation_met": False, "all_questions": all_q}
+    else:
+        d3, l3, _ = _ci(boot["H3"])
+        h3 = {"estimable": True, "diff": d3, "lo": l3, "pass": l3 > 0, "prior_expectation_met": d3 >= 10,
+              "all_questions": all_q}
     tokens_ok = a5["median_input_tokens"] * 10 <= a1f["median_input_tokens"]
     return {
         "H1": {"diff": d1, "lo": l1, "pass": l1 > 0, "prior_expectation_met": d1 >= 15},
         "H2": {"diff": d2, "lo": l2, "interval_ok": l2 > -3, "tokens_ok": tokens_ok, "pass": l2 > -3 and tokens_ok,
                "token_ratio": a5["median_input_tokens"] / a1f["median_input_tokens"]},
-        "H3": {"diff": d3, "lo": l3, "pass": l3 > 0, "prior_expectation_met": d3 >= 10,
-               "all_questions": _ci(boot["H3_all"]) if "H3_all" in boot else None},
+        "H3": h3,
         "H4": {"pass": a5["unanswerable_rate"] >= a1f["unanswerable_rate"],
                "unanswerable_rate": {"A5": a5["unanswerable_rate"], "A1f": a1f["unanswerable_rate"]},
                "false_refusal_rate": {"A5": a5["false_refusal_rate"], "A1f": a1f["false_refusal_rate"]}},
