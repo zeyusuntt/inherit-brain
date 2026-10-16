@@ -129,7 +129,7 @@ def check_access_log(access_dir: Path, repo_root: Path) -> CheckResult:
             if str(e.get("mode", "")).startswith(("os.", "subprocess.")):
                 continue
             real = _real(path)
-            if _under(real, root) and not repo_dir_allowed(real, root, write=_is_write_mode(e.get("mode"))):
+            if _under(real, root) and not repo_dir_allowed(real, root, write=bool(e["write"]) if "write" in e else _is_write_mode(e.get("mode"))):
                 problems.append(f"{log.name}:{i}: in-repo path outside allowed dirs: {path}")
         if count == 0:
             problems.append(f"{log.name}: log has no events")

@@ -241,3 +241,25 @@ def test_audit_all_pass(mini_raw, tmp_path):
     write_receipt(root / "results" / "receipts", "1.json", H)
     assert all(r.ok for r in audit(root))
     assert main(["--root", str(root), "--expect-products", "1"]) == 0
+
+
+def test_check_access_log_directory_scan_is_a_read(tmp_path):
+    repo = tmp_path / "repo"
+    acc = repo / "runs" / "access"
+    acc.mkdir(parents=True)
+    scan = lambda mode, extra: json.dumps({"path": str(repo / "data/bundle/products"), "mode": mode, "allowed": True, **extra})  # noqa: E731
+    for mode in ("scandir", "listdir"):
+        (acc / "a.jsonl").write_text(scan(mode, {}) + "\n" + scan(mode, {"write": False}) + "\n")
+        r = check_access_log(acc, repo)
+        assert r.ok, r.details
+
+
+def test_check_access_log_write_under_bundle_fails(tmp_path):
+    repo = tmp_path / "repo"
+    acc = repo / "runs" / "access"
+    acc.mkdir(parents=True)
+    p = str(repo / "data/bundle/products/x.json")
+    for e in ({"mode": "w"}, {"mode": "r", "write": True}):
+        (acc / "a.jsonl").write_text(json.dumps({"path": p, "allowed": True, **e}) + "\n")
+        r = check_access_log(acc, repo)
+        assert not r.ok and any("outside allowed" in x for x in r.details)

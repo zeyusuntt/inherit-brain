@@ -75,6 +75,8 @@ def _name_refused(path: str) -> bool:
 
 
 def _is_write_mode(mode) -> bool:
+    if mode in ("listdir", "scandir"):  # directory events are reads
+        return False
     return isinstance(mode, str) and any(c in mode for c in "wax+")
 
 
@@ -139,8 +141,8 @@ def install(repo_root: str | os.PathLike, log_path: str | os.PathLike) -> None:
     fd = os.open(str(log), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     log_real = _real(log)
 
-    def emit(path: str, mode: str, allowed: bool) -> None:
-        line = json.dumps({"path": path, "mode": mode, "allowed": allowed}, ensure_ascii=False) + "\n"
+    def emit(path: str, mode: str, allowed: bool, write: bool = False) -> None:
+        line = json.dumps({"path": path, "mode": mode, "allowed": allowed, "write": write}, ensure_ascii=False) + "\n"
         os.write(fd, line.encode("utf-8"))
 
     def hook(event: str, args: tuple) -> None:
@@ -172,7 +174,7 @@ def install(repo_root: str | os.PathLike, log_path: str | os.PathLike) -> None:
                         return
                 p = _real(raw)
                 allowed = p == log_real or is_allowed(p, root, write)
-                emit(p, mode, allowed)
+                emit(p, mode, allowed, write)
                 if allowed:
                     return
                 refusal = f"ioguard: {event} refused for {p}"
