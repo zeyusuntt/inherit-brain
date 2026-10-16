@@ -4,7 +4,7 @@ A1f: the paper's builder without `team` and `customers`, plus the full employee 
 (`ID: name (role)`, `ID: company`, sorted by ID, the same lookup domains the metadata tools use), and every Slack line
 tagged with its message ID (`[id] user: text`) so sources can be cited. Section order is the paper's: Slack by channel
 sorted by time, meeting transcripts, meeting chats, documents, URLs, pull requests. One answer call with the shared
-JSON format. The complete request is counted with the Qwen3 tokenizer; if it plus 2,048 output tokens exceeds
+JSON format. The complete rendered chat request (with the assistant prefix) is counted with the Qwen3 tokenizer; if it plus 2,048 output tokens exceeds
 262,144 the question fails, nothing is truncated.
 
 A1: the paper's builder as written (team and customers from the dev-only loader, no directories, no IDs), dev
@@ -28,7 +28,6 @@ from inherit.tools.guard import guard, guard_evidence
 
 LIMIT = 262_144
 OUTPUT_HEADROOM = 2_048
-PER_MESSAGE = 4  # chat-template tokens per message, a small constant added to the content counts
 TOKENIZER_PATH = ROOT / "data" / "cache" / "tokenizer" / "tokenizer.json"
 TOKENIZER_REPO = "Qwen/Qwen3-30B-A3B-Instruct-2507"
 PROMPT_VERSION = "baselines/a1f/v1"
@@ -132,8 +131,17 @@ def _failed(why: str, calls: list[CallUsage]) -> "ArmResult":
     return ArmResult(FinalAnswer("run_failed", "", [], [], [], use), calls, [], why)
 
 
+def render_chat(messages: list[dict]) -> str:
+    """The Qwen3 chat template as the server applies it: role markers, end markers and the assistant generation prefix."""
+    return "".join(f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>\n" for m in messages) + "<|im_start|>assistant\n"
+
+
+def count_rendered(count: Callable[[str], int], messages: list[dict]) -> int:
+    return count(render_chat(messages))
+
+
 def request_tokens(messages: list[dict], count: Callable[[str], int]) -> int:
-    return sum(count(m["content"]) + PER_MESSAGE for m in messages)
+    return count_rendered(count, messages)
 
 
 def run(inp, *, arm: str = "A1f", model: Callable | None = None, bundle_dir=BUNDLE_DIR, count: Callable | None = None,
@@ -180,6 +188,8 @@ def run(inp, *, arm: str = "A1f", model: Callable | None = None, bundle_dir=BUND
         text, ids, _ = guard(fields_out["answer_text"], asked, rows)
         evidence, _ = guard_evidence(fields_out["evidence_ids"], rows)
         outcome = fields_out["outcome"]
+        if outcome in agent.REFUSALS and not ids:  # the shared canonical refusal, as in agent.finish
+            text = agent.refusal_text([], [])
         if ids and outcome in agent.REFUSALS:
             outcome, text = "path", f"{', '.join(ids)}. {text}".strip()
         elif not ids and not text.strip():

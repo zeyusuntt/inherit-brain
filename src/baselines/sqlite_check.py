@@ -137,7 +137,13 @@ def bug_board_by_company(db, status: str = "any", rank: str = "all", customer: s
 
 
 def fix_trail(db, customer: str | None = None, bug: str | None = None, engineer: str | None = None) -> list[tuple]:
-    """[(fix PR link, bug id, authors, companies, customer ids)] ordered by (link, bug)."""
+    """[(fix PR link, bug id, authors, companies, customer ids)] ordered by (link, bug).
+
+    The graph tool keeps one author per PR and bug pair, so the check requires exactly that of the data."""
+    many = db.execute("""select pr.id, count(distinct op.src_id) from edges fx join nodes pr on pr.id = fx.src_id
+        join edges op on op.type = 'OPENED' and op.dst_id = pr.id where fx.type = 'FIXES' group by pr.id
+        having count(distinct op.src_id) > 1""").fetchall()
+    assert not many, f"fix PRs with several authors, outside the scoped check: {[m[0] for m in many]}"
     w_co, a_co = _in("json_extract(c.props, '$.company')", _companies(db, customer))
     w_bu, a_bu = _in("b.id", _bugs(db, bug))
     w_en, a_en = _in("json_extract(p.props, '$.eid')", _engineers(db, engineer))
@@ -275,6 +281,7 @@ def main() -> None:
     if a.products != "dev":
         raise SystemExit("A3 runs on dev products only")
     products = list(DEV_PRODUCTS)
+    total = 0
     loc = sum(1 for ln in Path(__file__).read_text().splitlines() if ln.strip())
     print(f"lines of code (non-blank): {loc}")
     for product in products:
@@ -284,9 +291,12 @@ def main() -> None:
             g = agent_graph(product, server)
             diffs = compare(db, g, product, matrix)
             lat = latency(db, g, product, matrix)
+            total += len(diffs)
             print(f"{product} {server}: {len(matrix)} queries, {len(diffs)} differences, latency {json.dumps(lat)}")
             for d in diffs[:3]:
                 print("  DIFF", d["family"], d["params"], "only_sql", d["only_sql"][:2], "only_graph", d["only_graph"][:2])
+    if total:
+        raise SystemExit(f"{total} comparisons differ")
 
 
 if __name__ == "__main__":

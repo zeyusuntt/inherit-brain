@@ -60,3 +60,86 @@ def test_latency_reports_both_sides(tg):
     lat = sc.latency(db, tg, P, sc.param_matrix(db), repeat=2)
     assert set(lat) == {"bug_board", "fix_trail", "pr_board"}
     assert all(v["sql_ms"] >= 0 and v["graph_ms"] >= 0 for v in lat.values())
+
+
+# ---------------------------------------------------------------- fan-out, exit status, single-author precondition
+def fanout_facts():
+    """One PR matching two features through a shared alias, and a bug reported through two customer paths."""
+    from toolfx import _e
+    from inherit.facts import Facts, Node
+
+    facts = tool_facts()
+    nodes = [Node(n.label, n.id, {**n.props, "aliases": [*n.props.get("aliases", []), "shared alias"]})
+             if n.id in ("Feature:fA", "Feature:fB") else n for n in facts.nodes]
+    edges = [*facts.edges,
+             _e("REPORTED_BY", "Bug:b2", "Customer:CUST-0001", ["rec-b2-dup"]),  # second path to TechCorp
+             _e("ABOUT", "PR:" + sc_pr(10), "Feature:fA", ["rec-dup-about"], key="again", kind="development")]
+    return Facts(nodes, edges)
+
+
+def sc_pr(n):
+    from toolfx import pr
+    return pr(n)
+
+
+def test_fanout_is_deduplicated_canonically_against_both_engines(tsrv, tmp_path):
+    from toolfx import agent_graph, load
+
+    facts = fanout_facts()
+    load(tsrv, facts)
+    g = agent_graph(tsrv, tmp_path)
+    g.server_version = tsrv.version_id
+    db = sc.export_facts(facts)
+    # the fan-out is real: the shared alias reaches two features and PR10 has three ABOUT edges
+    assert len(sc._features(db, "shared alias")) == 2
+    assert db.execute("select count(*) from edges where type = 'ABOUT' and src_id = ?",
+                      ("PR:" + sc_pr(10),)).fetchone()[0] == 3
+    cases = [("pr_board", {"feature": "shared alias"}), ("fix_trail", {"bug": "Slow export"}),
+             ("fix_trail", {"customer": "TechCorp"}), ("bug_board", {"status": "any", "customer": "TechCorp"}),
+             ("bug_board", {"status": "any", "rank": "max"})]
+    for family, params in cases:
+        a, b = sc.sql_rows(db, family, params), sc.graph_rows(g, P, family, params)
+        assert a == b, (family, params)
+        assert len(a) == len(set(a)), (family, params, "duplicate canonical rows")
+    links = [r[0] for r in sc.sql_rows(db, "pr_board", {"feature": "shared alias"})]
+    assert links.count(sc_pr(10)) == 1
+    trail = sc.sql_rows(db, "fix_trail", {"bug": "Slow export"})
+    assert {t[4] for t in trail} == {("Customer:CUST-0001", "Customer:CUST-0002")} and all(t[3] == ("TechCorp",) for t in trail)
+    assert sc.compare(db, g, P, cases) == []
+
+
+class _StubGraph:
+    pass
+
+
+def test_main_exits_non_zero_when_any_comparison_differs(monkeypatch, capsys):
+    import pytest as _pytest
+
+    db = sc.export_facts(tool_facts())
+    monkeypatch.setattr(sc, "export_product", lambda product: db)
+    monkeypatch.setattr(sc, "param_matrix", lambda d: [("pr_board", {})])
+    monkeypatch.setattr(sc, "latency", lambda *a, **k: {})
+    monkeypatch.setattr("inherit.tools.depth1.agent_graph", lambda product, server: _StubGraph())
+    monkeypatch.setattr(sc, "DEV_PRODUCTS", ("OnlyOne",))
+    monkeypatch.setattr("sys.argv", ["sqlite_check", "--products", "dev", "--servers", "x"])
+    monkeypatch.setattr(sc, "compare", lambda *a, **k: [{"family": "pr_board", "params": {}, "only_sql": [1],
+                                                          "only_graph": [], "sql": [1], "graph": []}])
+    with _pytest.raises(SystemExit) as e:
+        sc.main()
+    assert e.value.code != 0
+    assert "DIFF" in capsys.readouterr().out
+    monkeypatch.setattr(sc, "compare", lambda *a, **k: [])
+    sc.main()  # no differences: returns normally
+
+
+def test_scoped_check_requires_a_single_author_per_pr_and_bug_pair():
+    from toolfx import _e
+    from inherit.facts import Facts
+
+    facts = tool_facts()
+    two = Facts(facts.nodes, [*facts.edges, _e("OPENED", "Person:" + "eid_c3000003", "PR:" + sc_pr(2), ["rec-two"])])
+    db = sc.export_facts(two)
+    import pytest as _pytest
+    with _pytest.raises(AssertionError, match="several authors"):
+        sc.fix_trail(db)
+    sc.fix_trail(sc.export_facts(facts))  # the single-author fixture passes

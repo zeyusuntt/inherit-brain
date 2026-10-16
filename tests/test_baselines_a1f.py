@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from baselines import long_context as lc
+from inherit import agent
 from eval import a1_fields
 from eval.arms import ARMS
 from eval.run import _validate
@@ -127,8 +128,43 @@ def test_oversized_request_fails_without_a_model_call_or_truncation(bdir):
 def test_request_exactly_at_the_limit_is_sent(bdir):
     seen = []
     res = lc.run(ExecInput("ActionGenie", "q"), model=scripted(GOOD, seen=seen), bundle_dir=bdir,
-                 count=lambda s: (lc.LIMIT - lc.OUTPUT_HEADROOM) // 2 - lc.PER_MESSAGE)
+                 count=lambda s: lc.LIMIT - lc.OUTPUT_HEADROOM)
     assert len(seen) == 1 and res.failure is None
+
+
+def test_rendered_template_is_counted_whole_with_the_generation_prefix():
+    msgs = [{"role": "system", "content": "S"}, {"role": "user", "content": "U"}]
+    seen = []
+    lc.count_rendered(lambda s: seen.append(s) or 0, msgs)
+    assert seen == ["<|im_start|>system\nS<|im_end|>\n<|im_start|>user\nU<|im_end|>\n<|im_start|>assistant\n"]
+
+
+def test_real_template_boundary_counts_the_framing_tokens():
+    if not lc.TOKENIZER_PATH.exists():
+        pytest.skip("tokenizer.json not cached")
+    msgs = [{"role": "system", "content": "S"}, {"role": "user", "content": "U"}]
+    # 2 content tokens + 13 framing tokens (role markers, newlines, end markers, assistant prefix) = 15, not 2 + 2 * 4
+    assert lc.request_tokens(msgs, lc.count_tokens) == 15
+
+
+def refusal_run(bdir, content):
+    return _validate(lc.run(ExecInput("ActionGenie", "q"), model=scripted(content), bundle_dir=bdir,
+                            count=lambda s: 10))
+
+
+@pytest.mark.parametrize("outcome", sorted(agent.REFUSALS))
+def test_refusal_prose_is_replaced_by_the_canonical_text(bdir, outcome):
+    res = refusal_run(bdir, json.dumps({"answer_text": "Nobody, I guess.", "answer_ids": [], "evidence_ids": [],
+                                        "outcome": outcome}))
+    assert res.final.outcome == outcome and res.final.answer_ids == []
+    assert res.final.answer_text == agent.refusal_text([], [])
+
+
+def test_refusal_carrying_supported_ids_becomes_path(bdir):
+    res = refusal_run(bdir, json.dumps({"answer_text": "Alice wrote it", "answer_ids": ["eid_a1"],
+                                        "evidence_ids": ["m2"], "outcome": "not_in_graph"}))
+    assert res.final.outcome == "path" and res.final.answer_ids == ["eid_a1"]
+    assert res.final.answer_text.startswith("eid_a1. ")
 
 
 def test_a1_refuses_a_held_out_product_and_never_calls_the_model(bdir):

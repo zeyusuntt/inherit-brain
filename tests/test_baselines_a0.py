@@ -603,6 +603,13 @@ def test_a0v_refusal_label_cannot_carry_answer_ids():
     assert res.final.outcome == "path" and res.final.answer_ids == [ALICE_ID]
 
 
+@pytest.mark.parametrize("outcome", sorted(agent.REFUSALS))
+def test_a0v_refusal_uses_the_canonical_text(outcome):
+    m = FakeModel([J("Nobody, I guess.", outcome=outcome)])
+    res = hybrid_once.run(ExecInput("acme", "q"), model=m, retriever=Retriever(["c"]))
+    assert res.final.outcome == outcome and res.final.answer_text == agent.refusal_text([], [])
+
+
 # ---------------------------------------------------------------- registry and schema
 def test_arms_are_registered_with_distinct_configs():
     for name in ("A0", "A0f", "A0v", "dev-a0", "dev-a0f", "dev-a0v"):

@@ -67,6 +67,8 @@ def run(inp, *, arm: str = ARM, model: Callable | None = None, retriever=None,
         text, ids, _ = guard(fields["answer_text"], asked, rows)
         evidence, _ = guard_evidence(fields["evidence_ids"], rows)
         outcome = fields["outcome"]
+        if outcome in agent.REFUSALS and not ids:  # the shared canonical refusal, as in agent.finish
+            text = agent.refusal_text([], [])
         if ids and outcome in agent.REFUSALS:
             outcome, text = "path", f"{', '.join(ids)}. {text}".strip()
         elif not ids and not text.strip():
