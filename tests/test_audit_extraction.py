@@ -531,7 +531,7 @@ def test_gates_report_is_the_acceptance_interface(tmp_path, sources):
     rep = ae.gates_report(rd)
     assert set(rep) == {"complete", "reasons", "gates", "pass", "auditors", "prompt_hashes", "sample_hash", "summary_sha256", "report_md"}
     assert rep["complete"] and rep["pass"] and len(rep["gates"]) == 8
-    assert set(rep["gates"][0]) == {"name", "numerator", "denominator", "threshold", "pass"}
+    assert set(rep["gates"][0]) == {"name", "numerator", "denominator", "threshold", "pass", "status"}
     assert rep["auditors"] == AUD and rep["sample_hash"] == s["sample_hash"]
     assert rep["summary_sha256"] == ae.sha256_text((rd / "summary.json").read_text()) and Path(rep["report_md"]).exists()
     assert ae.main(["gates", "--round", "1"], root=tmp_path) == 0
@@ -949,3 +949,33 @@ def test_slack_substance_must_come_in_the_document_discussion():
                       slack("u2", "see the Design Doc", "2026-02-03T09:10:00", ch="ch-dev", name="develop-x-{P}", user="eid_a")]
     src = alias_source(mutate=before)
     assert not ae.reviewer_eligible(src, src.doc["design_v1"])  # the long message precedes the document mention
+
+
+def _summ(sizes, recall_truth=20):
+    return {"complete": True, "pending_third": 0, "sizes": sizes, "sample_hash": "h",
+            "prompt_hashes": {"version": ae.PROMPT_VERSION}, "verdict_hashes": {}, "integrity_problems": [], "shortages": {},
+            "verdict_file_stats": {}, "auditors": None,
+            "precision": {k: {"n": 50, "correct": 48, "precision": 0.96, "pending": 0, "double_positive": 48, "agree": 48,
+                              "kappa": 1, "to_third": 0, "unresolved": 0} for k in ae.PRECISION_QUOTAS if k != "whatif_path"},
+            "recall": {k: {"truth": recall_truth, "matched": recall_truth, "recall": 1.0 if recall_truth else None, "pending": 0,
+                           "packets": 3, "lists_equal": 3} for k in ae.RECALL_QUOTAS}}
+
+
+def test_empty_pool_category_is_not_estimable_and_ignored():
+    sizes = {k: {"available": 5, "requested": 5} for k in (*ae.PRECISION_QUOTAS, *ae.RECALL_QUOTAS)}
+    sizes["whatif_path"] = {"available": 0, "requested": 20, "actual": 0}
+    rows = {g["name"]: g for g in ae._gate_rows(_summ(sizes))}
+    p = rows["precision:whatif_path"]
+    assert p["status"] == "not estimable (empty dev pool)" and (p["numerator"], p["denominator"]) == (0, 0) and p["pass"]
+    assert all(g["status"] == "evaluated" for n, g in rows.items() if n != "precision:whatif_path")
+    assert all(ok for _, ok, _ in ae.gates(_summ(sizes)))
+    assert "Not estimable" in ae.render_report(_summ(sizes)) and "whatif_path" in ae.render_report(_summ(sizes))
+
+
+def test_positive_pool_with_zero_denominator_still_fails():
+    sizes = {k: {"available": 5, "requested": 5} for k in (*ae.PRECISION_QUOTAS, *ae.RECALL_QUOTAS)}
+    s = _summ(sizes, recall_truth=0)  # recall truth 0 with a positive pool
+    rows = {g["name"]: g for g in ae._gate_rows(s)}
+    assert not rows["recall:recall_bug"]["pass"] and rows["recall:recall_bug"]["status"] == "evaluated"
+    assert not rows["precision:whatif_path"]["pass"]  # positive pool, no packets/verdicts: a failure
+    assert not all(ok for _, ok, _ in ae.gates(s))

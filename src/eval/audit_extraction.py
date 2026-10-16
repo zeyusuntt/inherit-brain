@@ -1348,6 +1348,9 @@ def render_report(s: dict) -> str:
     L += ["", "## Recall", "", "| kind | matched/truth | recall | packets | auditor lists equal |", "|---|---|---|---|---|"]
     for k, r in sorted(s["recall"].items()):
         L.append(f"| {k} | {r['matched']}/{r['truth']} | {r['recall']} | {r['packets']} | {r['lists_equal']} |")
+    empty = sorted(k for k, v in (s.get("sizes") or {}).items() if v.get("available") == 0)
+    if empty:
+        L += ["", f"Not estimable (empty dev pool, excluded from pass and fail): {', '.join(empty)}."]
     sh = (s["recall"].get("recall_bug") or {}).get("shared_report_messages")
     L += ["", f"Disclosure: {sh} first-report messages carrying more than one bug in the extraction are in the bug recall "
           "packets; those bugs share one identity key in the comparison.",
@@ -1358,25 +1361,36 @@ def render_report(s: dict) -> str:
 
 
 # ---------------------------------------------------------------- gates
+NOT_ESTIMABLE = "not estimable (empty dev pool)"
+
+
 def _gate_rows(summary: dict) -> list[dict]:
+    """One row per category. A category whose pool in the manifest is empty (available == 0) is not estimable: status says
+    so, 0/0, and it neither passes nor fails the round (pass is True so it never blocks). Any other category with a zero
+    adjudicated denominator still fails."""
+    sizes = summary.get("sizes") or {}
     rows = []
-    for kind in PRECISION_QUOTAS:
-        c = summary["precision"].get(kind)
-        n, d = (c["correct"], c["n"]) if c else (0, 0)
-        ok = bool(c and d and c["precision"] is not None and c["precision"] >= GATE_PRECISION and not c["pending"])
-        rows.append({"name": f"precision:{kind}", "numerator": n, "denominator": d, "threshold": GATE_PRECISION, "pass": ok})
-    for kind in RECALL_QUOTAS:
-        r = summary["recall"].get(kind)
-        n, d = (r["matched"], r["truth"]) if r else (0, 0)
-        ok = bool(r and d and not r["pending"] and r["recall"] >= GATE_RECALL)
-        rows.append({"name": f"recall:{kind}", "numerator": n, "denominator": d, "threshold": GATE_RECALL, "pass": ok})
+    for kind, thr, cat in [(k, GATE_PRECISION, "precision") for k in PRECISION_QUOTAS] + [(k, GATE_RECALL, "recall") for k in RECALL_QUOTAS]:
+        name = f"{cat}:{kind}"
+        if sizes.get(kind, {}).get("available") == 0:
+            rows.append({"name": name, "numerator": 0, "denominator": 0, "threshold": thr, "pass": True, "status": NOT_ESTIMABLE})
+            continue
+        c = summary[cat].get(kind)
+        if cat == "precision":
+            n, d = (c["correct"], c["n"]) if c else (0, 0)
+            ok = bool(c and d and c["precision"] is not None and c["precision"] >= thr and not c["pending"])
+        else:
+            n, d = (c["matched"], c["truth"]) if c else (0, 0)
+            ok = bool(c and d and not c["pending"] and c["recall"] >= thr)
+        rows.append({"name": name, "numerator": n, "denominator": d, "threshold": thr, "pass": ok, "status": "evaluated"})
     return rows
 
 
 def gates(summary: dict) -> list[tuple[str, bool, str]]:
     out = [("complete", summary["complete"], f"{summary['pending_third']} third passes pending, "
                                             f"{len(summary.get('integrity_problems') or [])} integrity problems")]
-    return out + [(g["name"], g["pass"], f"{g['numerator']}/{g['denominator']}" if g["denominator"] else "no packets")
+    return out + [(g["name"], g["pass"], g["status"] if g["status"] != "evaluated" else
+                   f"{g['numerator']}/{g['denominator']}" if g["denominator"] else "no packets")
                   for g in _gate_rows(summary)]
 
 
@@ -1465,7 +1479,8 @@ def main(argv: list[str] | None = None, *, root: Path = AUDIT_DIR, whatif_fn: Ca
             return 1
         print(f"{'PASS' if rep['complete'] else 'FAIL'} complete")
         for g in rep["gates"]:
-            print(f"{'PASS' if g['pass'] else 'FAIL'} {g['name']} {g['numerator']}/{g['denominator']} (threshold {g['threshold']})")
+            print(f"{'PASS' if g['pass'] else 'FAIL'} {g['name']} {g['numerator']}/{g['denominator']} (threshold {g['threshold']})"
+                  + ("" if g["status"] == "evaluated" else f" [{g['status']}]"))
         return 0 if rep["pass"] else 1
     return 0
 
