@@ -61,9 +61,20 @@ def _core(graded: list[Graded]) -> dict[str, Any]:
     }
 
 
-def summarize(graded: list[Graded], expected_n: tuple[int, int] | None = None) -> dict[str, Any]:
+def _check_unique(graded: list[Graded]) -> None:
+    keys = [str(g.key) for g in graded]
+    if len(keys) != len(set(keys)):
+        raise ValueError("duplicate question keys among the graded slots")
+
+
+def summarize(graded: list[Graded], expected_n: tuple[int, int] | None = None, *, pilot: bool = False) -> dict[str, Any]:
     """Per type means, the primary endpoint, the paper macro, refusal and failure rates, and the same split by
-    seen and unseen question strings. `expected_n` is the fixed (answerable, unanswerable) denominator."""
+    seen and unseen question strings. `expected_n` is the fixed (answerable, unanswerable) denominator; without
+    it the call must say `pilot=True`, so a partial population is never summarised by accident. Use
+    summarize_split for a real split."""
+    _check_unique(graded)
+    if expected_n is None and not pilot:
+        raise ValueError("summarize needs expected_n (or summarize_split); pass pilot=True for a partial population")
     out = _core(graded)
     if expected_n is not None and (out["n"]["answerable"], out["n"]["unanswerable"]) != tuple(expected_n):
         raise ValueError(
@@ -77,10 +88,23 @@ def summarize(graded: list[Graded], expected_n: tuple[int, int] | None = None) -
     return out
 
 
-def summarize_split(graded: list[Graded], split: str) -> dict[str, Any]:
-    """summarize() with the frozen denominator of the split (held 659/544, dev 156/155)."""
+def _canonical(split: str, questions=None) -> set[str]:
+    from eval.questions import load_questions
+
+    return {str(q.key) for q in (questions if questions is not None else load_questions(split))}
+
+
+def summarize_split(graded: list[Graded], split: str, questions=None) -> dict[str, Any]:
+    """summarize() over exactly the canonical key set of the split: no missing and no duplicate key, which also
+    gives the frozen denominator (held 659/544, dev 156/155)."""
     from eval.questions import FROZEN_COUNTS
 
+    keys = [str(g.key) for g in graded]
+    canon = _canonical(split, questions)
+    if len(keys) != len(set(keys)) or set(keys) != canon:
+        raise ValueError(f"graded slots are not the canonical {split} key set: "
+                         f"{len(canon - set(keys))} missing, {len(set(keys) - canon)} extra, "
+                         f"{len(keys) - len(set(keys))} duplicated")
     return summarize(graded, expected_n=FROZEN_COUNTS[split])
 
 
@@ -212,15 +236,18 @@ def paired_bootstrap(
 
 def compute_bootstraps(
     by_arm: dict[str, list[Graded]], multihop: set[str], clusters: list[str] | None = None, n: int = 10000,
-    seed: int = SEED, expected_n: tuple[int, int] | None = HELD_N,
+    seed: int = SEED, *, canonical_keys: set[str] | None = None, pilot: bool = False,
 ) -> dict[str, BootResult]:
     """The three pre-registered intervals. H3_all is the all-questions difference, reported next to H3.
-    Every arm must cover the full frozen answerable denominator (pass expected_n=None only for pilots)."""
-    if expected_n is not None:
+    Unless pilot=True, every arm must grade exactly the canonical held answerable key set (no missing, no
+    duplicate key); canonical_keys defaults to the held split's."""
+    if not pilot:
+        canon = canonical_keys if canonical_keys is not None else {
+            k for k in _canonical("held") if "/ans/" in k}
         for arm, gs in by_arm.items():
-            n = sum(g.type != "unanswerable" for g in gs)
-            if n != expected_n[0]:
-                raise ValueError(f"arm {arm} has {n} answerable slots, expected {expected_n[0]}")
+            keys = [str(g.key) for g in gs if g.type != "unanswerable"]
+            if len(keys) != len(set(keys)) or set(keys) != canon:
+                raise ValueError(f"arm {arm} does not grade exactly the {len(canon)} canonical answerable slots")
     return {
         "H1": paired_bootstrap_full(by_arm["A5"], by_arm["A0"], clusters, n, seed),
         "H2": paired_bootstrap_full(by_arm["A5"], by_arm["A1f"], clusters, n, seed),

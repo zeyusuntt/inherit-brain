@@ -391,3 +391,16 @@ def test_score_mappings_match_herb(herb):
         herb.stub.reply = {"done": done}
         herb_says_answered = herb.unanswerability_eval("q", "a")
         assert (G.refusal_from({"done": done}) == "no") == (not herb_says_answered)
+
+
+def test_default_judge_model_is_resolved_once_and_keys_the_cache(tmp_path, monkeypatch):
+    cache = tmp_path / "c.jsonl"
+    chat = FakeChat()
+    j = G.Judge(cache, chat=chat)
+    assert j.model == G.MODEL and j.identity()["model"] == G.MODEL
+    j.likert("q", "r", "c")
+    assert chat.calls[0][1]["model"] == G.MODEL
+    monkeypatch.setattr(G, "MODEL", "other/model")
+    j2 = G.Judge(cache, chat=chat)
+    j2.likert("q", "r", "c")  # a different default model must not reuse the old cached score
+    assert len(chat.calls) == 2 and chat.calls[1][1]["model"] == "other/model"

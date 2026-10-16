@@ -41,7 +41,7 @@ def test_primary_endpoint_is_the_mean_of_three_type_means_not_the_mean_over_ques
     gs += [G("P", 10, "company", 0)]
     gs += [G("P", 11, "pr", 100), G("P", 12, "pr", 100), G("P", 13, "url", 0)]  # artifact pools pr and url
     gs += [G("P", 14 + i, "content", 0) for i in range(10)]
-    s = S.summarize(gs)
+    s = S.summarize(gs, pilot=True)
     assert s["groups"] == {"person": 100.0, "company": 0.0, "artifact": pytest.approx(200 / 3), "content": 0.0}
     assert s["primary"] == pytest.approx((100 + 0 + 200 / 3) / 3)
     assert s["paper_macro"] == pytest.approx((100 + 0 + 200 / 3 + 0) / 4)
@@ -50,7 +50,7 @@ def test_primary_endpoint_is_the_mean_of_three_type_means_not_the_mean_over_ques
 
 
 def test_primary_is_none_when_a_group_is_absent():
-    s = S.summarize([G("P", 0, "person", 50), G("P", 1, "company", 50)])
+    s = S.summarize([G("P", 0, "person", 50), G("P", 1, "company", 50)], pilot=True)
     assert s["primary"] is None and s["groups"]["artifact"] is None
 
 
@@ -58,7 +58,7 @@ def test_unanswerable_rate_false_refusals_and_failures():
     gs = [G("P", 0, "person", 100), G("P", 1, "person", 0, outcome="not_in_graph"),
           G("P", 2, "company", 0, outcome="unknown_name"), G("P", 3, "pr", 0, failed=True, outcome="run_failed"),
           G("P", 0, "unanswerable", 100), G("P", 1, "unanswerable", 0), G("P", 2, "unanswerable", 0, failed=True)]
-    s = S.summarize(gs)
+    s = S.summarize(gs, pilot=True)
     assert s["unanswerable_rate"] == pytest.approx(100 / 3)
     assert s["false_refusal_rate"] == pytest.approx(50.0)  # 2 of 4 answerable
     assert s["failure_rate"] == pytest.approx(100 * 2 / 7)
@@ -68,11 +68,11 @@ def test_unanswerable_rate_false_refusals_and_failures():
 def test_tables_are_also_split_by_seen_and_unseen():
     gs = [G("P", 0, "person", 100, seen=True), G("P", 1, "person", 0, seen=False), G("P", 2, "person", 50, seen=False),
           G("P", 0, "unanswerable", 100, seen=True), G("P", 1, "unanswerable", 0, seen=False)]
-    s = S.summarize(gs)
+    s = S.summarize(gs, pilot=True)
     assert s["by_seen"]["seen"]["per_type"]["person"] == {"n": 1, "mean": 100.0, "failed": 0}
     assert s["by_seen"]["unseen"]["per_type"]["person"]["mean"] == 25.0
     assert s["by_seen"]["seen"]["unanswerable_rate"] == 100.0 and s["by_seen"]["unseen"]["unanswerable_rate"] == 0.0
-    assert "by_seen" not in S.summarize([G("P", 0, "person", 1)])
+    assert "by_seen" not in S.summarize([G("P", 0, "person", 1)], pilot=True)
 
 
 # ---------------------------------------------------------------- usage and citations
@@ -263,7 +263,7 @@ def test_compute_bootstraps_covers_h1_to_h3():
     a, b = two_arm_fixture()
     by_arm = {"A5": a, "A0": b, "A1f": b, "A4": b}
     keys = {str(g.key) for g in a if g.key.product == "Y"}
-    out = S.compute_bootstraps(by_arm, keys, None, n=40, seed=1, expected_n=None)
+    out = S.compute_bootstraps(by_arm, keys, None, n=40, seed=1, pilot=True)
     assert set(out) == {"H1", "H2", "H3", "H3_all"}
     assert out["H1"].diff == 60.0 and out["H3"].diff == 60.0
 
@@ -279,14 +279,41 @@ def test_multihop_families_come_from_prereg_text():
     assert S.multihop_keys(qs, {"who reviewed <p>"}) == {"P/ans/0"}
 
 
-def test_held_bootstrap_requires_the_full_frozen_denominator():
-    a, b = two_arm_fixture()
-    by_arm = {"A5": a, "A0": b, "A1f": b, "A4": b}
-    with pytest.raises(ValueError, match="659"):
-        S.compute_bootstraps(by_arm, set(), None, n=10, seed=1)
+def test_summarize_needs_a_denominator_or_an_explicit_pilot_flag():
+    gs = held_like(3)[1:]  # 658 answerable
+    with pytest.raises(ValueError, match="pilot"):
+        S.summarize(gs)
+    with pytest.raises(ValueError, match="duplicate"):
+        S.summarize([G("P", 0, "person", 1), G("P", 0, "person", 1)], pilot=True)
 
 
-def test_summarize_split_uses_the_frozen_counts():
-    assert S.summarize_split(held_like(3), "held")["n"]["answerable"] == 659
-    with pytest.raises(ValueError, match="156"):
-        S.summarize_split(held_like(3), "dev")
+def _held_questions():
+    return [Question(g.key, "q", g.type, None, []) for g in held_like(3)]
+
+
+def test_summarize_split_requires_exactly_the_canonical_keys():
+    qs = _held_questions()
+    ok = S.summarize_split(held_like(3), "held", qs)
+    assert ok["n"] == {"answerable": 659, "unanswerable": 544}
+    # P/ans/i and P/unans/i overlap by index, so build a missing and a duplicated variant explicitly
+    with pytest.raises(ValueError, match="1 missing"):
+        S.summarize_split(held_like(3)[1:], "held", qs)
+    dup = held_like(3)[1:] + [held_like(3)[1]]  # 1,203 rows but 1,202 unique keys
+    assert len(dup) == 1203
+    with pytest.raises(ValueError, match="duplicated"):
+        S.summarize_split(dup, "held", qs)
+
+
+def test_held_bootstrap_requires_the_canonical_answerable_slots():
+    qs = _held_questions()
+    canon = {str(q.key) for q in qs if q.key.kind == "ans"}
+    full = held_like(3)
+    by_arm = {a: full for a in ("A5", "A0", "A1f", "A4")}
+    out = S.compute_bootstraps(by_arm, set(sorted(canon)[:50]), None, n=20, seed=1, canonical_keys=canon)
+    assert out["H1"].n == 20  # the requested resample count reaches the bootstrap unchanged
+    assert all(r.n == 20 for r in out.values())
+    short = dict(by_arm, A0=full[1:])
+    with pytest.raises(ValueError, match="canonical"):
+        S.compute_bootstraps(short, set(), None, n=20, seed=1, canonical_keys=canon)
+    with pytest.raises(ValueError, match="canonical"):
+        S.compute_bootstraps(dict(by_arm, A4=full + [full[5]]), set(), None, n=20, seed=1, canonical_keys=canon)

@@ -140,7 +140,8 @@ class Judge:
     """Model M behind the metering proxy, cached by exact request. The cache key includes the prompt version."""
 
     def __init__(self, cache_path: Path | None, chat: Callable = llm.chat, arm: str = "judge", model: str | None = None):
-        self.chat, self.arm, self.model = chat, arm, model
+        self.chat, self.arm = chat, arm
+        self.model = model or MODEL  # resolved once: the manifest, the cache key and the call all use this value
         self.cache_path = Path(cache_path) if cache_path else None
         self.cache: dict[str, str] = {}
         if self.cache_path and self.cache_path.exists():
@@ -152,7 +153,7 @@ class Judge:
                     continue
 
     def identity(self) -> dict[str, str]:
-        return {"model": self.model or MODEL, "prompt_version": PROMPT_VERSION, "scorer_version": SCORER_VERSION}
+        return {"model": self.model, "prompt_version": PROMPT_VERSION, "scorer_version": SCORER_VERSION}
 
     def _key(self, prompt: str) -> str:
         blob = json.dumps([PROMPT_VERSION, self.model, JUDGE_MAX_TOKENS, prompt], ensure_ascii=False)
