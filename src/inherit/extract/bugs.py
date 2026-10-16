@@ -83,6 +83,9 @@ def build_session_request(session, parse, rec, cat, known_areas=()) -> tuple[lis
     if not (parse.bugs or parse.events or parse.externals):
         lines.append("- nothing")
     lines += ["", "MESSAGES THE RULES COULD NOT PARSE (look here first): " + (", ".join(parse.residual) or "none")]
+    if parse.no_area and not (parse.residual or parse.reopen):
+        lines += ["", "Only the product areas are needed for this session: return empty bugs, events and external "
+                      "arrays."]
     if parse.reopen:
         lines.append("This session contains a reopening. Report who is assigned to or takes the bug afterwards, and "
                      "any resolution or dismissal stated in the follow-up messages.")
@@ -126,7 +129,7 @@ def build_link_request(bugs_in_order, items, channel_name) -> tuple[list[dict], 
 
 # ---------------------------------------------------------------- model answer -> validated candidates
 
-def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src):
+def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_only=False):
     """Validated (bugs, events, externals) from one model answer. Counts every drop in `rep`."""
     msgs = {m.id: m for m in session if not m.is_bot}
     people = {m.user_id for m in msgs.values()} | {x for m in msgs.values() for x in m.mentions}
@@ -137,7 +140,11 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src):
     def drop(kind, reason):
         dropped[kind][reason] += 1
 
-    bugs_raw = [_repaired(b, msgs, sess_src, rep) for b in (data.get("bugs") or []) if isinstance(b, dict)]
+    if areas_only:  # the rules parsed everything else: whatever the model adds here is ignored, never merged
+        rep["ignored_model_events"] += sum(1 for e in (data.get("events") or []) if isinstance(e, dict))
+        data = {"components": data.get("components")}
+    residual = set(parse.residual)
+    bugs_raw = [_repaired(b, msgs, sess_src, rep, residual) for b in (data.get("bugs") or []) if isinstance(b, dict)]
     ok_bugs, bad = validate_items(bugs_raw, sess_src, ALLOWED)
     for reason, n in bad.items():
         dropped["bugs"][reason] += n
@@ -197,17 +204,20 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src):
             local = ref
         elif isinstance(ref, str) and ref in hints:
             mention = hints[ref]["mention"]
+        if local is None and not (isinstance(mention, str) and mention.strip()) and isinstance(ref, str) \
+                and len(ref.split()) >= 2:
+            mention = ref  # the model wrote the bug's words where a ref belongs
         if local is None and not (isinstance(mention, str) and mention.strip()):
             drop("events", "no_bug_reference")
             continue
-        if local is None and normalise(mention) not in normalise(text) and e.get("bug_ref") not in hints:
+        if local is None and normalise(mention) not in normalise(text) and ref not in hints:
             drop("events", "mention_not_in_session")
             continue
         events.append({"type": typ, "message_id": mid, "mention": mention if local is None else None,
                        "local_bug": local, "assignee_eids": assignees, "fix_pr_links": fix,
                        "citations": e["citations"], "source": "model"})
 
-    ex_raw = [_repaired(x, msgs, sess_src, rep) for x in (data.get("external") or []) if isinstance(x, dict)]
+    ex_raw = [_repaired(x, msgs, sess_src, rep, set()) for x in (data.get("external") or []) if isinstance(x, dict)]
     ok_ex, bad = validate_items(ex_raw, sess_src, ALLOWED)
     for reason, n in bad.items():
         dropped["external"][reason] += n
@@ -255,9 +265,10 @@ def area_in(component: str, text: str) -> bool:
     return bool(k) and f" {k} " in f" {br.area_key(text)} "
 
 
-def _repaired(item: dict, msgs, sess_src, rep) -> dict:
+def _repaired(item: dict, msgs, sess_src, rep, residual) -> dict:
     """A bug or look-alike whose citations all fail but whose title is a verbatim span of its own message (the model
-    usually joined sentences or dropped markup in the quote) is cited by the title itself. Counted in the report."""
+    usually joined sentences or dropped markup in the quote) is cited by the title itself. A bug whose title the model
+    reworded is cited by its customer id when the message is an intake the rules left unparsed. Both are counted."""
     mid, title = item.get("message_id"), str(item.get("title") or "").strip()
     if mid not in msgs or not title:
         return item
@@ -266,6 +277,10 @@ def _repaired(item: dict, msgs, sess_src, rep) -> dict:
     if normalise(title) in normalise(msgs[mid].text):
         rep["repaired_citations"] += 1
         return {**item, "citations": [{"record_id": mid, "quote": title}]}
+    cust = [c for c in item.get("customer_ids") or [] if isinstance(c, str) and c in msgs[mid].text]
+    if mid in residual and cust:  # a message the rules flagged as an unparsed intake, naming that customer
+        rep["repaired_citations"] += 1
+        return {**item, "citations": [{"record_id": mid, "quote": cust[0]}]}
     return item
 
 
@@ -364,8 +379,9 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                                                        "messages": [m.id for m in session if not m.is_bot],
                                                        "reason": reason})
                 else:
-                    m_bugs, m_events, m_ext, areas = _clean_session_answer(data, session, parse, rec, cat, rep,
-                                                                           sess_src)
+                    m_bugs, m_events, m_ext, areas = _clean_session_answer(
+                        data, session, parse, rec, cat, rep, sess_src,
+                        areas_only=not (parse.residual or parse.reopen))
                     for b in parse.bugs:
                         b["component"] = b["component"] or areas.get(b["local_id"])
             local_bug: dict[str, str] = {}

@@ -190,7 +190,7 @@ def test_link_call_lists_candidates_and_items(res):
 # ---------------------------------------------------------------- validation, links, failures
 
 def test_item_with_unsupported_quote_is_dropped_and_counted(tmp_path):
-    bad = dict(fx.LEAK_BUG, citations=[fx.cite("20260111-5-b0006", "a quote that is not in the message")])
+    bad = dict(fx.LEAK_BUG, customer_ids=[], citations=[fx.cite("20260111-5-b0006", "a quote that is not in the message")])
     chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[bad]),
                                    "20260125-1-g0002": fx.session_json(events=[fx.REASSIGN_EVENT])},
                            link=fx.link_json(("I1", "B1")))
@@ -516,3 +516,44 @@ def test_area_spellings_collapse_to_one_display_form(tmp_path):
     out, _ = run(chat=chat, rec=fx.records(slack=_area_slack(text2)), tmp=tmp_path)
     comps = {b.props["component"] for b in nodes(out.facts, "Bug").values()}
     assert comps == {"Database Management & Logging System"}
+
+
+def test_event_whose_ref_is_the_bug_title_words_is_used_as_the_mention(tmp_path):
+    ev = dict(fx.REASSIGN_EVENT, bug_ref="Duplicate Log Entries for Manual Actions", bug_mention=None)
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[fx.LEAK_BUG]),
+                                   "20260125-1-g0002": fx.session_json(events=[ev])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, tmp=tmp_path)
+    assert "dropped" not in out.report or "events" not in out.report["dropped"]
+    dup = bug_by_title(out.facts, "Duplicate Log Entries for Manual Actions").props
+    assert dup["event_types"][-1] == "ASSIGNED"
+
+
+def test_session_called_only_for_areas_ignores_everything_else_the_model_says(tmp_path):
+    extra = {"type": "ASSIGNED", "bug_ref": "rb1", "bug_mention": None, "actor_message_id": "20260111-2-b0003",
+             "assignee_eids": [fx.EMMA], "fix_pr_links": [], "citations": [fx.cite("20260111-2-b0003", "I'll start looking")]}
+    answer = json.loads(_area_answer("database performance"))
+    answer["events"] = [extra]
+    chat = fx.ScriptedChat(script={"20260111-3-b0004": json.dumps(answer)})
+    out, _ = run(chat=chat, rec=fx.records(slack=_area_slack(AREA_TEXT)), tmp=tmp_path)
+    assert "Only the product areas are needed" in chat.session_calls[0]["user"]
+    assert bug_by_title(out.facts, "Inefficient Database Query Optimization").props["component"] == "database performance"
+    assert out.report["ignored_model_events"] == 1
+    assert "20260111-2-b0003" not in {n.props["message_id"] for n in nodes(out.facts, "BugEvent").values()}
+
+
+def test_bug_title_slightly_reworded_by_the_model_is_cited_by_its_customer_id(tmp_path):
+    text = ("Lastly, there's a security issue where sensitive data is being exposed in error messages. It hits "
+            "customer CUST-0064. Can you take it?")
+    slack = [r if r[0] != "20260111-5-b0006" else (r[0], r[1], r[2], text) for r in fx.SLACK]
+    bad = dict(fx.LEAK_BUG, title="sensitive data being exposed in error messages", component=None,
+               citations=[fx.cite("20260111-5-b0006", "sensitive data being exposed in error messages")])
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[bad]),
+                                   "20260125-1-g0002": fx.session_json(events=[fx.REASSIGN_EVENT])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    b = bug_by_title(out.facts, "sensitive data being exposed in error messages")
+    assert b.props["customer_ids"] == ["CUST-0064"]
+    assert out.report["repaired_citations"] == 1
+    ev = nodes(out.facts, "BugEvent")["BugEvent:Mini:20260111-5-b0006:0"]
+    assert ev.props["citations"][0]["quote"] == "CUST-0064"
