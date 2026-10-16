@@ -620,6 +620,8 @@ class _Comps:
         self.comps = comps
 
     def q(self, text, **params):
+        if "(p:Product)" in text:  # the product-name check; this fixture has no Product node
+            return []
         return [[c] for c in self.comps]
 
 

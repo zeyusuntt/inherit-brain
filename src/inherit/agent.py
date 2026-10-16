@@ -34,7 +34,7 @@ from inherit.ontology import SIGNATURES
 from inherit.tools import depth1
 from inherit.tools.catalog import TOOLS
 from inherit.tools.depth1 import CALL_CAP, Episode, ToolError
-from inherit.tools.guard import ID_RE, guard, guard_evidence
+from inherit.tools.guard import guard, guard_evidence
 from inherit.tools.trace import Trace
 
 PROMPT_VERSION = "agent/v1"
@@ -55,7 +55,7 @@ SYSTEM_PROMPT = """You answer questions about one company's product from a knowl
 
 How to work
 1. Find facts with the tools. Never answer from memory or guess: every person, company, link and fact in your answer must come from a tool result.
-2. Look up each person, company, document, bug, feature or PR the question names before you rely on it. A name the tools cannot find is unknown; do not substitute a similar one. The product the question names is the whole graph, not an entity to look up.
+2. Look up each person, company, document, bug, feature or PR the question names before you rely on it. A name the tools cannot find is unknown; do not substitute a similar one. The graph is already scoped to the product the question names: the product is not an entity to look up, and its name is not a filter or a component.
 3. If one name matches several people (namesakes), name every candidate and say the name is ambiguous. Do not pick one.
 4. You have at most 12 tool calls and a limited reading budget, so ask for what you need and no more. A result marked truncated has a cursor for the next page; a page counts as a call.
 5. Stop when you can answer, or when the tools show the answer is not in the graph.
@@ -167,7 +167,10 @@ class _Full:
 
     def call(self, name: str, args: dict) -> tuple[dict, list[dict]]:
         res = self.trace.run(self.conn, self.product, name, **args)
-        return {"rows": res.rows, "truncated": res.truncated, "cursor": res.cursor}, res.rows
+        rows = res.rows
+        if name == "resolve_entity":  # a resolver row names a node: the same canonical projection as depth-1 cards
+            rows = project_depth1({"rows": rows}, {})
+        return {"rows": res.rows, "truncated": res.truncated, "cursor": res.cursor}, rows
 
 
 class _Depth1:
@@ -247,7 +250,7 @@ def _parse(content: str) -> tuple[dict | None, str]:
     for k in ("answer_ids", "evidence_ids"):
         if not (isinstance(d.get(k), list) and all(isinstance(x, str) for x in d[k])):
             return None, f"{k} must be a list of strings"
-    if d.get("outcome") not in MODEL_OUTCOMES:
+    if not isinstance(d.get("outcome"), str) or d["outcome"] not in MODEL_OUTCOMES:
         return None, f"outcome must be one of {sorted(MODEL_OUTCOMES)}"
     return d, ""
 
@@ -278,7 +281,7 @@ class _Loop:
                                      {"role": "user", "content": inp.text}]
         self.calls: list[CallUsage] = []
         self.envelopes: list[Any] = []
-        self.guard_rows: list[list[dict]] = [[{"refs": ID_RE.findall(inp.text)}]]  # ids quoted in the question
+        self.guard_rows: list[list[dict]] = []
         self.cap_hit = self.budget_stop = self.repaired = False
         self.tool_calls = 0
         self.model_outcome: str | None = None
@@ -294,16 +297,20 @@ class _Loop:
                        response_format=response_format)
         self.calls.append(CallUsage(self.arm, load_settings().model, r.prompt_tokens, r.completion_tokens,
                                     r.cost_usd, r.latency_s))
+        self.check_deadline()  # a response that arrives after expiry is not accepted (its usage is recorded)
         return r
 
     def run_tool(self, tc) -> str:
         self.check_deadline()
         name = tc.function.name
         try:
+            # every attempt counts, valid or not, before any argument check or adapter dispatch (same for all toolsets)
+            if self.tool_calls >= MAX_TOOL_CALLS:
+                raise ToolError(f"call limit reached: at most {MAX_TOOL_CALLS} calls per question")
+            self.tool_calls += 1
             args = json.loads(tc.function.arguments or "{}")
             if not isinstance(args, dict):
                 raise ToolError("arguments must be a JSON object")
-            self.tool_calls += 1
             env, rows = self.tools.call(name, args)
             self.guard_rows.append(rows)
             self.envelopes.append({"tool": name, "params": args, **env})
@@ -398,7 +405,9 @@ def answer(inp: ExecInput, *, toolset: str, arm: str, session: Session | None = 
     except _Deadline:
         return loop.fail(f"deadline exceeded: {DEADLINE_S:.0f} s per question")
     except BudgetExceeded:
-        raise
+        if loop is None:
+            raise
+        return loop.fail("budget_exceeded")
     except Exception as e:  # noqa: BLE001 - any failure is this question's terminal run_failed
         if loop is None:
             from eval.arms import ArmResult

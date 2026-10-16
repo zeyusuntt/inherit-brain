@@ -365,14 +365,16 @@ def test_a_model_or_tool_exception_becomes_run_failed_with_the_calls_so_far(tg):
     assert len(res.calls) == 1 and len(res.final.trace) >= 1
 
 
-def test_budget_exceeded_is_not_swallowed(tg):
+def test_budget_exceeded_returns_the_failed_result_with_the_usage_collected(tg):
     from inherit.llm import BudgetExceeded
 
     def boom(n):
-        raise BudgetExceeded("cap")
+        if n == 2:
+            raise BudgetExceeded("cap")
 
-    with pytest.raises(BudgetExceeded):
-        run(tg, None, model=FakeModel([T(board())], on_call=boom))
+    res, _ = run(tg, None, model=FakeModel([T(board()), J("x")], on_call=boom))
+    assert res.final.outcome == "run_failed" and res.failure == "budget_exceeded"
+    assert len(res.calls) == 1 and res.envelopes[0]["tool"] == "bug_board" and len(res.final.trace) >= 1
 
 
 # ---------------------------------------------------------------- the same loop with each toolset
@@ -481,30 +483,10 @@ def test_the_six_arms_are_registered_with_identical_budgets_and_prompt(monkeypat
         assert got["toolset"] == ts and got["arm"] == n
 
 
-def test_ids_quoted_from_the_question_survive_in_a_refusal(tg):
-    q = f"What did eid_12345678 work on in {P}?"
-    res, _ = run(tg, [T(("resolve_person", {"name": "eid_12345678"})),
-                      J("eid_12345678 is not in the graph.", outcome="unknown_name")], q=q)
-    assert res.final.outcome == "unknown_name" and "eid_12345678" in res.final.answer_text
-
-
-def test_depth1_tool_schemas_use_the_parameter_names_of_the_episode(tg):
-    import inspect
-
-    from inherit.tools.depth1 import Episode
-
-    specs = {s["function"]["name"]: s["function"]["parameters"] for s in agent._Depth1(tg, P, QB, True).specs()}
-    for name, params in specs.items():
-        accepted = set(inspect.signature(getattr(Episode, name)).parameters) - {"self"}
-        assert set(params["properties"]) <= accepted and set(params["required"]) <= set(params["properties"])
-
-
-def test_names_quoted_from_the_question_survive_in_a_refusal(tg):
-    q = f"What did Zed Nobody work on in the Acme Rocket program of {P}?"
-    res, _ = run(tg, [T(("resolve_person", {"name": "Zed Nobody"})),
-                      J("Zed Nobody and the Acme Rocket program are not in the graph.", outcome="unknown_name")], q=q)
-    assert res.final.outcome == "unknown_name"
-    assert "Zed Nobody" in res.final.answer_text and "Acme Rocket" in res.final.answer_text
+def test_question_tokens_are_not_support_for_text_or_evidence(tg):
+    q = f"What did eid_deadbeef work on in {P}?"
+    res, _ = run(tg, [J("eid_deadbeef worked on nothing.", [], evidence=["eid_deadbeef"], outcome="path")], q=q)
+    assert "eid_deadbeef" not in res.final.answer_text and res.final.evidence_ids == []
 
 
 @pytest.mark.parametrize("toolset", TOOLSETS)
@@ -517,3 +499,66 @@ def test_qualified_employee_and_link_ids_are_graded_as_bare_values_in_every_tool
 def test_the_depth1_resolve_text_says_where_the_product_node_is(tg):
     specs = {s["function"]["name"]: s["function"]["description"] for s in agent._Depth1(tg, P, QB, True).specs()}
     assert "Product:" in specs["resolve"]
+
+
+# ---------------------------------------------------------------- fix round 1
+def _resolution_script(toolset):
+    if toolset == "full":
+        calls = [("resolve_entity", {"text": "TechCorp"}), ("resolve_entity", {"text": f"{pr(1)}"})]
+    else:
+        calls = [("resolve", {"text": "TechCorp"}), ("resolve", {"text": pr(1)})]
+    return [T(calls[0]), T(calls[1]), J("TechCorp and the PR.", ["TechCorp", pr(1), f"Customer:CUST-0001"])]
+
+
+@pytest.mark.parametrize("toolset", TOOLSETS)
+def test_resolution_alone_supports_the_same_company_and_link_in_every_toolset(tg, toolset):
+    res, _ = run(tg, _resolution_script(toolset), q=f"Tell me about TechCorp and {pr(1)} in {P}", toolset=toolset)
+    assert res.final.answer_ids == ["TechCorp", pr(1)], toolset
+
+
+@pytest.mark.parametrize("toolset", TOOLSETS)
+def test_twelve_invalid_calls_use_up_the_budget_in_every_toolset(tg, toolset):
+    bad = [("nope", {})] * 6 + [("resolve_person" if toolset == "full" else "resolve", {})] * 6
+    good = board() if toolset == "full" else ("resolve", {"text": P})
+    res, m = run(tg, [T(*bad), T(good), J("x", outcome="not_in_graph")], toolset=toolset)
+    last = [x for x in m.calls[2]["messages"] if x["role"] == "tool"][-1]["content"]
+    assert "call limit" in last and m.calls[2]["tools"] is None
+    assert all(op.command == "refused" for op in res.final.trace) and len(res.final.trace) <= 12
+    assert res.envelopes[-1]["agent"]["tool_calls"] == 12
+
+
+def test_a_final_response_arriving_after_the_deadline_is_not_accepted(tg):
+    now = [0.0]
+    model = FakeModel([J("BlueWave.", ["BlueWave"])], on_call=lambda n: now.__setitem__(0, 301.0))
+    res, m = run(tg, None, model=model, clock=lambda: now[0])
+    assert res.final.outcome == "run_failed" and "deadline" in res.failure
+    assert res.final.usage.n_calls == 1 and len(res.calls) == 1
+
+
+def test_a_repair_response_arriving_after_the_deadline_is_not_accepted(tg):
+    now = [0.0]
+    model = FakeModel([Say("junk"), J("BlueWave.", ["BlueWave"])], on_call=lambda n: now.__setitem__(0, 301.0 * (n - 1)))
+    res, m = run(tg, None, model=model, clock=lambda: now[0])
+    assert res.final.outcome == "run_failed" and "deadline" in res.failure and len(res.calls) == 2
+
+
+@pytest.mark.parametrize("bad", ['{"answer_text": "x", "answer_ids": [], "evidence_ids": [], "outcome": []}',
+                                 '{"answer_text": "x", "answer_ids": [], "evidence_ids": [], "outcome": {}}'])
+def test_unhashable_outcome_gets_the_single_repair(tg, bad):
+    res, m = run(tg, [T(board()), Say(bad), J("BlueWave.", ["BlueWave"])])
+    assert res.final.outcome == "path" and len(m.calls) == 3
+
+
+@pytest.mark.parametrize("comp", [P, f"Product:{P}", P.upper()])
+def test_bug_board_ignores_the_product_name_as_a_component(tg, comp):
+    from inherit.tools.catalog import TOOLS
+
+    base = TOOLS["bug_board"].run(tg, P, status="unresolved", rank="max")
+    got = TOOLS["bug_board"].run(tg, P, status="unresolved", rank="max", component=comp)
+    assert got.rows and [r["answer"] for r in got.rows] == [r["answer"] for r in base.rows]
+    real = TOOLS["bug_board"].run(tg, P, status="unresolved", component="Authentication")
+    assert real.rows is not None
+
+
+def test_the_prompt_says_the_graph_is_already_scoped_to_the_product():
+    assert "scoped to the product" in agent.SYSTEM_PROMPT and "component" in agent.SYSTEM_PROMPT

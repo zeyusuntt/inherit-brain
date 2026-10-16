@@ -217,6 +217,11 @@ def _resolve_components(ctx: _Ctx, text: str | None) -> list[str] | None:
     if text is None:
         return None
     key = _area_key(text)
+    # The graph is already one product: its name, alias or Product id is not a component and filters nothing.
+    for pid, name, aliases, prev in ctx.q("MATCH (p:Product) RETURN p.id, p.name, p.aliases, p.previous_names"):
+        own = {_area_key(x) for x in [pid, name, *(aliases or []), *(prev or [])] if isinstance(x, str)}
+        if key in own or (isinstance(pid, str) and key == _area_key(f"Product:{pid.split(':', 1)[-1]}")):
+            return None
     comps = [r[0] for r in ctx.q("MATCH (b:Bug) WHERE b.component IS NOT NULL RETURN DISTINCT b.component")]
     # The intake message sometimes names only part of a product area ("backend processing"): a stored area of two or
     # more words that the question's phrase contains is that area's partial name, and counts with the exact match.
@@ -987,7 +992,9 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           {"status": _enum("Frozen bug predicate.", ("unresolved", "resolved", "active", "reopened", "no_fix_needed",
                                                       "any"), "any"),
            "customer": _s(f"Customer company or Customer id, {_NAME_FORMS}."),
-           "component": _s("Product area (component) of the bug as worded in the question."),
+           "component": _s("Product area (component) of the bug as worded in the question, for example 'API Security'. "
+                           "Never the product's own name: the graph is already one product, and the product name "
+                           "(or its Product id) is ignored as a filter."),
            "actor": _enum("Who is counted.", ("company", "assignee", "resolver", "dismisser", "fix_pr_author"), "company"),
            "rank": _enum("max: only the rows tied at the top count; all: every row.", ("max", "all"), "all"),
            "as_of": _s("ISO date-time; state as of then (status active, resolved, no_fix_needed or any)."),
