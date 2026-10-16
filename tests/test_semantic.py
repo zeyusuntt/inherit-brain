@@ -862,7 +862,7 @@ def test_completion_is_judged_on_the_cited_span_not_the_whole_record(tmp_path):
     out, _ = run(chat, _with_segment(text), tmp_path)
     assert out.report["dropped"]["feature_events"] == {"not_completed_work": 1}
     assert nodes(out.facts, "Feature")[ALERTS].props["implemented"] is False
-    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None  # a rejected event is a loss
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True  # read, and not done
 
 
 def test_a_completed_rollback_in_a_meeting_is_a_reverted_event_and_a_plan_is_not(tmp_path):

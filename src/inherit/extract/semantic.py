@@ -570,11 +570,11 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                              for c in ev["citations"])
             if ev["kind"] == "implemented" and not completed(spans):
                 drops["feature_events"]["not_completed_work"] += 1  # a promise, plan, condition or negation (C1)
-                note_loss(ref_text(ev) + " " + spans, impl=True)
+                note_loss(ref_text(ev) + " " + spans, impl=False)  # read and found not done: no hidden evidence
                 continue
             if ev["kind"] == "reverted" and not rolled_back(spans):
                 drops["feature_events"]["not_completed_rollback"] += 1
-                note_loss(ref_text(ev) + " " + spans, impl=True)
+                note_loss(ref_text(ev) + " " + spans, impl=False)
                 continue
             if ev["kind"] in EVENT_CUES and not EVENT_CUES[ev["kind"]].search(cited):
                 drops["feature_events"]["no_evidence_for_kind"] += 1
@@ -1012,16 +1012,20 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         elif d["action"] in ("resume", "merge") and d["pr"] in seen_hold:
             held_prs[d["pr"]].add(seen_hold[d["pr"]])
 
+    blockers: dict[str, dict] = {}
+
     def reconciled(fid):
         topics = [fid.split(":", 2)[2], *(_topic(a) for a in cat.features.entries[fid]["aliases"])]
         for u in units_lost:
             if u["kind"] == "loss" and not u["impl"]:
                 continue  # a lost contribution, review, discussion or observation cannot flip "not implemented"
-            if u["everywhere"] or any(t and t in u["flat"] for t in topics):
+            hit = u["everywhere"] or any(t and t in u["flat"] for t in topics)
+            if not hit:
+                hit = any(link in u["raw"] or title in u["raw"] or re.search(r"\bpr\s*#?\s*" + number + r"\b", u["raw"])
+                          for link, number, title in pr_ids[fid])
+            if hit:
+                blockers[fid] = {"kind": u["kind"], "unit": u["unit"], "text": u["raw"][:120]}
                 return False
-            for link, number, title in pr_ids[fid]:
-                if link in u["raw"] or title in u["raw"] or re.search(r"\bpr\s*#?\s*" + number + r"\b", u["raw"]):
-                    return False
         return True
 
     fate: dict[str, dict] = {}
@@ -1130,6 +1134,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         "validation_losses": sum(1 for u in units_lost if u["kind"] == "loss"),
         "failed_units": [{"kind": u["kind"], "unit": u["unit"]} for u in units_lost if u["kind"] != "loss"],
         "features_not_reconciled": [f for f, v in fate.items() if not v["reconciled"]],
+        "fate_blockers": blockers,
         "complete": not [u for u in units_lost if u["kind"] != "loss"] and state["unresolved_feature_refs"] == 0,
     }
     report = {
