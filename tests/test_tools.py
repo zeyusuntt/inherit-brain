@@ -755,3 +755,27 @@ def test_oracle_stdout_has_no_gold_values(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "ActionGenie/ans/0 F1 0" in out and "extra 1" in out and "missing 2" in out
     assert "SENTINEL" not in out
+
+
+# ---------------------------------------------------------------- feature phrases resolve by stemmed token sets
+class _Feats:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def q(self, text, **params):
+        return self.rows
+
+
+def test_feature_phrases_resolve_by_stemmed_token_sets():
+    rows = [["Feature:p:predictive analytics integration", "Predictive analytics integration",
+             "predictive analytics integration", [], []],
+            ["Feature:p:crm platform integration", "CRM platform integration", "crm platform integration", [], []],
+            ["Feature:p:dark mode", "Dark mode", "dark mode", ["night theme"], []]]
+    rf = lambda t: catalog._resolve_features(_Feats(rows), t)  # noqa: E731, SLF001
+    assert rf("integrating predictive analytics") == ["Feature:p:predictive analytics integration"]
+    assert rf("analytics integration for predictive") == ["Feature:p:predictive analytics integration"]  # order
+    assert rf("the integration of CRM platforms") == ["Feature:p:crm platform integration"]
+    assert rf("quantum teleportation") == []
+    rows2 = rows + [["Feature:p:predictive analytics ui", "Predictive analytics UI", "predictive analytics ui", [], []]]
+    assert catalog._resolve_features(_Feats(rows2), "predictive analytics") == [
+        "Feature:p:predictive analytics integration", "Feature:p:predictive analytics ui"]  # ties stay plural

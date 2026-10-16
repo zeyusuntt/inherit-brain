@@ -258,8 +258,22 @@ _STOP = frozenset("a an the of for to in on and or with by new features feature 
                   "improve using integration integrating".split())
 
 
+_TOKEN_STOP = frozenset("a an the of for to in on at and or with by from is are was were be as that this".split())
+
+
+def _stem(w: str) -> str:
+    for suf in ("ions", "ion", "ing", "ed", "s"):
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            return w[:-len(suf)]
+    return w
+
+
+def _stems(text: str) -> frozenset:
+    return frozenset(_stem(w) for w in re.findall(r"\w+", fold(text)) if w not in _TOKEN_STOP)
+
+
 def _resolve_features(ctx: _Ctx, text: str | None) -> list[str] | None:
-    """Feature ids for a canonical id, an exact title/topic/alias, a title/alias inside the text (or the text inside a
+    """Feature ids for a canonical id, an exact title/topic/alias, a stemmed token-set match, a title/alias inside the text (or the text inside a
     title), else the features whose words cover at least 60 percent of the text's content words."""
     if text is None:
         return None
@@ -269,6 +283,21 @@ def _resolve_features(ctx: _Ctx, text: str | None) -> list[str] | None:
     exact = sorted(fid for fid, ns in names.items() if f == fold(fid) or f in ns)
     if exact:
         return exact
+    # stemmed token sets: every content token of the shorter side must be covered; all features tied at the best
+    # overlap (Jaccard) are kept
+    q = _stems(text)
+    best, tied = 0.0, []
+    for fid, title, topic, aliases, _ in rows:
+        for n in [title, topic, *(aliases or [])]:
+            t = _stems(n) if n else frozenset()
+            if q and t and (q <= t or t <= q):
+                score = len(q & t) / len(q | t)
+                if score > best:
+                    best, tied = score, [fid]
+                elif score == best and fid not in tied:
+                    tied.append(fid)
+    if tied:
+        return sorted(tied)
     contained = sorted(fid for fid, ns in names.items() if any(_word_in(n, f) or _word_in(f, n) for n in ns))
     if contained:
         return contained
