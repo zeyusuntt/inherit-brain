@@ -23,7 +23,7 @@ DOC_WORDS = r"(?:Market Research Report|Product Vision Document|Product Requirem
             r"|Technical Specifications Document|System Design Document)"
 # Ordered: the first cue that matches names the routing reason. `demo` is not a cue: demo links are rules.
 CUES = (
-    ("competitor", re.compile(r"competitor|rival", re.IGNORECASE)),
+    ("competitor", re.compile(r"competitor|\brivals?\b", re.IGNORECASE)),
     ("pr_ref", re.compile(PR_NUMBER.pattern + r"|/pull/\d+", re.IGNORECASE)),
     ("previous_release", re.compile(r"\b(?:last|previous|prior|latest) (?:release|version)\b", re.IGNORECASE)),
     ("qa", re.compile(r"\bQA\b")),
