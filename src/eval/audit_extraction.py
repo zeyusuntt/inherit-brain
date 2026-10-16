@@ -27,6 +27,7 @@ from typing import Callable
 
 from inherit.config import ROOT
 from inherit.data.records import ProductRecords, load_records, parse_mentions
+from eval import audit_prompts_v1
 from inherit.data.split import SEED as SPLIT_SEED
 from inherit.data.split import split
 from inherit.extract.sessions import sessions
@@ -35,7 +36,7 @@ BASE_SEED = SPLIT_SEED  # 20261015; round N samples with BASE_SEED + N
 AUDIT_DIR = ROOT / "runs" / "audit"
 BUNDLE_DIR = ROOT / "data" / "bundle"
 FACTS_DIR = ROOT / "data" / "facts"
-PROMPT_VERSION = "audit-prompts/v1"
+PROMPT_VERSION = "audit-prompts/v2"  # v1 (round 1) is frozen in audit_prompts_v1.py
 
 PRECISION_QUOTAS = {"bug_event": 50, "review_relation": 50, "name_resolution": 50,
                     "whatif_unowned": 30, "whatif_edge": 30, "whatif_path": 20}
@@ -51,6 +52,8 @@ BATCH_MAX_PACKETS, BATCH_MAX_CHARS = 10, 120_000  # a batch is scheduling only; 
 AUDITOR_KEYS = ("model", "version", "settings", "prompt_hash")
 PR_LINK_RE = re.compile(r"https?://github\.com/[^\s)>\]]+/pull/\d+")
 WINDOW = timedelta(days=3)
+NOT_EXTRACTED = "not extracted"
+NOT_APPLICABLE = "not applicable for REPORTED"
 EID_RE = re.compile(r"\beid_[A-Za-z0-9_]+")
 CUST_RE = re.compile(r"\bCUST-\d+\b")
 
@@ -302,14 +305,17 @@ def bug_event_packets(sources: dict[str, Source], n: int, rng: random.Random) ->
         recs = bug_context_records(src, ep["bug"], ep["ts"])
         claim = {
             "event": f"{ep['type']} event {ev['id']} on message {ep['message_id']}",
-            "bug identity": f"'{bug['title']}' (component {bug.get('component')}, channel {bug['channel_name']})",
+            "bug identity": f"'{bug['title']}' (component {bug.get('component') or NOT_EXTRACTED}, channel {bug['channel_name']})",
             "time": ep["ts"],
             "actor": ", ".join(src.person(a) for a in acted) or "none",
-            "assignee(s) of this event": ", ".join(src.person(a) for a in ep.get("assignee_eids") or []) or "none",
-            "customer(s) of the bug": ", ".join(bug.get("customer_ids") or []) or "none",
-            "bug status now": f"{bug.get('status')} (active {bug.get('active')}, resolved {bug.get('resolved')}, "
-                              f"reopened {bug.get('reopened')}, no fix needed {bug.get('no_fix_needed')})",
-            "bug current assignee(s)": ", ".join(src.person(a) for a in bug.get("current_assignees") or []) or "none",
+            "assignee(s) of this event": (NOT_APPLICABLE if ep["type"] == "REPORTED" else
+                                          ", ".join(src.person(a) for a in ep.get("assignee_eids") or []) or NOT_EXTRACTED),
+            "customer(s) of the bug": ", ".join(bug.get("customer_ids") or []) or NOT_EXTRACTED,
+            "bug status (frozen historical flags)": (
+                f"unresolved {not bug.get('resolved')} (no linked fix PR), active {bug.get('active')} (last event REPORTED, "
+                f"ASSIGNED or REOPENED), reopened {bug.get('reopened')} (at least one REOPENED), no fix needed "
+                f"{bug.get('no_fix_needed')} (at least one DISMISSED, ever); label {bug.get('status')}"),
+            "bug current assignee(s)": ", ".join(src.person(a) for a in bug.get("current_assignees") or []) or NOT_EXTRACTED,
         }
         out.append(make_packet("bug_event", ident, src, claim=claim, records=recs,
                                meta={"event_id": ev["id"], "bug": ep["bug"]}))
@@ -324,15 +330,21 @@ def _source_type(src: Source, rid: str) -> str:
 def review_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tuple[list[dict], dict]:
     pool = []
     for p, src in sorted(sources.items()):
+        groups = defaultdict(list)  # one claim per remark: ambiguous name resolutions give one edge per candidate
         for e in src.rows("semantic", type="SUGGESTED"):
-            rid = (e["src"] or [""])[0]
-            ident = f"{p}|{e['src_id']}|{e['dst_id']}|{e['key']}"
-            pool.append((ident, f"{p}|{_source_type(src, rid)}|{e['props'].get('version_ambiguous')}", (src, e)))
+            groups[(tuple(e["src"]), e["dst_id"], e["key"])].append(e)
+        for (srcs, dst, key), edges in sorted(groups.items()):
+            rid = (srcs or [""])[0]
+            for e in (edges[:1] if edges[0]["props"].get("ambiguous") else edges):
+                ident = (f"{p}|{'+'.join(sorted(x['src_id'] for x in edges))}|{dst}|{key}" if e["props"].get("ambiguous")
+                         else f"{p}|{e['src_id']}|{dst}|{key}")
+                cands = sorted(x["src_id"].split(":", 1)[1] for x in edges) if e["props"].get("ambiguous") else None
+                pool.append((ident, f"{p}|{_source_type(src, rid)}|{e['props'].get('version_ambiguous')}", (src, e, cands)))
     picked, info = sample_strata(pool, n, rng)
     out = []
-    for ident, _, (src, e) in picked:
+    for ident, _, (src, e, cands) in picked:
         ep, rid = e["props"], (e["src"] or [""])[0]
-        eid = e["src_id"].split(":", 1)[1]
+        eid = (cands or [e["src_id"].split(":", 1)[1]])[0]
         doc = src.doc.get(e["dst_id"].split(":", 1)[1])
         siblings = [d for d in src.records.documents if doc and d.type == doc.type]
         st = _source_type(src, rid)
@@ -345,12 +357,16 @@ def review_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tu
                  f"document: {doc.type if doc else '?'}; candidate versions: {', '.join(d.id for d in siblings)})"
                  if ep.get("version_ambiguous") else f"the single document {doc.id if doc else e['dst_id']} "
                  f"(type {doc.type if doc else '?'})")
-        claim = {"relation": f"{src.person(eid)} SUGGESTED a change/question about {level}",
+        who = (f"one of the candidate speakers ({', '.join(src.person(c) for c in cands)}); the name resolution kept several "
+               f"candidates for the speaker name '{ep.get('speaker_name') or '?'}'" if cands else src.person(eid))
+        claim = {"relation": f"{who} SUGGESTED a change/question about {level}",
                  "kind": ep.get("kind"), "section": ep.get("section"), "text": ep.get("text"),
+                 **({"ambiguous": True, "judged as": "a candidate set, not one asserted person"} if cands else {}),
                  "source record": f"{rid} ({st})", "judged at": "document type" if ep.get("version_ambiguous") else "document"}
         out.append(make_packet("review_relation", ident, src, claim=claim, records=recs,
-                               meta={"source_type": st, "version_ambiguous": bool(ep.get("version_ambiguous"))},
-                               names=[src.records.employees[eid]["name"]] if eid in src.records.employees else []))
+                               meta={"source_type": st, "version_ambiguous": bool(ep.get("version_ambiguous")),
+                                     "candidates": cands or [eid]},
+                               names=[src.records.employees[c]["name"] for c in (cands or [eid]) if c in src.records.employees]))
     return out, info
 
 
@@ -629,20 +645,34 @@ its development is open and unmerged. Owners: a bug's owners are the assignees o
 earlier assignment is replaced); a PR's owner is its author."""
 
 RUBRICS = {
-    "bug_event": """Kind bug_event. The claim is one bug event and the bug it belongs to. Judge five fields and report all
-five in "fields": {"identity","customer","assignee","status","time"}, each "correct", "incorrect" or "na".
-identity: the title, component and event type describe the bug and the event the records show at that message.
-customer: the customer ids belong to that bug. assignee: the event's assignees and the bug's current assignees match the
-records, including any later reassignment in the later context. status: the stated status follows from the records
-including later sessions and the linked pull request records. time: the event time is the timestamp of the cited message.
-"na" is allowed only for customer or assignee when the claim states none and the records also give none; identity, status
-and time are never "na". The verdict is "correct" only if every field is "correct" (or such an "na"); otherwise
-"incorrect" (or "uncertain" under the general boundary).""",
+    "bug_event": """Kind bug_event. The claim is one bug event and the bug it belongs to. Event model (frozen): an event's
+assignees are the people that event assigns. A REPORTED event carries no assignees by definition (the claim shows
+"not applicable for REPORTED"). An assignment is a separate ASSIGNED event, placed on the message that hands the bug to the
+assignee (it names or @-mentions them with an assignment cue) when that person then accepts; if nobody hands it over and a
+person takes it, on the message where they take it. The bug's current assignee is judged separately, as the bug's current
+ownership after the latest assignment and any later reassignment. Status uses the frozen historical definitions, not
+"status now" in a looser sense: unresolved = the bug has no linked fix PR; active = the last event in time order is REPORTED,
+ASSIGNED or REOPENED; reopened = at least one REOPENED event ever; no fix needed = at least one DISMISSED event ever (even
+if the bug was later reopened). A component shown as "not extracted" is a missing value.
+Judge five fields and report all five in "fields": {"identity","customer","assignee","status","time"}, each "correct",
+"incorrect" or "na". identity: the title, component and event type describe the bug and the event the records show at that
+message. customer: the customer ids belong to that bug. assignee: the event's assignees follow the event model above, and
+the bug's current assignee follows from the records including later reassignment, each judged on its own; the field is
+correct only if both are. status: the frozen flags above follow from the records, including later sessions and the linked
+pull request records. time: the event time is the timestamp of the cited message. "na" is allowed only for customer or
+assignee when the claim shows "not extracted" or "not applicable" for every value of that field and the records also give
+none; identity, status and time are never "na". A missing required field in your answer is a failure. The verdict is
+"correct" only if every field is "correct" (or such an "na"); otherwise "incorrect" (or "uncertain" under the general
+boundary).""",
     "review_relation": """Kind review_relation. The claim says a person suggested a change, or asked a review question,
-about a document. Correct if the person (resolved through the directory) did say it in the source record and it is about
-that document. When the claim is judged at document-type level (several versions exist), it is correct if the source is
-about a document of that type; do not require a specific version. Incorrect if the speaker is another person, the text
-is not a suggestion or review question, or the source is about another document type.""",
+about a document. When the claim lists several candidate speakers (the name resolution kept several candidates and the
+claim shows ambiguous: True), judge it as a candidate set: it is correct when the true speaker is among the candidates and
+the records cannot tell the candidates apart; it is not an assertion about one person. With a single person, correct if
+that person did say it in the source record and it is about the document. When the claim is judged at document-type level
+(several versions exist), it is correct if the source is about a document of that type OF THIS PRODUCT (the same subject);
+a discussion of another product's document, such as a competitor's, is not. Do not require a specific version. Incorrect if
+the speaker is not among the candidates, the text is not a suggestion or review question, or the source is about another
+document type or another product's document.""",
     "name_resolution": """Kind name_resolution. The claim maps a speaker name in one meeting to employee ids. The frozen
 rule: the eligible candidates are the directory people with exactly that name who are in the meeting's participants, or
 posted in the product Slack within 3 days of the meeting date, or are @-mentioned in the meeting chat (candidate records
@@ -661,14 +691,15 @@ changes who owns it or whether it is open.""",
     "whatif_edge": """Kind whatif_edge. A dependency means the dependent item cannot be finished before the
 prerequisite. Rules: IMPLEMENTED_BY (a feature depends on the PR that implements it), ABOUT with kind development (a
 feature depends on a development PR about it), FIXES (a bug depends on the PR that fixes it). Correct only if the
-records show that relation between exactly these two items (the cited records name both, or the PR record and the other
-item's records make the link clear).""",
+records show that relation between exactly these two items AND give evidence that the PR implements the feature, fixes the
+bug, or is necessary for it. Topical association alone (the PR is about the same subject, or mentions the item) is not
+enough. Apply the same standard to code, test and documentation PRs.""",
     "whatif_path": OPEN_WORK + """
 
 Kind whatif_path. The claim gives a chain of dependency steps from an affected item to the last item, which becomes newly
 unowned when the person leaves. Check every component and answer correct only if all hold: (1) each dependency step is
-supported by the records (rules: IMPLEMENTED_BY, ABOUT with kind development, FIXES; the dependent cannot be finished
-before the prerequisite); (2) the steps join in order; (3) the affected item is open work or pending work as defined
+supported by the records (rules: IMPLEMENTED_BY, ABOUT with kind development, FIXES) with evidence of implementation or
+necessity, not topical association alone (same standard for code, test and documentation PRs); (2) the steps join in order; (3) the affected item is open work or pending work as defined
 above; (4) the last item is open work, the person is an owner and no other owner remains after the later context.""",
 }
 
@@ -679,11 +710,14 @@ Do not add text outside the JSON."""
 
 RECALL_RULES = {
     "recall_bug": """Each item: {"bug": "<id of the message where this bug was first reported>", "bug_title": "<optional title, ignored>", "type": "REPORTED|ASSIGNED|RESOLVED|DISMISSED|REOPENED", "actor": "<eid or name of who
-performed it>", "time": "<message timestamp>", "message_id": "<id>", "bug": "<bug title>"}. List one item per bug per
+performed it>", "time": "<message timestamp>", "message_id": "<id>"}. List one item per bug per
 event. The "bug" field is always the id of the message where the bug was first reported, never a title.
 Example item: {"bug": "20261117-1-a77c3", "bug_title": "Duplicate Log Entries", "type": "ASSIGNED", "actor": "eid_0ac476e4", "time": "2026-11-17T07:06:00", "message_id": "20261117-1-a77c3"}
 A bug is reported once when it is introduced; it is assigned when someone is asked to take it or takes it; resolved
-when reported fixed or closed; dismissed when judged not a bug; reopened when it returns after resolution.""",
+when reported fixed or closed; dismissed when judged not a bug; reopened when it returns after resolution.
+Placement of ASSIGNED events (frozen convention): put the event on the message that hands the bug to the assignee (it names
+or @-mentions them with an assignment cue) when that person then accepts; if nobody hands it over and a person takes it,
+put it on the message where they take it. A REPORTED event has no assignees.""",
     "recall_reviewer": """Each item: {"reviewer": "<name as written in the record, or the eid>", "source": "<source record
 id>"}. A reviewer is a person who gives a suggestion, a requested change or a review question about the document (or its
 document type when no version is named). One item per person per source record.""",
@@ -699,11 +733,40 @@ output the single complete list: keep items that the records support, drop items
 Output only {"packet_id": "<id>", "items": [...]} in the same item format. You have not been shown any extraction."""
 
 
-def prompt_hashes() -> dict[str, str]:
-    texts = {"common_precision": COMMON_PRECISION, "common_recall": COMMON_RECALL, "third_precision": THIRD_PRECISION, "open_work": OPEN_WORK,
-             "third_recall": THIRD_RECALL, **{f"rubric:{k}": v for k, v in RUBRICS.items()},
-             **{f"recall_rules:{k}": v for k, v in RECALL_RULES.items()}}
-    return {k: sha256_text(v) for k, v in sorted(texts.items())} | {"version": PROMPT_VERSION}
+PROMPT_CHANGES = (
+    "bug_event: event model defined (REPORTED carries no assignees, ASSIGNED placement, current assignee judged separately); "
+    "status uses the frozen historical predicates (unresolved, active, reopened, no fix needed); missing values render "
+    "'not extracted'",
+    "recall_bug: the same ASSIGNED placement convention; the duplicate 'bug' key in the item format removed",
+    "review_relation: document type of THIS product (same subject); ambiguous claims judged as a candidate set and shown with "
+    "the candidate people and the ambiguous flag",
+    "whatif_edge and whatif_path: a dependency needs evidence of implementation or necessity, not topical association, for "
+    "code, test and documentation PRs alike",
+)
+
+
+def prompt_set(version: str) -> dict:
+    """The prompt texts of a version: v1 is frozen in audit_prompts_v1 (round 1), v2 is this module."""
+    if version == audit_prompts_v1.VERSION:
+        m = audit_prompts_v1
+        return {"common_precision": m.COMMON_PRECISION, "common_recall": m.COMMON_RECALL, "third_precision": m.THIRD_PRECISION,
+                "third_recall": m.THIRD_RECALL, "open_work": m.OPEN_WORK, "rubrics": m.RUBRICS, "recall_rules": m.RECALL_RULES}
+    if version != PROMPT_VERSION:
+        raise ValueError(f"unknown prompt version {version!r}")
+    return {"common_precision": COMMON_PRECISION, "common_recall": COMMON_RECALL, "third_precision": THIRD_PRECISION,
+            "third_recall": THIRD_RECALL, "open_work": OPEN_WORK, "rubrics": RUBRICS, "recall_rules": RECALL_RULES}
+
+
+def prompt_hashes(version: str = PROMPT_VERSION) -> dict[str, str]:
+    ps = prompt_set(version)
+    texts = {k: ps[k] for k in ("common_precision", "common_recall", "third_precision", "third_recall", "open_work")}
+    texts |= {f"rubric:{k}": v for k, v in ps["rubrics"].items()} | {f"recall_rules:{k}": v for k, v in ps["recall_rules"].items()}
+    return {k: sha256_text(v) for k, v in sorted(texts.items())} | {"version": version}
+
+
+def round_version(round_n: int, root: Path = AUDIT_DIR) -> str:
+    mf = round_dir(round_n, root) / "manifest.json"
+    return json.loads(mf.read_text(encoding="utf-8"))["prompt_hashes"]["version"] if mf.exists() else PROMPT_VERSION
 
 
 # ---------------------------------------------------------------- build a round
@@ -813,10 +876,11 @@ def _batch_plan(packets: dict[str, dict], size: int = BATCH_MAX_PACKETS) -> dict
     return plan
 
 
-def batch_header(kind: str, third: bool = False) -> str:
+def batch_header(kind: str, third: bool = False, version: str = PROMPT_VERSION) -> str:
+    ps = prompt_set(version)
     if is_recall(kind):
-        return (THIRD_RECALL if third else COMMON_RECALL) + "\n\n" + RECALL_RULES[kind]
-    return (THIRD_PRECISION if third else COMMON_PRECISION) + "\n\n" + RUBRICS[kind]
+        return (ps["third_recall"] if third else ps["common_recall"]) + "\n\n" + ps["recall_rules"][kind]
+    return (ps["third_precision"] if third else ps["common_precision"]) + "\n\n" + ps["rubrics"][kind]
 
 
 def write_batches(round_n: int, size: int = 10, root: Path = AUDIT_DIR) -> list[str]:
@@ -826,7 +890,7 @@ def write_batches(round_n: int, size: int = 10, root: Path = AUDIT_DIR) -> list[
     plan = _batch_plan(packets, size)
     for name, ids in plan.items():
         kind = packets[ids[0]]["kind"]
-        parts = [batch_header(kind)] + [f"\n==== {packets[i]['id']} ====\n{packets[i]['text']}" for i in ids]
+        parts = [batch_header(kind, version=round_version(round_n, root))] + [f"\n==== {packets[i]['id']} ====\n{packets[i]['text']}" for i in ids]
         (bdir / f"{name}.txt").write_text("\n".join(parts) + "\n", encoding="utf-8")
     (bdir / "index.json").write_text(json.dumps(plan, indent=1, sort_keys=True), encoding="utf-8")
     return sorted(plan)
@@ -859,8 +923,9 @@ def validate_verdict(obj, packet: dict, third: bool = False) -> str | None:
     if not isinstance(f, dict) or set(f) != set(BUG_FIELDS) or any(x not in ("correct", "incorrect", "na") for x in f.values()):
         return "a bug event verdict needs all five fields, each correct, incorrect or na"
     claim = packet["claim"]
-    none_ok = {"customer": claim.get("customer(s) of the bug") == "none",
-               "assignee": claim.get("assignee(s) of this event") == "none" and claim.get("bug current assignee(s)") == "none"}
+    empty = ("none", NOT_EXTRACTED, NOT_APPLICABLE)  # "none" is the round 1 rendering
+    none_ok = {"customer": claim.get("customer(s) of the bug") in empty,
+               "assignee": claim.get("assignee(s) of this event") in empty and claim.get("bug current assignee(s)") in empty}
     if any(f[k] == "na" and not none_ok.get(k) for k in BUG_FIELDS):
         return "na is only allowed where the claim has no value (customer, assignee)"
     if v == "correct" and any(x != "correct" for x in f.values() if x != "na"):
@@ -1003,7 +1068,7 @@ def write_third(round_n: int, size: int = 10, root: Path = AUDIT_DIR) -> list[st
     for kind in KINDS:
         sub = {i: packets[i] for i in need if packets[i]["kind"] == kind}
         for n, chunk in enumerate(_batch_plan(sub, size).values(), 1):
-            parts = [batch_header(kind, third=True)]
+            parts = [batch_header(kind, third=True, version=round_version(round_n, root))]
             for pid in chunk:
                 rec = is_recall(kind)
                 parts.append(f"\n==== {pid} ====\n{packets[pid]['text']}\nFIRST AUDITORS:\n"
@@ -1095,6 +1160,10 @@ def render_report(s: dict) -> str:
          f"- sample hash: {s['sample_hash']}", f"- prompt version: {s['prompt_hashes']['version']}",
          f"- verdict hashes: {s['verdict_hashes']}",
          f"- integrity problems: {s['integrity_problems'] or 'none'}", ""]
+    pv = s["prompt_hashes"]["version"]
+    if pv != "audit-prompts/v1":
+        L += ["## Prompt changes", "", f"This round uses {pv}; round 1 used audit-prompts/v1 (kept unchanged). Changes:"]
+        L += [f"- {c}" for c in PROMPT_CHANGES] + [""]
     L += ["## Method", "",
           "Each packet is judged on its own and answered per packet. Packets are scheduled in batches for the fan-out: a "
           f"batch holds only packets of one kind and the rubric, at most {BATCH_MAX_PACKETS} packets and about "

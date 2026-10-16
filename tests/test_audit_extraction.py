@@ -408,7 +408,7 @@ def test_na_allowed_only_where_claim_is_empty():
     s2 = ae.Source("P1", src.records, f, names)
     packets, _ = ae.bug_event_packets({"P1": s2}, 1, random.Random(1))
     p = packets[0]
-    assert p["claim"]["customer(s) of the bug"] == "none"
+    assert p["claim"]["customer(s) of the bug"] == ae.NOT_EXTRACTED
     f_ = dict.fromkeys(ae.BUG_FIELDS, "correct") | {"customer": "na"}
     assert ae.validate_verdict({"packet_id": p["id"], "verdict": "correct", "reason": "r", "fields": f_}, p) is None
     assert ae.validate_verdict({"packet_id": p["id"], "verdict": "correct", "reason": "r",
@@ -637,3 +637,79 @@ def test_name_candidates_carry_sessions_and_related_evidence():
     c = next(r for r in recs if r["id"] == "candidate:eid_c")["text"]
     assert "Related post under the rule: no" in c
     assert "document type 'Design Doc'" in b
+
+
+# ---------------------------------------------------------------- round 2 rubric (audit-prompts/v2)
+def test_v2_version_recorded_and_v1_frozen(tmp_path, sources):
+    assert ae.PROMPT_VERSION == "audit-prompts/v2"
+    packets = write_round(tmp_path, sources, rnd=2)
+    m = json.loads((tmp_path / "round-2" / "manifest.json").read_text())
+    assert m["prompt_hashes"]["version"] == "audit-prompts/v2" and m["seed"] == ae.BASE_SEED + 2 == 20261017
+    v1 = ae.prompt_hashes("audit-prompts/v1")
+    assert v1["rubric:bug_event"] == "77f9e3f494192ddccaeff7d3a337bf4c13bb0c0da7b05972e511357ee1141c5c"  # as in round 1
+    assert v1 != ae.prompt_hashes()
+    assert ae.batch_header("bug_event", version="audit-prompts/v1") != ae.batch_header("bug_event")
+    # a round recorded as v1 keeps its own prompts for batches
+    d1 = tmp_path / "round-1"
+    write_round(tmp_path, sources, rnd=1)
+    mf = json.loads((d1 / "manifest.json").read_text())
+    mf["prompt_hashes"] = v1
+    (d1 / "manifest.json").write_text(json.dumps(mf))
+    ae.write_batches(1, 10, tmp_path)
+    assert "use rarely" not in (d1 / "batches" / "bug_event-01.txt").read_text()
+    assert "Event model (frozen)" not in (d1 / "batches" / "bug_event-01.txt").read_text()
+    ae.write_batches(2, 10, tmp_path)
+    assert "Event model (frozen)" in (tmp_path / "round-2" / "batches" / "bug_event-01.txt").read_text()
+
+
+def test_v2_rubric_texts():
+    r = ae.RUBRICS
+    assert "carries no assignees by definition" in r["bug_event"]
+    assert "separate ASSIGNED event, placed on the message" in r["bug_event"]
+    assert "no linked fix PR" in r["bug_event"] and "no fix needed = at least one DISMISSED event ever" in r["bug_event"]
+    assert "not extracted" in r["bug_event"] and "judged separately" in r["bug_event"]
+    assert "Placement of ASSIGNED events" in ae.RECALL_RULES["recall_bug"]
+    assert "OF THIS PRODUCT" in r["review_relation"] and "candidate set" in r["review_relation"]
+    assert "Topical association alone" in r["whatif_edge"] and "test and documentation PRs" in r["whatif_edge"]
+    assert "necessity" in r["whatif_path"]
+    assert ae.RECALL_RULES["recall_bug"].count('"bug": ') == 2  # the format line and the example item; no second definition
+
+
+def test_reported_event_renders_not_applicable_and_missing_values(sources):
+    f, names = facts("P1")
+    f["bugs"][0]["props"].update(customer_ids=[], current_assignees=[], component=None)
+    src = ae.Source("P1", sources["P1"].records, f, names)
+    pk, _ = ae.bug_event_packets({"P1": src}, 6, random.Random(1))
+    rep = next(p for p in pk if p["claim"]["event"].startswith("REPORTED"))
+    asg = next(p for p in pk if p["claim"]["event"].startswith("ASSIGNED"))
+    assert rep["claim"]["assignee(s) of this event"] == ae.NOT_APPLICABLE
+    assert asg["claim"]["assignee(s) of this event"] != ae.NOT_APPLICABLE
+    assert rep["claim"]["customer(s) of the bug"] == ae.NOT_EXTRACTED and "component not extracted" in rep["claim"]["bug identity"]
+    assert "no linked fix PR" in rep["claim"]["bug status (frozen historical flags)"]
+    f_ = dict.fromkeys(ae.BUG_FIELDS, "correct") | {"customer": "na", "assignee": "na"}
+    ok = lambda p: ae.validate_verdict({"packet_id": p["id"], "verdict": "correct", "reason": "r", "fields": f_}, p)  # noqa: E731
+    assert ok(rep) is None  # REPORTED, no customer, no current assignee: both may be na
+    assert ok(asg)  # an ASSIGNED event has assignees: na is not allowed
+
+
+def test_ambiguous_review_candidates_are_rendered(sources):
+    src = sources["P1"]
+    for eid in ("eid_b", "eid_c"):
+        src.facts["semantic"].append({"kind": "edge", "type": "SUGGESTED", "src_id": f"Person:{eid}",
+                                      "dst_id": "Document:design_v1", "src": ["mtg1#5"], "key": "amb",
+                                      "props": {"kind": "suggestion", "section": "s", "text": "t", "ambiguous": True,
+                                                "speaker_name": "Bob Ray", "version_ambiguous": False}})
+    pk, info = ae.review_packets({"P1": src}, 100, random.Random(1))
+    amb = [p for p in pk if p["claim"].get("ambiguous")]
+    assert len(amb) == 1  # one claim for the pair, not one per candidate
+    t = amb[0]["text"]
+    assert "candidate speakers" in t and "eid_b" in t and "eid_c" in t and "candidate set" in t
+    assert amb[0]["meta"]["candidates"] == ["eid_b", "eid_c"]
+    assert not any(p["claim"].get("ambiguous") for p in pk if p is not amb[0])
+
+
+def test_report_lists_prompt_changes(tmp_path, sources):
+    packets, rd = passing_round(tmp_path, sources)
+    rep = (rd / "report.md").read_text()
+    assert "audit-prompts/v2" in rep and "round 1 used audit-prompts/v1" in rep and "Placement" not in rep.split("Prompt changes")[0]
+    assert all(c in rep for c in ae.PROMPT_CHANGES)
