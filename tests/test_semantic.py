@@ -978,15 +978,15 @@ def test_document_resolution_rules():
     d, why = resolve_review_docs(cat, [f"see {fx.FINAL_LINK}"], "")
     assert [x.id for x in d] == ["final_mini_market_research_report"] and why == "link"
     d, why = resolve_review_docs(cat, ["the Market Research Report of X-Genie"], "")
-    assert {x.id for x in d} == both and why == "version_ambiguous"  # a foreign product name identifies nothing
+    assert d == [] and why == "external_product_document"  # 13f: another product's document is not one of ours
     d, why = resolve_review_docs(cat, ["the Market Research Report"], "final_mini_market_research_report")
     assert {x.id for x in d} == both  # a reference the text does not support is not evidence
     assert resolve_review_docs(cat, ["nothing about documents"], "")[0] == []
     prev = {"mini_market_research_report"}
-    d, _ = resolve_review_docs(cat, ["Review the Market Research Report from the last release"], "", prev)
-    assert [x.id for x in d] == ["mini_market_research_report"]
-    d, _ = resolve_review_docs(cat, ["Review the new version of the Market Research Report"], "", prev)
-    assert [x.id for x in d] == ["final_mini_market_research_report"]
+    for text in ("Review the Market Research Report from the last release",  # 13f: release scope is not a version
+                 "Review the new version of the Market Research Report"):
+        d, why = resolve_review_docs(cat, [text], "", prev)
+        assert {x.id for x in d} == both and why == "version_ambiguous"
 
 
 def test_an_opener_that_suggests_nothing_is_not_a_review(tmp_path):

@@ -31,7 +31,7 @@ from inherit.extract.structural import _links
 from inherit.facts import Edge, Facts, Node
 from inherit.ontology import check_edge
 
-EXTRACTOR = "semantic/v1"
+EXTRACTOR = "semantic/v2"
 FATE_VERSION = "feature_fate/v1"
 PENDING_VERSION = "pending/v1"
 PROMPT_VERSION = SEMANTIC_PROMPT_VERSION
@@ -309,29 +309,171 @@ def _context_score(ctx: tuple[str, str], tokens: set[str]) -> int:
     return 2 * len(words(ctx[0]) & tokens) + len(words(ctx[1]) & tokens)
 
 
+# Agenda and assignment wording: the segment says which task is being discussed (13f).
+_TASK_CUE = re.compile(
+    r"\btasks?\b|\bassign\w*|\bpending\b|\blastly\b|\bfirst up\b|\bnext up\b|\bmoving on\b|\brelated pr\b"
+    r"|\bpr (?:for|on|to)\b|\bresponsible\b|\bwork(?:ing)? on\b", re.I)
+
+
+def _stems(text: str) -> set[str]:
+    return {w[:5] for w in re.findall(r"[a-z0-9]+", text.casefold()) if len(w) >= 4}
+
+
+def explicit_task_features(title: str, meetings, names_of: dict[str, list[str]]) -> list[dict]:
+    """Features a meeting segment names as the task a PR implements. For each segment that speaks the PR title, the
+    segment without the title words must carry task wording (task, assigned, pending, lastly, related PR ...) and name
+    exactly one best feature: at least two of its stems and two thirds of a feature name's stems appear. The words of
+    the title itself are removed first, so they cannot pick a feature by overlap. One row per feature found, with the
+    segment that says it. `names_of`: feature id -> its title and aliases."""
+    nt = normalise(title)
+    out: dict[str, dict] = {}
+    for mt in meetings:
+        for sg in mt.segments:
+            text = normalise(sg.text)
+            if not nt or nt not in text:
+                continue
+            rest = text.replace(nt, " ")
+            if not _TASK_CUE.search(rest):
+                continue
+            have = _stems(rest)
+            scored = []
+            for fid, names in names_of.items():
+                cover = [len(st & have) / len(st) if len(st) >= 2 else 0.0 for st in map(_stems, names)]
+                best = max(cover, default=0.0)
+                if best >= 2 / 3:  # a feature named by its title outranks one named only by an alias of it
+                    scored.append(((best, cover[0]), fid))
+            scored.sort(reverse=True)
+            if scored and (len(scored) == 1 or scored[0][0] > scored[1][0]):
+                out.setdefault(scored[0][1], {"feature": scored[0][1], "meeting": mt.id, "date": mt.date,
+                                              "context": (sg.text, ""),
+                                              "citations": [{"record_id": sg.id, "quote": title, "field": "text"}]})
+    return list(out.values())
+
+
 def _names_in(text: str, names) -> set[str]:
     t = " " + normalise(text) + " "
     return {n for n in names if re.search(r"(?<![a-z0-9])" + re.escape(normalise(n)) + r"(?![a-z0-9])", t)}
 
 
+# A first-person or collaborative commitment to do a task, gather input or work together: it proposes nothing about
+# the document's content ("I'll handle the X section", "I'll gather feedback", "maybe we can collaborate on Y").
+_TASK_TAKING = re.compile(
+    r"\b(?:i'?ll|i will|i can|i'?m going to|i am going to|i'?ve got|we'?ll|we will|we can|let'?s|(?:maybe|perhaps) we can"
+    r"|(?:can|could|would|will) you)\b[^.!?]{0,40}?\b(?:handle|work(?:ing)? on|draft(?:ing)?|gather(?:ing)?|collect(?:ing)?"
+    r"|prepare|take (?:the lead|care|charge|on|over|this|that|it)|start(?:ed|ing)?|focus(?:ing)? on|writ(?:e|ing)"
+    r"|put together|collaborat\w*|sync(?:ing)?|assist|help|pair|research|cover|look(?:ing)? into|set up|schedule"
+    r"|own)\b", re.I)
+# Wording that proposes a change to content. A purpose clause ("...to include in the document") describes the
+# gathering, not a change, and does not count.
+_CONTENT_CUE = re.compile(
+    r"\b(?:should|could|would|consider|suggest\w*|recommend\w*|add(?:s|ed|ing)?|includ(?:e|es|ing)|replace|remove|expand"
+    r"|clarif\w+|elaborate|mention|highlight|detail|specify|emphasi[sz]e|improve|update|worth|how about|what about)\b", re.I)
+_PURPOSE = re.compile(r"\bto (?:includ\w*|add|incorporate|mention|put|use)\b[^.!?]*", re.I)
+
+
+def _task_statement(sentence: str) -> bool:
+    """True for a sentence that only takes on, gathers or shares a task and proposes no change to the content."""
+    return bool(_TASK_TAKING.search(sentence)) and not _CONTENT_CUE.search(_PURPOSE.sub(" ", sentence))
+
+
+def cited_remark(text: str, citations, record_id: str) -> str:
+    """The sentence(s) of the record that the extracted remark cites; the whole text when nothing in it is cited. A
+    review is judged on what was cited, not on an unrelated sentence of the same message."""
+    hits = [quote_sentences(text, c["quote"]) for c in citations or []
+            if isinstance(c, dict) and c.get("record_id") == record_id and c.get("quote")]
+    return " ".join(dict.fromkeys(hits)) or text
+
+
 def is_review(kind: str, text: str) -> bool:
-    """A review question is asked (a question mark); a suggestion carries suggesting wording. An opener or thanks is neither."""
-    return ("?" in text) if kind == "review_question" else bool(_REVIEW_CUE.search(text))
+    """A review question is asked (a question mark); a suggestion carries suggesting wording. An opener, thanks, or a
+    statement that only takes on or shares a task is neither. The text is the cited remark, which is often one sentence
+    of a longer message, so it counts when it is either a suggestion or a question: the model's label between the two
+    does not decide it."""
+    for sentence in _SENTENCES.split(text or ""):
+        if _task_statement(sentence):
+            continue
+        if "?" in sentence:
+            return True
+        if kind != "review_question" and (_REVIEW_CUE.search(sentence) or _TASK_TAKING.search(sentence)):
+            return True  # "I'll start by adding a roadmap section"
+        if kind == "review_question" and _REVIEW_CUE.search(sentence):
+            return True
+    return False
 
 
-_CURRENT_CUE = re.compile(r"\b(?:new|current|updated|next|upcoming) (?:release|version|draft)\b", re.I)
+# ---- whose document a review is about (13f): the subject is read before the type
+_DOC_I = "(?i:" + sr.DOC_WORDS + ")"
+_NAME = r"[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*"
+_LEAD_SUBJECT = re.compile(rf"(?<![\w-])({_NAME})(?:['\u2019]s)?\s+({_DOC_I})")  # X-Genie Product Vision Document
+_TRAIL_SUBJECT = re.compile(rf"({_DOC_I})\s+(?:of|from|by|for)\s+(?:the\s+)?({_NAME})")  # Product Vision Document of X-Genie
+_OUR_DOC = re.compile(rf"\b(?:our|my|your)\s+(?:(?:own|final|latest|new|updated|current|draft|revised)\s+)*({_DOC_I})", re.I)
+_NOT_A_SUBJECT = frozenset(
+    "the our this that these those new latest final updated draft initial current first next previous prior last old older "
+    "revised full complete entire whole existing proposed original overall main my your their its each every any all a an "
+    "review update discuss let hi hey please thanks check read share shared see send finalize finish approve slack "
+    "salesforce tableau twitter github google microsoft".split())
 
 
-def resolve_review_docs(cat, texts_upto: list[str], ref: str, prev=frozenset()):
+def _alnum(x: str) -> str:
+    return "".join(re.findall(r"[a-z0-9]+", (x or "").casefold()))
+
+
+def _doc_subjects(text: str, own: set[str], known_external: set[str]) -> list[tuple[int, str, str]]:
+    """(position, document type, 'external'|'ours') for each mention of a document type in `text` that names whose it
+    is: an external product ("the X-Genie Product Vision Document", "the Product Vision Document of X-Genie"), our own
+    product by name, or "our ...". A mention that names nobody is not listed."""
+    out: list[tuple[int, str, str]] = []
+
+    def judge(name: str, words_before: list[str], words_after: list[str], initial: bool) -> str | None:
+        words = [*words_before[-4:]] if words_before else []
+        if any(_alnum(" ".join(words[i:])) in own for i in range(len(words))):
+            return "ours"
+        if any(_alnum(" ".join(words_after[:n])) in own for n in range(1, 5) if words_after):
+            return "ours"
+        key = _alnum(name)
+        if key in known_external:
+            return "external"
+        if (name.lower() in _NOT_A_SUBJECT or len(name) < 3 or not re.search(r"[a-z]", name)
+                or (initial and re.fullmatch(r"[A-Z][a-z]+", name))):
+            return None  # a verb opening the sentence, a version word, an acronym: not a product name
+        return "external"
+
+    for m in _LEAD_SUBJECT.finditer(text):
+        before = re.findall(r"[A-Za-z0-9-]+", text[:m.end(1)])
+        prefix = text[:m.start(1)]
+        initial = not prefix.strip() or bool(re.search(r"[.!?:\n]\s*$", prefix))
+        who = judge(m.group(1), before, [], initial)
+        if who:
+            out.append((m.start(2), _alnum(m.group(2)), who))
+    for m in _TRAIL_SUBJECT.finditer(text):
+        after = re.findall(r"[A-Za-z0-9-]+", text[m.start(2):])[:4]
+        who = judge(m.group(2), [], after, False)
+        if who:
+            out.append((m.start(1), _alnum(m.group(1)), who))
+    for m in _OUR_DOC.finditer(text):
+        out.append((m.start(1), _alnum(m.group(1)), "ours"))
+    return sorted(out)
+
+
+def resolve_review_docs(cat, texts_upto: list[str], ref: str, prev=frozenset(), *, later_versions: bool = False):
     """(documents, why) for a review (I2). A document link in the session, or a model reference the text supports,
-    identifies one document. Otherwise the type the text names gives every document of that type the text could mean:
-    narrowed by an explicit previous or current release cue and by a product stem the text names, never by guessing
-    one version. The caller marks a result of several documents `version_ambiguous`."""
+    identifies one document. Otherwise the document's subject comes first: a thread about an external product's
+    document (a competitor's, named in the text and not switched back to ours) is not about any document of ours.
+    Then the type the text names gives every document of that type the text could mean, narrowed only by a product
+    stem the text names. Release-scope words ("latest release", "new version") say which release a remark is about,
+    not which document version, so they never narrow; several candidates are marked `version_ambiguous` by the caller.
+    `later_versions` (a meeting): a linked document is the version shared in the meeting, and the revisions of the
+    same type dated after it carry the remarks, so they are candidates too. `prev` is kept for callers and unused."""
     doc = None
     for t in texts_upto:
         for link in sorted(_links(t)):
             doc = cat.doc_by_link(link) or doc
     if doc is not None:
+        if later_versions:
+            later = sorted((d for d in cat.documents if normalise(d.type) == normalise(doc.type) and d.date > doc.date),
+                           key=lambda d: (d.date, d.id))
+            if later:
+                return [doc, *later], "link_and_later_versions"
         return [doc], "link"
     text = " ".join(texts_upto)
     cand = cat.doc(ref) if ref else None
@@ -345,11 +487,15 @@ def resolve_review_docs(cat, texts_upto: list[str], ref: str, prev=frozenset()):
             break
     if dtype is None:
         return [], "no_document_named"
+    own = {_alnum(n) for n in (cat.product, *cat.aliases) if _alnum(n)}
+    known_external = {_alnum(e["name"]) for e in cat.competitors.entries.values()}
+    subject: dict[str, str] = {}
+    for t in texts_upto:
+        for _, dt, who in _doc_subjects(t, own, known_external):
+            subject[dt] = who
+    if subject.get(_alnum(dtype)) == "external":
+        return [], "external_product_document"
     cands = [d for d in cat.documents if normalise(d.type) == normalise(dtype)]
-    if sr.PREV_CUE.search(text):
-        cands = [d for d in cands if d.id in prev] or cands
-    elif _CURRENT_CUE.search(text):
-        cands = [d for d in cands if d.id not in prev] or cands
     low = " " + normalise(text) + " "
     named = {d.stem for d in cands if d.stem and re.search(r"(?<![a-z0-9])" + re.escape(d.stem) + r"(?![a-z0-9])", low)}
     cands = [d for d in cands if d.stem in named] or cands
@@ -610,7 +756,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         ok = _validated("document_reviews", _items(data, "document_reviews"), supplied, MEETING_ALLOWED, drops, note_loss)
         docs, why_doc = [], "no_document"
         if mt.document_type and mt.document_type != PRODUCT_PLANNING:
-            docs, why_doc = resolve_review_docs(cat, [c.text for c in mchats] + [mt.document_type], "", doc_prev)
+            docs, why_doc = resolve_review_docs(cat, [c.text for c in mchats] + [mt.document_type], "", doc_prev,
+                                                later_versions=True)
         for d_ in docs:
             discusses.add((f"Meeting:{mt.id}", f"Document:{d_.id}"))
         for rv in ok:
@@ -619,7 +766,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 drops["document_reviews"]["bad_kind_or_segment"] += 1
                 continue
             seg_text = next((r_.text for r_ in supplied if r_.id == record_of[ref]), "")
-            if not is_review(rv["kind"], seg_text):
+            if not is_review(rv["kind"], cited_remark(seg_text, rv["citations"], record_of[ref])):
                 drops["document_reviews"]["not_a_review"] += 1  # an opener or thanks suggests nothing
                 continue
             if not docs:
@@ -723,6 +870,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
     tokens = {fid: ftoks(fid) for fid in feature_info}
     conflicts = []
     winner_of: dict[str, str] = {}
+    pre_c4 = {link: list(ls_) for link, ls_ in dev_links.items()}  # 13f re-reads these after the membership calls
     for link in list(dev_links):
         ls_ = dev_links[link]
         if not ls_ or any(x["basis"] != "meeting_title" for x in ls_):
@@ -887,6 +1035,39 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             dev_links[p.link].append({"feature": feats[int(fm.group(1)) - 1]["id"], "basis": "batch",
                                       "citations": [{**cite, "field": r.record.field, "span": list(r.span)}],
                                       "record": p.link})
+    # 13f: an explicit task-to-PR statement outranks the title-word reading above. That reading stays in place until
+    # here because the membership requests carry its results as examples (the cached requests must not change).
+    names_of = {fid: [feature_info[fid]["title"], *cat.features.entries[fid]["aliases"]] for fid in feature_info}
+    for link, old_ls in pre_c4.items():
+        if not old_ls or any(x["basis"] != "meeting_title" for x in old_ls):
+            continue
+        found = explicit_task_features(prs_raw[link].title, rec.meetings, names_of)
+        if not found:
+            continue
+        seen = {x["feature"] for x in old_ls} | {x["feature"] for x in dev_links.get(link, [])}
+        cites = [c for x in found for c in x["citations"]]
+        if len(found) > 1:  # explicit statements disagree: no association
+            conflicts[:] = [c_ for c_ in conflicts if c_["pr"] != link]
+            conflicts.append({"pr": link, "kept": None, "dropped": sorted(seen | {x["feature"] for x in found}),
+                              "citations": cites, "basis": "explicit_task_conflict"})
+            dev_links.pop(link, None)
+            winner_of.pop(link, None)
+            if prs_raw[link].merged is True:  # a merged PR we cannot file blocks the features it might implement
+                note_loss(" ".join(feature_info[x["feature"]]["title"] for x in found) + " " + prs_raw[link].title,
+                          impl=True)
+            continue
+        win = found[0]
+        if seen == {win["feature"]}:
+            continue  # the same feature either way
+        keep = next((x for x in old_ls if x["feature"] == win["feature"]), None) or {
+            "feature": win["feature"], "basis": "meeting_title", "citations": win["citations"], "record": win["meeting"],
+            "context": win["context"], "date": win["date"]}
+        keep = {**keep, "also_cited": [c for x in old_ls if x["feature"] != win["feature"] for c in x["citations"]]}
+        conflicts[:] = [c_ for c_ in conflicts if c_["pr"] != link]
+        conflicts.append({"pr": link, "kept": win["feature"], "dropped": sorted(seen - {win["feature"]}),
+                          "citations": [*win["citations"], *keep["also_cited"]], "basis": "explicit_task"})
+        dev_links[link] = [keep]
+        winner_of[link] = win["feature"]
     unassigned = [p.link for p in product_prs if p.link not in dev_links]
 
     # ---- 6. derived outcomes
@@ -1261,7 +1442,7 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
         if mid not in msgs or rv.get("kind") not in REVIEW_KINDS:
             drops["reviews"]["bad_message_or_kind"] += 1
             continue
-        if not is_review(rv["kind"], msgs[mid].text):
+        if not is_review(rv["kind"], cited_remark(msgs[mid].text, rv["citations"], mid)):
             drops["reviews"]["not_a_review"] += 1  # an opener, thanks or plan suggests nothing about the document
             continue
         upto = [m.text for m in msgs.values() if order[m.id] <= order[mid]]
