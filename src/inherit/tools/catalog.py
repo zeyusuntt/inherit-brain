@@ -47,6 +47,7 @@ class ToolResult:
     ops: list[TraceOp]
     path: list[str]  # ids along the returned rows (refs then evidence), for the demo's clickable path
     ms: float
+    note: str | None = None  # one sentence for the model when the result needs a hint (no automatic retry)
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,12 @@ class Tool:
         t0 = time.perf_counter()
         rows = self.impl(ctx, p)
         page, more, cursor = _page(rows, offset, sig)
-        return ToolResult(page, more, cursor, ctx.ops, _path(page), round((time.perf_counter() - t0) * 1000, 3))
+        note = None
+        phrase = p.get("feature") or p.get("topic")
+        if not rows and isinstance(phrase, str) and phrase.startswith("Feature:"):
+            note = ("No rows for that feature id; call again with the question's full feature phrase as the "
+                    "feature/topic text instead of the id.")
+        return ToolResult(page, more, cursor, ctx.ops, _path(page), round((time.perf_counter() - t0) * 1000, 3), note)
 
 
 # ---------------------------------------------------------------- parameters and paging
@@ -282,8 +288,8 @@ def _stems(text: str) -> frozenset:
 def _resolve_features(ctx: _Ctx, text: str | None) -> list[str] | None:
     """Feature ids for a canonical id, an exact title/topic/alias, a stemmed token-set match, a title/alias inside the text (or the text inside a
     title), else the features whose words cover at least 60 percent of the text's content words."""
-    if text is None:
-        return None
+    if text is None or _is_product_name(ctx, _area_key(text)):
+        return None  # the product is the scope of the graph, not a feature
     f = fold(text)
     rows = ctx.q("MATCH (f:Feature) RETURN f.id, f.title, f.topic, f.aliases, f.details")
     names = {fid: [fold(n) for n in [title, topic, *(aliases or [])] if n] for fid, title, topic, aliases, _ in rows}
@@ -367,6 +373,11 @@ FALLBACK_KINDS = {lb for lb in FALLBACK_LABELS}
 
 def _resolve_entity(ctx: _Ctx, p: dict) -> list[dict]:
     f = fold(p["text"])
+    if _is_product_name(ctx, _area_key(p["text"])):
+        return [{"answer": pid, "id": pid, "label": "Product", "match": "exact", "name": name or pid, "refs": [pid],
+                 "evidence": [], "note": "This is the product itself, the scope of every tool. It is not a customer, "
+                 "feature or competitor: leave it out of customer, feature, topic and component filters."}
+                for pid, name in ctx.q("MATCH (p:Product) RETURN p.id, p.name")]
     wanted = [KINDS[k] for k in (p.get("kinds") or KINDS)]
     rows: dict[str, dict] = {}
     present: set[str] = set()
@@ -996,7 +1007,8 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           _resolve_person, ("name",)),
     _tool("resolve_entity",
           "Resolve a document, customer company, PR, bug, feature, competitor or product name to node ids: exact "
-          "match on names, titles, aliases, links and keys, else a full-text fallback for multi-word text. "
+          "match on names, titles, aliases, links and keys, else a full-text fallback for multi-word text. The product's "
+          "own name resolves to the Product, which is the scope of every tool, never a customer, feature or competitor. "
           "Example: which node is 'API rate limiting'? -> resolve_entity(text='API rate limiting', kinds=['bug']).",
           {"text": _s("The name, title, alias, link or key to resolve."),
            "kinds": {"type": "array", "items": {"type": "string", "enum": list(KINDS)},
@@ -1023,7 +1035,7 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           "bugs). With status=reopened, resolver, dismisser and fix_pr_author must have acted before a later "
           "reopening. rank=max keeps every tie at the top. return=bugs lists the bugs themselves (title, impact "
           "text, component, companies) with no PR required. as_of (ISO date) gives the state on that date. "
-          "Example: worked examples. Companies or engineers affected by, or resolving, issues in <component>: "
+          "Example: worked examples. Companies or engineers affected by, or resolving, issues in <component> (an 'affected by issues in <component>' list uses status 'any' and rank 'all'): "
           "bug_board(status='any' for companies or 'resolved' for engineers, component=<the full phrase from the "
           "question, never split on 'and'>, actor='company' or 'resolver', rank='all'), no customer filter. Which "
           "company has the most <status> bugs: bug_board(status=<status>, actor='company', rank='max'). Which "
@@ -1057,8 +1069,12 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           "reverted (needs an applied revert), delayed_then_added (held, then resumed or implemented), held (any hold), any; all five are the semantic layer's derived properties. reason "
           "filters the revert or hold reason. Example: features that could not be added for security reasons -> "
           "feature_fate(fate='reverted', reason='security'); who was responsible for unimplemented features -> "
-          "feature_fate(fate='unimplemented', return='people').",
-          {"topic": _s(f"Feature topic, {_NAME_FORMS}."),
+          "feature_fate(fate='unimplemented', return='people'). return='prs' lists the PRs associated with the "
+          "selected features (feature-level, not their approval, merge or revert state): for questions about "
+          "reverted, approved, unapproved, need-merge or need-close PRs use pr_board. The product's own name is not a "
+          "topic: omit topic.",
+          {"topic": _s("Feature topic: the question's full feature phrase or an id from an earlier row. Never the "
+                       "product name."),
            "fate": _enum("Feature fate.", ("any", "implemented", "unimplemented", "reverted", "delayed_then_added",
                                            "held"), "any"),
            "reason": _enum("Revert or hold reason.", REASONS),
@@ -1084,8 +1100,13 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           "feature_development (about a feature and not fixing a bug) or bug_fix. return=people groups by author "
           "and counts distinct PR links. Example: approved PRs for a feature that need to be closed -> "
           "pr_board(feature=..., approval='approved', state='need_close'); engineer with the most approved feature "
-          "PRs -> pr_board(kind='feature_development', approval='approved', return='people', rank='max').",
-          {"feature": _s(f"Feature, {_NAME_FORMS}."),
+          "PRs -> pr_board(kind='feature_development', approval='approved', return='people', rank='max'). approval "
+          "alone adds no state filter: leave state='any' unless the question asks for merged, pending merge, closed "
+          "or reverted PRs. This is the tool for every question about reverted, approved, unapproved, need-merge or "
+          "need-close PRs (PR-level predicates); feature_fate only lists the PRs associated with features. The "
+          "product's own name is not a feature: omit feature.",
+          {"feature": _s(f"Feature, the question's full feature phrase or an id from an earlier row (a free-text phrase "
+                         f"is resolved here). Never the product name."),
            "approval": _enum("Review state.", ("any", "approved", "unapproved"), "any"),
            "state": _enum("PR state.", ("any", "need_merge", "need_close", "merged", "reverted"), "any"),
            "revert_reason": _enum("Reason of the revert (state=reverted).", REASONS),

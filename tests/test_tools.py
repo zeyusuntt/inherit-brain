@@ -763,7 +763,7 @@ class _Feats:
         self.rows = rows
 
     def q(self, text, **params):
-        return self.rows
+        return [] if "MATCH (p:Product)" in text else self.rows
 
 
 def test_feature_phrases_resolve_by_stemmed_token_sets():
@@ -804,3 +804,36 @@ def test_doc_people_scope_defaults_to_any_and_says_when_to_set_it():
     sch = TOOLS["doc_people"].params_schema["properties"]["scope"]
     assert sch["default"] == "any" and "only when the question says" in sch["description"]
     assert "never split on 'and'" in TOOLS["bug_board"].description
+
+
+# ---------------------------------------------------------------- product is scope, neutral defaults, routing
+def test_product_name_is_no_feature_or_topic_filter(tg):
+    for name in (P, "Product:" + P):
+        assert answers(call(tg, "pr_board", feature=name, approval="approved", kind="feature_development")) == \
+            answers(call(tg, "pr_board", approval="approved", kind="feature_development"))
+        assert answers(call(tg, "feature_fate", topic=name, fate="unimplemented")) == ["Voice assistant"]
+    ppl = call(tg, "pr_board", feature=P, kind="feature_development", approval="approved", **{"return": "people", "rank": "max"})
+    assert counts(ppl) == {ALICE: 3}
+
+
+def test_resolve_entity_with_the_product_name_returns_the_product_as_scope(tg):
+    for kinds in (None, ["customer"], ["feature"]):
+        r = call(tg, "resolve_entity", text=P, **({"kinds": kinds} if kinds else {}))
+        assert answers(r) == [f"Product:{P}"] and r.rows[0]["label"] == "Product"
+        assert "scope" in r.rows[0]["note"] and "not a customer" in r.rows[0]["note"]
+
+
+def test_descriptions_state_neutral_defaults_and_pr_level_routing():
+    pb, ff, bb = (TOOLS[n].description for n in ("pr_board", "feature_fate", "bug_board"))
+    assert "approval alone adds no state filter" in pb and "state='any'" in pb and "PR-level" in pb
+    assert "associated with the selected features" in ff and "use pr_board" in ff
+    assert "status 'any' and rank 'all'" in bb
+    assert "feature_fate" in pb and "pr_board" in ff
+
+
+def test_empty_feature_id_result_suggests_the_full_phrase(tg):
+    r = call(tg, "pr_board", feature="Feature:nosuch", approval="approved")
+    assert r.rows == [] and "full feature phrase" in r.note
+    assert call(tg, "feature_fate", topic="Feature:nosuch").note
+    assert call(tg, "pr_board", feature="no such feature").note is None  # free text: nothing to suggest
+    assert call(tg, "pr_board", feature="Feature:fA").note is None
