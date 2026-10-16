@@ -1,7 +1,7 @@
 """A2: GraphRAG-SDK 1.4.0 with its automatic ontology, on the product's allowed records.
 
 Lifecycle, as the SDK ships it: `Ontology.from_sources` drafts an ontology from the source texts, `GraphRAG.ingest`
-extracts a graph per source into FalkorDB 6.0.2 (graph `a2:<product>`), `finalize()` deduplicates and embeds, and
+extracts a graph per source into FalkorDB (graph `a2:<product>` on FalkorDB 4.22.1), `finalize()` deduplicates and embeds, and
 `completion()` answers each question (no history, SDK retrieval defaults). Nothing about the SDK is tuned.
 
 Every model and embedding call goes through the metering proxy (`inherit.llm`), arm name `a2-build` while building
@@ -30,6 +30,7 @@ from graphrag_sdk import (
 from graphrag_sdk.core.models import LLMResponse
 from graphrag_sdk.core.context import Context
 from graphrag_sdk.core.exceptions import LatencyBudgetExceededError  # noqa: F401
+from graphrag_sdk.ingestion.extraction_strategies import GraphExtraction, LLMExtractor
 from graphrag_sdk.ingestion.loaders.base import LoaderStrategy
 from graphrag_sdk.core.models import DocumentInfo, DocumentOutput
 
@@ -42,12 +43,13 @@ from inherit.data.bundle import BUNDLE_DIR, load_bundle, load_metadata
 PROMPT_VERSION = "a2/v1"
 ARM_BUILD, ARM_ANSWER = "a2-build", "a2"
 BUILD_CAP_USD, ANSWER_CAP_USD = 1.0, 0.3
-FALKOR_HOST, FALKOR_PORT = "localhost", 6380  # FalkorDB 6.0.2
+FALKOR_HOST, FALKOR_PORT = "localhost", 6379  # FalkorDB 4.22.1: the SDK's fulltext DDL (db.idx.fulltext.createNodeIndex
+# with a label and fields) is rejected by 6.0.2, which then trips the SDK's circuit breaker mid-ingest
 EMBED_DIM = 1024
 BUILD_MAX_TOKENS, ANSWER_MAX_TOKENS = 4096, agent.MAX_OUTPUT_TOKENS
 DEADLINE_S = agent.DEADLINE_S
 DISCOVERY_SAMPLE_CHUNKS = 1  # SDK default is 3
-DISCOVERY_PER_CATEGORY = 3  # sources per category the ontology is drafted from (F7: discovery sampling is cut first)
+DISCOVERY_PER_CATEGORY = 1  # sources per category the ontology is drafted from (F7: discovery sampling is cut first)
 DISCOVERY_SEED = 20261015
 DISCOVERY_CONCURRENCY = 12  # SDK default 4; wall-clock only, the calls are the same
 INGEST_CONCURRENCY = 3  # the SDK's own batch default
@@ -261,12 +263,16 @@ async def _build(product: str, sources: list[Source], log: UsageLog, report: dic
     async with _facade(product, ARM_BUILD, log) as rag:
         await rag.set_ontology(ontology)
         sem = asyncio.Semaphore(INGEST_CONCURRENCY)
+        # The SDK's default step-1 NER is a local GLiNER model whose tokenizer fails to load under the pinned
+        # transformers 5.x; the SDK's own LLM NER (LLMExtractor) is its documented alternative.
+        extractor = GraphExtraction(rag.llm, entity_extractor=LLMExtractor(rag.llm),
+                                    entity_types=[e.label for e in ontology.entities])
 
         async def one(s: Source) -> int:
             async with sem:
                 if await rag._graph_store.get_document_record(s.doc_id) is not None:
                     return 0  # already ingested by an interrupted build
-                return (await rag.ingest(text=s.text, document_id=s.doc_id)).chunks_indexed
+                return (await rag.ingest(text=s.text, document_id=s.doc_id, extractor=extractor)).chunks_indexed
 
         report["chunks"] = sum(await asyncio.gather(*[one(s) for s in sources]))
         fin = await rag.finalize()
@@ -325,7 +331,8 @@ CONVERT = ("Rewrite the answer below as the JSON object described. Restate only 
 def arm_config() -> dict:
     s = load_settings()
     return {"graph": "a2:<product>", "model": s.model, "embed_model": s.embed_model, "embed_dim": EMBED_DIM,
-            "sdk": "graphrag-sdk 1.4.0", "falkordb_port": FALKOR_PORT, "discovery_sample_chunks": DISCOVERY_SAMPLE_CHUNKS,
+            "sdk": "graphrag-sdk 1.4.0", "falkordb_port": FALKOR_PORT, "ner": "LLMExtractor",
+            "discovery_per_category": DISCOVERY_PER_CATEGORY, "discovery_sample_chunks": DISCOVERY_SAMPLE_CHUNKS,
             "max_output_tokens": ANSWER_MAX_TOKENS, "deadline_s": DEADLINE_S, "temperature": 0}
 
 
