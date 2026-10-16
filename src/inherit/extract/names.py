@@ -20,7 +20,7 @@ from inherit.extract.sessions import sessions
 from inherit.facts import Edge, Facts, Node
 from inherit.ontology import check_edge
 
-EXTRACTOR = "names/v1"
+EXTRACTOR = "names/v2"
 WEIGHTS = {"role_cue": 3, "related_post": 2, "mentioned": 1}
 WINDOW = timedelta(days=3)
 ROLE_CUES_VERSION = "v2"
@@ -175,11 +175,13 @@ def resolve_speaker(name: str, meeting: Meeting, context: NameContext) -> Resolu
     name = norm(name)
     mdt = datetime.fromisoformat(meeting.date)
     mentioned = context.mentions.get(meeting.id, set())
-    cands = []
-    for eid in context.by_name.get(name, []):
-        near = any(abs(t - mdt) <= WINDOW for t, _ in context.posts.get(eid, []))
-        if eid in meeting.participants or near or eid in mentioned:
-            cands.append(eid)
+    same_name = context.by_name.get(name, [])
+    cands = [eid for eid in same_name if eid in meeting.participants]  # SPEC 5.3: co-attendees come first
+    if not cands:  # nobody of that name attended: fall back to people active nearby or mentioned
+        for eid in same_name:
+            near = any(abs(t - mdt) <= WINDOW for t, _ in context.posts.get(eid, []))
+            if near or eid in mentioned:
+                cands.append(eid)
     if not cands:
         return Resolution([], False, "unresolved", [f"no candidate for {name!r}"], {})
     if len(cands) == 1:

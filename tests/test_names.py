@@ -269,7 +269,7 @@ def test_spoke_in_edges_and_src():
     spoke = {(e.src_id, e.dst_id): e for e in facts.edges if e.type == "SPOKE_IN"}
     assert set(spoke) == {("Person:eid_qa", "Meeting:m1"), ("Person:eid_solo", "Meeting:m1")}
     e = spoke[("Person:eid_qa", "Meeting:m1")]
-    assert e.src == ("m1#3", "m1#5") and e.extractor == "names/v1"
+    assert e.src == ("m1#3", "m1#5") and e.extractor == "names/v2"
     assert e.props == {"speaker_name": "Ian Miller", "ambiguous": False, "score": 3, "n_candidates": 2}
     for x in facts.edges:
         check_edge(x)
@@ -384,3 +384,18 @@ def test_chat_shared_edges_stay_per_chat(order):
     qa = {e.src: e.props["ambiguous"] for e in facts.edges
           if e.type == "SHARED" and e.src_id == "Person:eid_qa" and e.dst_id == "Document:spec1"}
     assert qa == {("a_chat",): False, ("b_chat",): True}
+
+
+def test_a_same_name_attendee_beats_a_namesake_active_nearby_or_mentioned():
+    # only the QA Ian Miller attended; the product manager of the same name posted nearby and is @-mentioned
+    posts = [msg("p1", "eid_pm", "2026-06-13T09:00:00", "Design Spec notes https://sf-internal.slack.com/archives/docs/spec1")]
+    chat = MeetingChat("m1_chat", "2026-06-13T10:00:00\nDana Wu: ping @eid_pm", "2026-06-13T10:00:00", ("eid_pm",), "m1", "id")
+    rec = records([meeting(QA_LINES, participants=("eid_qa", "eid_solo"))], messages=posts, chats=[chat])
+    r = resolve(rec)
+    assert r.ids == ["eid_qa"] and r.status == "resolved" and r.evidence == ["single candidate"]
+
+
+def test_namesakes_among_the_attendees_are_still_scored_and_ties_kept():
+    rec = records([meeting([("Ian Miller", "hello")], participants=("eid_qa", "eid_pm"))])
+    r = resolve(rec)
+    assert r.status == "ambiguous" and set(r.ids) == {"eid_qa", "eid_pm"}
