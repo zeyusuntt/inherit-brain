@@ -130,6 +130,9 @@ def named_qa_eids(text: str, directory) -> tuple[list[str], list[str], list[str]
 
 _PREV_PHRASE = re.compile(r"\b(?:last|previous|prior|latest)\s+release\b|\b(?:last|previous|prior)\s+version\b",
                           re.IGNORECASE)
+# A message that opens the review of a document being updated (`review the Product Vision Document and update it`)
+# and only cites release feedback is mixed context, not a previous-release anchor (Codex review I1).
+_REVIEW_OPENER = re.compile(r"\b(?:review|update)\b[^.!?]{0,80}\b(?:Document|Report)\b")
 _PREV_DOCS = re.compile(r"\bdocuments?\s+from\s+the\s+(?:last|previous|prior)\s+release\b", re.IGNORECASE)
 _DEMO = re.compile(r"\bdemo\b", re.IGNORECASE)
 _URL_PATH_ALIAS = re.compile(r"/archives/([^/]+)/demo_\d+")
@@ -172,7 +175,8 @@ def run_rules(rec: ProductRecords) -> tuple[Facts, dict]:
             doc_anchors = [m for m in sess if not m.is_bot and _PREV_DOCS.search(m.text)
                            and not _is_bug_channel(m.channel_name)]
             for m in sess:
-                if not m.is_bot and not _is_bug_channel(m.channel_name) and _PREV_PHRASE.search(m.text):
+                if not m.is_bot and not _is_bug_channel(m.channel_name) and _PREV_PHRASE.search(m.text) \
+                        and not _REVIEW_OPENER.search(m.text):
                     anchors[m.id] = m.channel_id
             if not doc_anchors:
                 continue
@@ -345,6 +349,7 @@ def run_rules(rec: ProductRecords) -> tuple[Facts, dict]:
         "scope_counts": {k: dict(v) for k, v in scope_counts.items()},
         "anchor_messages": sorted(anchors),
         "pr_counts": {k: dict(v) for k, v in pr_counts.items()},
+        "product_repos": sorted(cat.product_repos),
         "approval_contradictions": contradictions,
         # PRs whose review comments say approved while the review-state predicate says not approved
         "approval_flips": [c["pr"] for c in contradictions if c["approval"] != "approved"

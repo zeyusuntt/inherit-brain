@@ -94,3 +94,22 @@ def test_source_records_from_mini_fixture(mini_bundle):
     assert [s.position for s in dup] == [0, 1]  # repeated URL ids keep their stable position
     rev = [s for s in srcs if s.source_type == "pr" and s.field == "review"]
     assert any(s.id == "github_com_mini_mini-server_pull_101" and s.position == 0 for s in rev)
+
+
+def test_serialised_citation_keeps_resolved_field_and_position():
+    content = SourceRecord("new_aix_market_research_report", "document", "content", "Market sizing for AIX.")
+    fb = SourceRecord("new_aix_market_research_report", "document", "feedback", "- Add pricing tiers to the report.")
+    allowed = {("document", "content"), ("document", "feedback"), ("url", "description")}
+    items = [
+        {"t": "obj", "citations": [Citation("new_aix_market_research_report", "pricing tiers", field="feedback")]},
+        {"t": "dict-no-field", "citations": [{"record_id": "new_aix_market_research_report", "quote": "market sizing"}]},
+        {"t": "url", "citations": [{"record_id": "u1", "quote": "demo video of leadforce"}]},
+    ]
+    kept, dropped = validate_items(items, [content, fb, URL0, URL1], allowed)
+    assert dropped == {}
+    assert kept[0]["citations"][0]["field"] == "feedback"
+    assert kept[1]["citations"][0]["field"] == "content"  # resolved even though the citation omitted it
+    assert kept[2]["citations"][0]["field"] == "description" and kept[2]["citations"][0]["position"] == 1
+    # the span addresses the resolved field's text
+    s0, e0 = kept[0]["citations"][0]["span"]
+    assert normalise(fb.text)[s0:e0] == "pricing tiers"

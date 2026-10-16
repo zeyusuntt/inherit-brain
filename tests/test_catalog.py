@@ -71,16 +71,58 @@ def test_catalog_prs_by_link_and_exact_title_keep_duplicates_apart(rec):
 
 def test_repo_scope_uses_bundle_evidence_not_just_the_org(rec):
     cat = build_catalog(rec)
+    assert cat.product_repos == {"mini/mini-server"}
     assert cat.pr("https://github.com/tensorflow/tensorflow/pull/777").repo_scope == "external"
     assert "mini-server" in cat.product_repos or "mini/mini-server" in cat.product_repos
 
 
-def test_salesforce_org_repos_are_product_repos():
-    from inherit.extract.catalog import repo_scope
-    assert repo_scope("https://github.com/salesforce/AIX/pull/9", "LeadForce", ()) == "product"
-    assert repo_scope("https://github.com/apache/kafka/pull/9", "LeadForce", ()) == "external"
-    assert repo_scope("https://github.com/acme/leadforce-api/pull/9", "LeadForce", ()) == "external"
-    assert repo_scope("https://github.com/acme/AIX/pull/9", "LeadForce", ("AIX",)) == "product"
+PAIRS = [("salesforce", "LeadForce"), ("salesforce", "AIX"), ("salesforce", "flink"), ("apache", "AIX"),
+         ("apache", "kafka"), ("acme", "leadforce-api")]
+
+
+def test_product_repo_set_is_explicit_exact_membership():
+    from inherit.extract.catalog import product_repo_set, repo_scope
+    repos = product_repo_set(PAIRS, "LeadForce", ("AIX", "ProX"))
+    assert repos == {"salesforce/LeadForce", "salesforce/AIX"}
+    link = lambda o, r: f"https://github.com/{o}/{r}/pull/9"  # noqa: E731
+    assert repo_scope(link("salesforce", "AIX"), repos) == "product"
+    for o, r in (("salesforce", "flink"), ("apache", "AIX"), ("apache", "kafka"), ("acme", "leadforce-api")):
+        assert repo_scope(link(o, r), repos) == "external", (o, r)
+    assert repo_scope("https://example.com/x", repos) == "external"
+
+
+def test_product_repo_set_without_a_product_named_repo_accepts_alias_repos():
+    from inherit.extract.catalog import product_repo_set
+    assert product_repo_set([("salesforce", "AIX"), ("apache", "kafka")], "LeadForce", ("AIX",)) == {"salesforce/AIX"}
+
+
+def test_feature_registry_canonical_ids_and_resolution(rec):
+    cat = build_catalog(rec)
+    fid = cat.register_feature("Real-Time  Alerts", aliases=["WebSockets endpoint"],
+                               citations=[{"record_id": "m1", "quote": "alerts"}])
+    assert fid == "Feature:mini:real time alerts"
+    assert cat.resolve_feature("real-time alerts") == fid and cat.resolve_feature("websockets ENDPOINT") == fid
+    assert cat.resolve_feature("unknown") is None
+    # an alias that already resolves joins the same feature; citations and aliases are unioned
+    assert cat.register_feature("Alerting", aliases=["Real time alerts"], citations=[{"record_id": "m2", "quote": "x"}]) == fid
+    e = cat.features.entries[fid]
+    assert len(e["citations"]) == 2 and "Alerting" in e["aliases"]
+    assert cat.resolve_feature("alerting") == fid
+    other = cat.register_feature("Email digest")
+    assert other == "Feature:mini:email digest" and other != fid
+    with pytest.raises(ValueError):
+        cat.register_feature("  ")
+
+
+def test_competitor_registry(rec):
+    cat = build_catalog(rec)
+    cid = cat.register_competitor("InsightGuard", citations=[{"record_id": "20260803-0-e89ae", "quote": "InsightGuard"}])
+    assert cid == "Competitor:InsightGuard"
+    assert cat.resolve_competitor("insight guard") == cid and cat.resolve_competitor("INSIGHTGUARD") == cid
+    assert cat.register_competitor("Insight-Guard", citations=[{"record_id": "x", "quote": "y"}]) == cid
+    assert len(cat.competitors.entries[cid]["citations"]) == 2
+    assert cat.resolve_competitor("PatternPulse") is None
+    assert build_catalog(rec).resolve_competitor("InsightGuard") is None  # registries are per catalogue
 
 
 def test_with_previous_names(rec):

@@ -367,6 +367,30 @@ def test_dev_leadforce_demos(dev):
 
 
 @needs_dev
+def test_dev_mixed_review_openers_are_not_previous_anchors(dev):
+    f, rep = dev["TrendForce"][1], dev["TrendForce"][2]
+    for mid in ("20260328-0-7aeea", "20260330-0-db2f4"):  # "review the ... Document and update it ... latest release"
+        n = node(f, f"Message:{mid}")
+        assert n is None or n.props.get("release_scope") != "previous", mid
+        assert mid not in rep["anchor_messages"]
+    for mid in ("20260312-0-df79b", "20260404-0-349cb", "20260405-0-2f582"):  # kick-off, QA report, demo
+        assert props(f, f"Message:{mid}")["release_scope"] == "previous", mid
+    assert props(f, "Url:https://sf-internal.slack.com/archives/dProX/demo_3")["release_scope"] == "previous"
+    assert rep["previous_names"] == ["dProX"] and rep["scope_counts"]["Message"]["previous"] == 7
+
+
+def test_mixed_review_opener_is_unknown(mini_rec):
+    from inherit.data.records import SlackMessage
+    m = mini_rec.messages[0]
+    mk = lambda i, t: SlackMessage(i, "chx", "planning-mini", "eid_e5000005", "2026-08-01T09:00:00", t, (), False, True, None)  # noqa: E731
+    rec2 = copy.copy(mini_rec)
+    rec2.messages = [mk("x1", "Hi team, let's review the Product Vision Document and update it. Feedback from the latest release."),
+                     mk("x2", "QA team found some issues in the last release of mini.")]
+    _, rep = rules.run_rules(rec2)
+    assert rep["anchor_messages"] == ["x2"] and m
+
+
+@needs_dev
 def test_dev_competitor_demo_has_no_subject_in_4a(dev):
     f = dev["AnomalyForce"][1]
     u = props(f, "Url:https://www.insightguard.com/demo")
@@ -429,6 +453,7 @@ def test_dev_pr_repo_scope_counts(dev):
     c = {p: dev[p][2]["pr_counts"] for p in DEV}
     assert sum(c["AnomalyForce"]["product"].values()) == 37 and sum(c["AnomalyForce"]["external"].values()) == 66
     assert sum(c["LeadForce"]["product"].values()) == 36 + 19
+    assert dev["LeadForce"][2].get("product_repos") == ["salesforce/AIX", "salesforce/LeadForce"]
     assert sum(c["ActionGenie"]["product"].values()) == 26 + 22
     # the external flink Avro PR is never a product PR
     f = dev["AnomalyForce"][1]

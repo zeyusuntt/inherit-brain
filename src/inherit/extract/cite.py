@@ -101,6 +101,7 @@ def validate_items(items, supplied, allowed, key: str = "citations") -> tuple[li
             r = validate_citation(c, supplied, allowed)
             if r.ok:
                 d = dict(c) if isinstance(c, dict) else {"record_id": c.record_id, "quote": c.quote}
+                d["field"] = r.record.field  # the resolved field, so the span has a complete source address
                 d["span"] = list(r.span)
                 if r.position is not None:
                     d["position"] = r.position

@@ -19,8 +19,6 @@ URL_ALIAS_RE = re.compile(r"/archives/([^/]+)/demo_\d+")
 DOC_STEM_RE = re.compile(
     r"^(?:(?:final|latest|new)_)?(?P<stem>.+?)_(?:market_research|product_vision|product_requirements"
     r"|technical_specifications|system_design)(?:_report|_document)?(?:_final)?$")
-# The organisation that owns the product repositories in the real bundle (salesforce/<repo>, repo = product or alias).
-PRODUCT_ORG = "salesforce"
 
 
 def doc_stem(doc_id: str) -> str | None:
@@ -34,17 +32,22 @@ def repo_of(link: str) -> tuple[str, str] | None:
     return (m.group(1), m.group(2)) if m else None
 
 
-def repo_scope(link: str, product: str, aliases=()) -> str:
-    """`product` when the PR lives in the organisation's repository or in a repo or owner named like the product or one
-    of its aliases (alias repos included); otherwise `external` (open-source look-alikes)."""
-    r = repo_of(link)
-    if r is None:
-        return "external"
-    owner, repo = r
+def product_repo_set(pairs, product: str, aliases=()) -> frozenset[str]:
+    """Explicit `owner/repo` set of the product's repositories from the PRs its own records link. A pair is a product
+    repository when its repo name equals the product name or a confirmed alias exactly (case-insensitive) and its owner
+    is an owner of a repository named like the product (or the owner is named like the product). No organisation or
+    name shortcut: salesforce/flink and apache/AIX are not members."""
     names = {product.lower(), *(a.lower() for a in aliases)}
-    if owner == PRODUCT_ORG or owner.lower() in names or repo.lower() in names:
-        return "product"
-    return "external"
+    pairs = sorted(set(pairs))
+    owners = {o for o, r in pairs if r.lower() == product.lower() or o.lower() == product.lower()}
+    return frozenset(f"{o}/{r}" for o, r in pairs
+                     if o.lower() == product.lower() or (r.lower() in names and (not owners or o in owners)))
+
+
+def repo_scope(link: str, product_repos) -> str:
+    """`product` on exact owner/repo membership in the explicit set, otherwise `external`."""
+    r = repo_of(link)
+    return "product" if r and f"{r[0]}/{r[1]}" in product_repos else "external"
 
 
 def channel_label(name: str) -> str | None:
@@ -123,6 +126,67 @@ class PrEntry:
     state: str
 
 
+def _topic(text: str) -> str:
+    """Normalised topic: case-folded alphanumeric words joined by single spaces."""
+    return " ".join(re.findall(r"[a-z0-9]+", (text or "").casefold()))
+
+
+def _flat(text: str) -> str:
+    return "".join(re.findall(r"[a-z0-9]+", (text or "").casefold()))
+
+
+class FeatureRegistry:
+    """Product-scoped features. `register` returns the canonical id `Feature:<product>:<normalised topic>`; a title or
+    alias that already resolves to a feature joins it (aliases and citations are unioned). Discovery is 4c's job."""
+
+    def __init__(self, product: str):
+        self.product = product
+        self.entries: dict[str, dict] = {}
+        self._index: dict[str, str] = {}
+
+    def register(self, title: str, aliases=(), citations=()) -> str:
+        keys = [k for k in (_topic(title), *(_topic(a) for a in aliases)) if k]
+        if not keys:
+            raise ValueError("feature needs a non-empty title")
+        fid = next((self._index[k] for k in keys if k in self._index), f"Feature:{self.product}:{keys[0]}")
+        e = self.entries.setdefault(fid, {"id": fid, "title": title, "aliases": [], "citations": []})
+        for a in (title, *aliases):
+            if a and a != e["title"] and a not in e["aliases"]:
+                e["aliases"].append(a)
+        for c in citations:
+            if c not in e["citations"]:
+                e["citations"].append(c)
+        for k in keys:
+            self._index.setdefault(k, fid)
+        return fid
+
+    def resolve(self, reference: str) -> str | None:
+        return self._index.get(_topic(reference))
+
+
+class CompetitorRegistry:
+    """Competitors by name. `register` returns `Competitor:<first display name>`; case, spacing and punctuation
+    variants of a name resolve to the same id (InsightGuard, Insight Guard)."""
+
+    def __init__(self):
+        self.entries: dict[str, dict] = {}
+        self._index: dict[str, str] = {}
+
+    def register(self, name: str, citations=()) -> str:
+        key = _flat(name)
+        if not key:
+            raise ValueError("competitor needs a non-empty name")
+        cid = self._index.setdefault(key, f"Competitor:{name.strip()}")
+        e = self.entries.setdefault(cid, {"id": cid, "name": cid.split(":", 1)[1], "citations": []})
+        for c in citations:
+            if c not in e["citations"]:
+                e["citations"].append(c)
+        return cid
+
+    def resolve(self, reference: str) -> str | None:
+        return self._index.get(_flat(reference))
+
+
 @dataclass(frozen=True)
 class Catalog:
     product: str
@@ -132,10 +196,24 @@ class Catalog:
     prs: tuple[PrEntry, ...]
     product_repos: frozenset
     previous_names: tuple[str, ...] = ()
+    features: FeatureRegistry = field(default=None, compare=False, repr=False)
+    competitors: CompetitorRegistry = field(default_factory=CompetitorRegistry, compare=False, repr=False)
     _docs: dict = field(default_factory=dict, compare=False, repr=False)
     _doc_links: dict = field(default_factory=dict, compare=False, repr=False)
     _prs: dict = field(default_factory=dict, compare=False, repr=False)
     _titles: dict = field(default_factory=dict, compare=False, repr=False)
+
+    def register_feature(self, title: str, aliases=(), citations=()) -> str:
+        return self.features.register(title, aliases, citations)
+
+    def resolve_feature(self, reference: str) -> str | None:
+        return self.features.resolve(reference)
+
+    def register_competitor(self, name: str, citations=()) -> str:
+        return self.competitors.register(name, citations)
+
+    def resolve_competitor(self, reference: str) -> str | None:
+        return self.competitors.resolve(reference)
 
     def with_previous(self, names) -> Catalog:
         return replace(self, previous_names=tuple(names))
@@ -163,16 +241,17 @@ def build_catalog(rec: ProductRecords) -> Catalog:
     al = derive_aliases(rec)
     aliases = tuple(al)
     docs = tuple(DocEntry(d.id, d.type, d.link, d.author, d.date, doc_stem(d.id)) for d in rec.documents)
+    repos = product_repo_set([r for r in (repo_of(p.link) for p in rec.prs) if r], rec.product, aliases)
     prs = []
     for p in rec.prs:
         r = repo_of(p.link)
         prs.append(PrEntry(p.id, p.link, p.number, p.title, p.author, r[0] if r else None, r[1] if r else None,
-                           repo_scope(p.link, rec.product, aliases), p.merged, p.state))
+                           repo_scope(p.link, repos), p.merged, p.state))
     titles: dict[str, list[PrEntry]] = defaultdict(list)
     for p in prs:
         titles[p.title].append(p)
     return Catalog(
         product=rec.product, aliases=aliases, alias_evidence=al, documents=docs, prs=tuple(prs),
-        product_repos=frozenset(f"{p.owner}/{p.repo}" for p in prs if p.repo_scope == "product" and p.owner),
+        product_repos=repos, features=FeatureRegistry(rec.product),
         _docs={d.id: d for d in docs}, _doc_links={d.link: d for d in docs}, _prs={p.link: p for p in prs},
         _titles=dict(titles))
