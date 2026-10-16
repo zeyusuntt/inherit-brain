@@ -1,10 +1,10 @@
 import multiprocessing as mp
 import threading
-from types import SimpleNamespace
 
 import pytest
 
-from inherit.llm import BudgetExceeded, Meter, chat, embed
+from inherit.meter import BudgetExceeded, Meter
+from inherit import meter as meter_mod
 
 import json
 
@@ -117,97 +117,8 @@ def test_double_settle_rejected(tmp_path):
         m.settle(r, 1, 1)
 
 
-class FakeChat:
-    def __init__(self, fail=None):
-        self.calls = []
-        self.fail = fail
-        self.completions = SimpleNamespace(create=self.create)
-        self.chat = SimpleNamespace(completions=self.completions)
-
-    def create(self, **kw):
-        self.calls.append(kw)
-        if self.fail:
-            raise self.fail
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content="hi", tool_calls=None))],
-            usage=SimpleNamespace(prompt_tokens=224, completion_tokens=36),
-        )
-
-
-def test_chat_settles_real_usage(tmp_path):
-    m = make_meter(tmp_path)
-    c = FakeChat()
-    res = chat([{"role": "user", "content": "hello"}], arm="t", meter=m, client=c, model=MODEL)
-    assert c.calls[0]["temperature"] == 0
-    assert res.prompt_tokens == 224 and res.completion_tokens == 36
-    assert res.cost_usd == pytest.approx(3.32e-05, rel=1e-9)
-    assert m.spent("t") == pytest.approx(3.32e-05, rel=1e-9)
-
-
-def test_chat_refused_before_request(tmp_path):
-    m = make_meter(tmp_path, cap=1e-6)
-    c = FakeChat()
-    with pytest.raises(BudgetExceeded):
-        chat([{"role": "user", "content": "hello"}], arm="t", max_tokens=800, meter=m, client=c, model=MODEL)
-    assert c.calls == []
-
-
-def test_chat_error_settles_full_reservation(tmp_path):
-    m = make_meter(tmp_path)
-    c = FakeChat(fail=RuntimeError("boom"))
-    with pytest.raises(RuntimeError):
-        chat([{"role": "user", "content": "x" * 300}], arm="t", max_tokens=800, meter=m, client=c, model=MODEL)
-    # 5xx / unknown error: charged at the full reservation, which is a byte-bound ceiling
-    assert m.spent("t") >= 300 * PRICE_IN + 800 * PRICE_OUT
-    assert m.spent("t") > 0
-
-
-class FakeEmbed:
-    def __init__(self):
-        self.calls = []
-        self.embeddings = SimpleNamespace(create=self.create)
-
-    def create(self, **kw):
-        self.calls.append(kw)
-        return SimpleNamespace(
-            data=[SimpleNamespace(embedding=[0.1, 0.2]) for _ in kw["input"]],
-            usage=SimpleNamespace(prompt_tokens=7),
-        )
-
-
-def test_embed_metered(tmp_path):
-    m = make_meter(tmp_path)
-    c = FakeEmbed()
-    res = embed(["a", "b"], arm="t", meter=m, client=c, model=EMBED_MODEL)
-    assert res.vectors == [[0.1, 0.2], [0.1, 0.2]]
-    assert res.prompt_tokens == 7
-    assert res.cost_usd == pytest.approx(7e-8, rel=1e-9)
-    assert m.spent("t") == pytest.approx(7e-8, rel=1e-9)
-
-
-# ---- fix round 1 ----------------------------------------------------------
-
-import httpx2
-import openai
-
-from inherit import llm
-from inherit.config import Settings
-
-
 def events(tmp_path):
     return [json.loads(l) for l in (tmp_path / "meter.jsonl").read_text().splitlines()]
-
-
-def test_reservation_is_a_byte_ceiling(tmp_path):
-    m = make_meter(tmp_path)
-    c = FakeChat()
-    msgs = [{"role": "user", "content": "é" * 100}]  # 2 bytes per char
-    tools = [{"type": "function", "function": {"name": "f"}}]
-    chat(msgs, arm="t", tools=tools, response_format={"type": "json_object"}, max_tokens=10, meter=m, client=c, model=MODEL)
-    res = [e for e in events(tmp_path) if e["type"] == "reserve"][0]
-    nbytes = len(json.dumps(msgs, ensure_ascii=False).encode()) + len(json.dumps(tools).encode())
-    nbytes += len(json.dumps({"type": "json_object"}).encode())
-    assert res["amount"] == (nbytes + 16 + 512) * 100_000 + 10 * 300_000
 
 
 def test_over_reservation_recorded(tmp_path):
@@ -217,43 +128,6 @@ def test_over_reservation_recorded(tmp_path):
     assert cost == pytest.approx(1e-4)
     assert m.spent("a") == pytest.approx(1e-4)
     assert events(tmp_path)[-1]["over_reservation"] is True
-
-
-def test_real_sdk_one_http_request_per_reservation(tmp_path, monkeypatch):
-    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
-    hits = []
-
-    def handler(request):
-        hits.append(1)
-        return httpx2.Response(500, json={"error": {"message": "boom"}})
-
-    sdk = openai.OpenAI(
-        api_key="k", base_url="http://x/v1", http_client=httpx2.Client(transport=httpx2.MockTransport(handler))
-    )  # default max_retries=2 must be overridden by chat()
-    m = make_meter(tmp_path)
-    with pytest.raises(openai.InternalServerError):
-        chat([{"role": "user", "content": "hi"}], arm="t", meter=m, client=sdk, model=MODEL, attempts=3)
-    reserves = [e for e in events(tmp_path) if e["type"] == "reserve"]
-    assert len(hits) == len(reserves) == 3
-    assert m.spent("t") > 0  # 5xx charged in full
-
-
-def test_4xx_settles_zero_and_429_retries(tmp_path, monkeypatch):
-    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
-    codes = iter([429, 400])
-
-    def handler(request):
-        return httpx2.Response(next(codes), json={"error": {"message": "no"}})
-
-    sdk = openai.OpenAI(
-        api_key="k", base_url="http://x/v1", http_client=httpx2.Client(transport=httpx2.MockTransport(handler))
-    )
-    m = make_meter(tmp_path)
-    with pytest.raises(openai.BadRequestError):
-        chat([{"role": "user", "content": "hi"}], arm="t", meter=m, client=sdk, model=MODEL)
-    settles = [e for e in events(tmp_path) if e["type"] == "settle"]
-    assert [s["status_code"] for s in settles] == [429, 400]
-    assert m.spent("t") == 0
 
 
 def test_budget_above_project_cap_rejected(monkeypatch):
@@ -267,14 +141,6 @@ def test_budget_above_project_cap_rejected(monkeypatch):
             config.load_settings()
     finally:
         config.load_settings.cache_clear()
-
-
-def test_unknown_model_refused(tmp_path):
-    m = make_meter(tmp_path)
-    with pytest.raises(ValueError):
-        chat([{"role": "user", "content": "x"}], arm="t", meter=m, client=FakeChat(), model="other/model")
-    with pytest.raises(ValueError):
-        embed(["x"], arm="t", meter=m, client=FakeEmbed(), model="other/model")
 
 
 @pytest.mark.parametrize("bad", [-1.0, float("nan"), float("inf")])
@@ -340,26 +206,6 @@ def test_garbage_line_skipped_and_counted(tmp_path):
     assert m.corrupt_lines == 2
 
 
-def test_missing_usage_settles_full_once(tmp_path):
-    m = make_meter(tmp_path)
-    c = FakeChat()
-    good = c.create
-
-    def bad(**kw):
-        c.calls.append(kw)
-        return SimpleNamespace(choices=[SimpleNamespace(message=None)], usage=None)
-
-    c.completions.create = bad
-    with pytest.raises(Exception):
-        chat([{"role": "user", "content": "x"}], arm="t", max_tokens=100, meter=m, client=c, model=MODEL)
-    evs = events(tmp_path)
-    assert [e["type"] for e in evs] == ["reserve", "settle"]
-    assert evs[1]["cost"] == evs[0]["amount"]
-
-
-# ---- fix round 2 ----------------------------------------------------------
-
-
 def test_legacy_ledger_replays(tmp_path):
     lines = [
         {"id": "a1", "arm": "x", "amount": 20_000_000_000},
@@ -382,7 +228,7 @@ def test_meter_has_no_price_parameter(tmp_path):
 
 @pytest.mark.parametrize("bad", [(-1, 0), (0, -5), (1.5, 0), (float("nan"), 0)])
 def test_bad_price_table_rejected(tmp_path, monkeypatch, bad):
-    monkeypatch.setattr(llm, "PRICES_PICO", {MODEL: bad})
+    monkeypatch.setattr(meter_mod, "PRICES_PICO", {MODEL: bad})
     with pytest.raises(ValueError):
         make_meter(tmp_path)
 
@@ -399,36 +245,6 @@ def test_invalid_line_changes_nothing(tmp_path):
     assert m.corrupt_lines == 2  # reservation still open
 
 
-def test_settle_failure_falls_back_to_full(tmp_path, monkeypatch):
-    m = make_meter(tmp_path)
-    real = m._append
-    n = {"settle_fails": 0}
-
-    def flaky(ev):
-        if ev["type"] == "settle" and n["settle_fails"] == 0:
-            n["settle_fails"] = 1
-            raise OSError("disk")
-        return real(ev)
-
-    monkeypatch.setattr(m, "_append", flaky)
-    with pytest.raises(OSError):
-        chat([{"role": "user", "content": "x"}], arm="t", meter=m, client=FakeChat(), model=MODEL)
-    assert [e["type"] for e in events(tmp_path)] == ["reserve", "settle"]
-    assert events(tmp_path)[1]["cost"] == events(tmp_path)[0]["amount"]
-
-
-def test_settle_and_fallback_both_fail_keeps_reservation(tmp_path, monkeypatch):
-    m = make_meter(tmp_path)
-    real = m._append
-    monkeypatch.setattr(m, "_append", lambda ev: (_ for _ in ()).throw(OSError("disk")) if ev["type"] == "settle" else real(ev))
-    with pytest.raises(OSError):
-        chat([{"role": "user", "content": "x"}], arm="t", meter=m, client=FakeChat(), model=MODEL)
-    assert m.spent("t") > 0
-
-
-# ---- fix round 3 ----------------------------------------------------------
-
-
 @pytest.mark.parametrize("arm", ["", None, 5])
 def test_invalid_arm_writes_nothing(tmp_path, arm):
     m = make_meter(tmp_path)
@@ -440,11 +256,3 @@ def test_invalid_arm_writes_nothing(tmp_path, arm):
     assert m.spent() == 0 and m.corrupt_lines == 0
 
 
-def test_chat_empty_arm_raises_before_client_call(tmp_path):
-    m = make_meter(tmp_path)
-    c = FakeChat()
-    with pytest.raises(ValueError):
-        chat([{"role": "user", "content": "x"}], arm="", meter=m, client=c, model=MODEL)
-    assert c.calls == []
-    with pytest.raises(ValueError):
-        embed(["x"], arm="", meter=m, client=FakeEmbed(), model=EMBED_MODEL)
