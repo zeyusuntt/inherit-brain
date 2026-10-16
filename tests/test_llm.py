@@ -355,3 +355,72 @@ def test_missing_usage_settles_full_once(tmp_path):
     evs = events(tmp_path)
     assert [e["type"] for e in evs] == ["reserve", "settle"]
     assert evs[1]["cost"] == evs[0]["amount"]
+
+
+# ---- fix round 2 ----------------------------------------------------------
+
+
+def test_legacy_ledger_replays(tmp_path):
+    lines = [
+        {"id": "a1", "arm": "x", "amount": 20_000_000_000},
+        {"id": "a1", "arm": "x", "cost": 15_000_000_000, "prompt_tokens": 1, "completion_tokens": 1},
+        {"id": "a2", "arm": "x", "amount": 10_000_000_000},  # open
+        {"id": "a3", "arm": "y", "amount": 20_000_000_000},
+        {"id": "a3", "arm": "y", "cost": 10_000_000_000, "prompt_tokens": 1, "completion_tokens": 1},
+    ]
+    (tmp_path / "meter.jsonl").write_text("".join(json.dumps(l) + "\n" for l in lines))
+    m = make_meter(tmp_path)
+    assert m.spent() == pytest.approx(0.035)
+    assert m.spent("x") == pytest.approx(0.025)
+    assert m.corrupt_lines == 0
+
+
+def test_meter_has_no_price_parameter(tmp_path):
+    with pytest.raises(TypeError):
+        Meter(cap_usd=1.0, path=tmp_path / "m.jsonl", prices={MODEL: (0, 0)})
+
+
+@pytest.mark.parametrize("bad", [(-1, 0), (0, -5), (1.5, 0), (float("nan"), 0)])
+def test_bad_price_table_rejected(tmp_path, monkeypatch, bad):
+    monkeypatch.setattr(llm, "PRICES_PICO", {MODEL: bad})
+    with pytest.raises(ValueError):
+        make_meter(tmp_path)
+
+
+def test_invalid_line_changes_nothing(tmp_path):
+    lines = [
+        {"type": "reserve", "id": "r1", "arm": "x", "amount": 10_000_000_000, "model": MODEL},
+        {"type": "settle", "id": "r1", "cost": 5},  # missing arm
+        {"type": "settle", "id": "r1", "arm": "x", "cost": -3},  # negative
+    ]
+    (tmp_path / "meter.jsonl").write_text("".join(json.dumps(l) + "\n" for l in lines))
+    m = make_meter(tmp_path)
+    assert m.spent() == pytest.approx(0.01)
+    assert m.corrupt_lines == 2  # reservation still open
+
+
+def test_settle_failure_falls_back_to_full(tmp_path, monkeypatch):
+    m = make_meter(tmp_path)
+    real = m._append
+    n = {"settle_fails": 0}
+
+    def flaky(ev):
+        if ev["type"] == "settle" and n["settle_fails"] == 0:
+            n["settle_fails"] = 1
+            raise OSError("disk")
+        return real(ev)
+
+    monkeypatch.setattr(m, "_append", flaky)
+    with pytest.raises(OSError):
+        chat([{"role": "user", "content": "x"}], arm="t", meter=m, client=FakeChat(), model=MODEL)
+    assert [e["type"] for e in events(tmp_path)] == ["reserve", "settle"]
+    assert events(tmp_path)[1]["cost"] == events(tmp_path)[0]["amount"]
+
+
+def test_settle_and_fallback_both_fail_keeps_reservation(tmp_path, monkeypatch):
+    m = make_meter(tmp_path)
+    real = m._append
+    monkeypatch.setattr(m, "_append", lambda ev: (_ for _ in ()).throw(OSError("disk")) if ev["type"] == "settle" else real(ev))
+    with pytest.raises(OSError):
+        chat([{"role": "user", "content": "x"}], arm="t", meter=m, client=FakeChat(), model=MODEL)
+    assert m.spent("t") > 0

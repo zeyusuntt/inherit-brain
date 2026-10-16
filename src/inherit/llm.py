@@ -44,6 +44,12 @@ def _count(n: Any, name: str) -> int:
     return n
 
 
+def _str(s: Any) -> str:
+    if not isinstance(s, str) or not s:
+        raise ValueError(f"invalid string: {s!r}")
+    return s
+
+
 @dataclass(frozen=True)
 class Reservation:
     id: str
@@ -58,12 +64,14 @@ class Meter:
         cap_usd: float,
         path: str | Path,
         arm_caps: dict[str, float] | None = None,
-        prices: dict[str, tuple[int, int]] | None = None,
     ):
         self.cap = _pu_ceil(cap_usd)
         self.path = Path(path)
         self.lock_path = self.path.with_name(self.path.name + ".lock")
-        self.prices = dict(prices or PRICES_PICO)
+        self.prices = dict(PRICES_PICO)
+        for m, pr in self.prices.items():
+            if len(pr) != 2 or any(isinstance(x, bool) or not isinstance(x, int) or x < 0 for x in pr):
+                raise ValueError(f"invalid price for {m!r}: {pr!r}")
         self.arm_caps: dict[str, int] = {}
         self.corrupt_lines = 0
         self._tlock = threading.Lock()
@@ -88,23 +96,40 @@ class Meter:
             if not line.strip():
                 continue
             try:
-                self._apply(json.loads(line))
+                ev = self._parse(json.loads(line))
             except (ValueError, KeyError, TypeError):
                 self.corrupt_lines += 1
+                continue
+            self._apply(ev)  # only fully validated events change state
         self._offset += end
 
-    def _apply(self, ev: dict) -> None:
-        kind = ev["type"]
+    @staticmethod
+    def _parse(ev: dict) -> tuple:
+        """Validate one ledger line into a typed event without touching state."""
+        if not isinstance(ev, dict):
+            raise ValueError("not an object")
+        kind = ev.get("type")
+        if kind is None:  # lines written before the "type" field existed
+            kind = "settle" if "cost" in ev else "reserve" if "amount" in ev else None
         if kind == "reserve":
-            self._open[ev["id"]] = (ev["arm"], int(ev["amount"]), ev["model"])
-        elif kind == "settle":
-            cost = int(ev["cost"])
-            self._open.pop(ev["id"], None)
-            self._settled[ev["arm"]] = self._settled.get(ev["arm"], 0) + cost
-        elif kind == "cap":
-            self.arm_caps[ev["arm"]] = int(ev["amount"])
+            return ("reserve", _str(ev["id"]), _str(ev["arm"]), _count(ev["amount"], "amount"),
+                    _str(ev.get("model", MODEL)))
+        if kind == "settle":
+            _count(ev.get("prompt_tokens", 0), "prompt_tokens")
+            _count(ev.get("completion_tokens", 0), "completion_tokens")
+            return ("settle", _str(ev["id"]), _str(ev["arm"]), _count(ev["cost"], "cost"))
+        if kind == "cap":
+            return ("cap", _str(ev["arm"]), _count(ev["amount"], "amount"))
+        raise ValueError(f"unknown event {kind!r}")
+
+    def _apply(self, ev: tuple) -> None:
+        if ev[0] == "reserve":
+            self._open[ev[1]] = (ev[2], ev[3], ev[4])
+        elif ev[0] == "settle":
+            self._open.pop(ev[1], None)
+            self._settled[ev[2]] = self._settled.get(ev[2], 0) + ev[3]
         else:
-            raise ValueError(kind)
+            self.arm_caps[ev[1]] = ev[2]
 
     def _append(self, ev: dict[str, Any]) -> None:
         line = (json.dumps(ev) + "\n").encode()
@@ -271,6 +296,18 @@ def _failed(meter: Meter, r: Reservation, e: Exception) -> bool:
     return st is not None and (st == 429 or st >= 500)
 
 
+def _settle_or_full(meter: Meter, r: Reservation, pt: int, ct: int) -> float:
+    """If recording the real cost fails, try once to record the full ceiling, then re-raise."""
+    try:
+        return meter.settle(r, pt, ct)
+    except Exception:
+        try:
+            meter.settle_full(r)
+        except Exception:
+            pass  # the open reservation still counts at its full ceiling
+        raise
+
+
 def _bytes(obj: Any) -> int:
     return len(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
 
@@ -325,7 +362,7 @@ def chat(
         except Exception:
             meter.settle_full(r)
             raise
-        cost = meter.settle(r, pt, ct)
+        cost = _settle_or_full(meter, r, pt, ct)
         return ChatResult(message, pt, ct, cost, latency)
     raise AssertionError("unreachable")
 
@@ -357,5 +394,5 @@ def embed(
     except Exception:
         meter.settle_full(r)
         raise
-    cost = meter.settle(r, pt, 0)
+    cost = _settle_or_full(meter, r, pt, 0)
     return EmbedResult(vectors, pt, cost)
