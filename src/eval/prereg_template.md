@@ -44,7 +44,7 @@ Versions of every prompt and protocol:
 
 1. Bug states. Events are ordered by message time; types are REPORTED, ASSIGNED, RESOLVED (with a fix PR), DISMISSED and REOPENED. "Current" means the last day of the corpus. Unresolved: no linked fix PR. Active: the last event is REPORTED, ASSIGNED or REOPENED. Reopened: at least one REOPENED event. No fix needed: at least one DISMISSED event.
 2. Time. Every event takes its message timestamp; the UDF `herb_v1.statusAt(events, date)` gives a bug's state on a date under the rules above.
-3. Name resolution. Candidates are co-attendees of the meeting or posters in the same channel. Score = 3 x role cue (the spoken role matches the directory role) + 2 x the candidate posted in a related Slack thread within 3 days + 1 x the candidate was mentioned or answered by name in the same meeting. A unique top score resolves the name; a tie keeps every tied candidate, marked ambiguous, and the answer says so.
+3. Name resolution. For a name spoken in a meeting, the candidates are the same-name attendees of that meeting; only if none exists are same-name people with a related Slack post within 3 days or a mention considered, and a same-name non-attendee is added (making the name ambiguous) only when the speaker's own words match that person's role and no attendee's role does. Score = 3 x role cue (the spoken role matches the directory role) + 2 x the candidate posted in a related Slack thread within 3 days + 1 x the candidate was @-mentioned in the same meeting. A unique top score resolves the name; a tie keeps every tied candidate, marked ambiguous, and the answer says so.
 4. Refusal. An arm answers "not in the records" only when an entity the question names cannot be resolved, or when every relation the question needs returns nothing. Partial results are answered as partial. Every arm gives the same refusal sentence, "I could not find information in the records to answer this question.", with empty answer_ids.
 
 ## 6. Entity cards
@@ -128,6 +128,7 @@ Extraction was accepted on the six development products by two models, not by pe
 8. The what-if feature excludes documents from open work items: feedback on a document does not show that it is still unresolved. This feature is not scored.
 9. The answer guard validates ids and structured answer fields; it does not check names written in prose.
 10. Budget: Nebius bills the model; the project is capped at 50 USD, so arm sub-caps and any product subsets are fixed in section 7 from a recorded dev pilot.
+11. Name resolution scores an @-mention in the meeting, not being answered by name (the design also counted the latter); candidates are attendees first, as the design states.
 
 ## 14. What we will say for each outcome (written now)
 
