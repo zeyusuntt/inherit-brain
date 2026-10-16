@@ -189,7 +189,10 @@ class _Full:
         rows = res.rows
         if name == "resolve_entity":  # a resolver row names a node: the same canonical projection as depth-1 cards
             rows = project_depth1({"rows": rows}, {})
-        return {"rows": res.rows, "truncated": res.truncated, "cursor": res.cursor}, rows
+        env = {"rows": res.rows, "truncated": res.truncated, "cursor": res.cursor}
+        if getattr(res, "note", None):  # a one-sentence hint from the tool, shown to the model as part of the result
+            env["note"] = res.note
+        return env, rows
 
 
 class _Depth1:

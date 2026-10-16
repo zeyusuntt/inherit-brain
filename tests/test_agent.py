@@ -659,3 +659,26 @@ def test_the_v3_prompt_rules():
     for frag in ("never a filter and never an entity to resolve", "Add a filter only when the question states it",
                  "full phrase from the question", "all statuses", "do not replace them with values from unrelated"):
         assert frag in p
+
+
+def test_a_tool_note_is_shown_to_the_model_and_kept_in_the_envelope(tg, monkeypatch):
+    from inherit.tools import catalog
+
+    real = catalog.TOOLS["bug_board"]
+
+    def with_note(conn, product, **params):
+        r = real.run(conn, product, **params)
+        return catalog.ToolResult(r.rows, r.truncated, r.cursor, r.ops, r.path, r.ms, "Try the full phrase.")
+
+    wrapped = SimpleNamespace(name="bug_board", kind="readonly", description="d",
+                              params_schema=real.params_schema, run=with_note)
+    monkeypatch.setitem(agent.TOOLS, "bug_board", wrapped)
+    res, m = run(tg, [T(board()), J("BlueWave.", ["BlueWave"])])
+    tool_msg = [x for x in m.calls[1]["messages"] if x["role"] == "tool"][0]["content"]
+    assert json.loads(tool_msg)["note"] == "Try the full phrase."
+    assert res.envelopes[0]["note"] == "Try the full phrase."
+
+
+def test_no_note_key_when_the_tool_gave_none(tg):
+    res, m = run(tg, [T(board()), J("BlueWave.", ["BlueWave"])])
+    assert "note" not in json.loads([x for x in m.calls[1]["messages"] if x["role"] == "tool"][0]["content"])
