@@ -61,3 +61,6 @@ def _register_agent_arms() -> None:
 
 
 _register_agent_arms()
+
+
+from baselines import graphrag_sdk_arm as _a2  # noqa: E402,F401  registers A2
