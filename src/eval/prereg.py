@@ -83,8 +83,11 @@ def default_freeze_check(root: Path) -> list[str]:
     return freeze.check(freeze.Env(root=Path(root)))
 
 
-def _gate(name, numerator, denominator, threshold, ok) -> dict:
-    return {"name": name, "numerator": numerator, "denominator": denominator, "threshold": threshold, "pass": bool(ok)}
+def _gate(name, numerator, denominator, threshold, ok, status: str = "evaluated") -> dict:
+    """status is "evaluated", or the audit's not-estimable text for an empty dev pool (it neither passes nor fails a
+    gate and is shown as such, never as a passing 0/0)."""
+    return {"name": name, "numerator": numerator, "denominator": denominator, "threshold": threshold, "pass": bool(ok),
+            "status": status}
 
 
 # ---------------------------------------------------------------- acceptance
@@ -96,7 +99,8 @@ def audit_gates(root: Path, audit_round: int, gates_report: Callable | None = No
         gates_report = audit_extraction.gates_report
     rd = Path(root) / "runs" / "audit" / f"round-{audit_round}"
     rep = gates_report(rd)
-    gates = [_gate(f"audit:{g['name']}", g["numerator"], g["denominator"], g["threshold"], g["pass"])
+    gates = [_gate(f"audit:{g['name']}", g["numerator"], g["denominator"], g["threshold"], g["pass"],
+                   g.get("status", "evaluated"))
              for g in rep["gates"]]
     gates.append(_gate("audit:complete", int(bool(rep["complete"])), 1, 1, rep["complete"]))
     summary = _json(rd / "summary.json") or {}
@@ -280,11 +284,16 @@ def _cell(v) -> str:
     return "n/a" if v is None else str(v)
 
 
+def _result(g: dict) -> str:
+    status = g.get("status", "evaluated")
+    return status if status != "evaluated" else ("pass" if g["pass"] else "FAIL")
+
+
 def acceptance_table(acc: dict) -> str:
     lines = ["| Gate | Numerator | Denominator | Threshold | Result |", "|---|---|---|---|---|"]
     for g in acc["gates"]:
         lines.append(f"| {g['name']} | {_cell(g['numerator'])} | {_cell(g['denominator'])} | {_cell(g['threshold'])} "
-                     f"| {'pass' if g['pass'] else 'FAIL'} |")
+                     f"| {_result(g)} |")
     return "\n".join(lines)
 
 

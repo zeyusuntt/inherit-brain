@@ -522,3 +522,23 @@ def test_missing_dev_diagnostics_are_refused(world):
     mk_families(root, diagnostics=False)
     with pytest.raises(P.PreregError):
         P.write_prereg(root, freeze_check=OK)
+
+
+def test_empty_pool_gate_is_shown_as_not_estimable_not_as_a_pass(world):
+    root, d, qs = world
+    base = gates_stub()
+
+    def with_empty(round_dir):
+        rep = base(round_dir)
+        rep["gates"].append({"name": "precision:whatif_path", "numerator": 0, "denominator": 0, "threshold": 0.9,
+                             "pass": True, "status": "not estimable (empty dev pool)"})
+        return rep
+
+    doc = accept(root, d, qs, gates_report=with_empty)
+    assert doc["pass"] is True
+    g = gate(doc, "audit:precision:whatif_path")
+    assert g["status"] == "not estimable (empty dev pool)"
+    table = P.acceptance_table(doc)
+    row = next(line for line in table.splitlines() if "whatif_path" in line)
+    assert "not estimable (empty dev pool)" in row and "pass" not in row.split("|")[-2]
+    assert "| pass |" in next(line for line in table.splitlines() if "precision:bug" in line)
