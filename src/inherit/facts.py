@@ -2,6 +2,7 @@
 
 Node key is its id. Edge key is (type, src_id, dst_id, key), where `key` is an optional discriminator
 (for example a review position). Merge unions `src`, keeps the first value on a property conflict and counts it.
+The list properties in UNION_PROPS are the exception: they merge as an ordered union and never conflict.
 """
 
 from __future__ import annotations
@@ -33,11 +34,26 @@ class Edge:
         return (self.type, self.src_id, self.dst_id, self.key)
 
 
+# Accumulating lists (aliases of a bug or product, capability details of a feature, URL descriptions) merge as an
+# ordered union: items of the first value, then new items of the second. Every other property is first-value-wins.
+UNION_PROPS = frozenset({"aliases", "details", "descriptions"})
+
+
+def _union(base, other) -> list:
+    out = list(base) if isinstance(base, list) else [base]
+    for item in other if isinstance(other, list) else [other]:
+        if item not in out:  # equality, so unhashable items (dicts) work
+            out.append(item)
+    return out
+
+
 def _merge_props(base: dict, other: dict) -> tuple[dict, int]:
     out, conflicts = dict(base), 0
     for k, v in other.items():
         if k not in out:
             out[k] = v
+        elif k in UNION_PROPS:
+            out[k] = _union(out[k], v)
         elif out[k] != v:
             conflicts += 1
     return out, conflicts

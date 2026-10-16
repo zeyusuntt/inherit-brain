@@ -22,6 +22,8 @@ NODE_KEYS: dict[str, str] = {
     "Feature": "id",
     "Competitor": "name",
     "ExternalBug": "link",
+    "Observation": "id",  # a cited claim (competitor feature or weakness, customer issue or strength, QA issue); 4c
+    "FeatureEvent": "id",  # dated feature history: discussed, implemented, held, resumed, reverted; 4c
 }
 
 # edge type -> allowed (src label, dst label) pairs. Types from spec 5.1 are added by the task that
@@ -38,6 +40,36 @@ SIGNATURES: dict[str, frozenset[tuple[str, str]]] = {
     "SPOKE_IN": frozenset({("Person", "Meeting")}),
     "SHARED": frozenset({("Person", "Url"), ("Person", "Document"), ("Person", "PR")}),
     "COLLABORATED": frozenset({("Person", "Person")}),
+    # Task 4 design (4a rules, 4b bugs, 4c semantic). One reason per signature.
+    "HAS": frozenset({("Product", t) for t in ("Bug", "Document", "Meeting", "Feature", "PR", "Competitor")}),
+    # HAS: the Product root of spec 6.1; the graph loader requires it to reach every node of these labels.
+    "REVERTS": frozenset({("PR", "PR")}),  # revert PR -> original PR, same repository; props reason, applied (4a)
+    "ABOUT": frozenset({
+        ("PR", "Feature"),  # development association, independent of approval and merge state (4c)
+        ("Url", "Competitor"), ("Url", "Product"),  # demo links: competitor demos (4c), own and previous demos (4a)
+        ("Observation", "Competitor"), ("Observation", "Product"),  # competitor claims, release observations (4c)
+        ("Observation", "Feature"), ("Observation", "Bug"),  # a customer claim about one feature or bug (4c)
+        ("Observation", "Person"),  # a claim about a person; no extractor yet, the load fixture uses it
+        ("Message", "PR"),  # a Slack decision about a PR: withhold, resume, request_merge, request_revert (4c)
+    }),
+    "STATED": frozenset({("Person", "Observation")}),  # who provided the insight: the Slack author or speaker (4c)
+    "REPORTED_BY": frozenset({
+        ("Bug", "Customer"),  # the affected customer company of a bug (4b)
+        ("Observation", "Customer"),  # customer issue or strength (4c)
+        ("Observation", "Person"),  # R9: QA reporter named by literal eid_ text, distinct from the poster (4a ids, 4c)
+    }),
+    "CONTRIBUTED": frozenset({("Person", "Feature")}),  # kind lead, assigned, design, support (4c)
+    "SUGGESTED": frozenset({("Person", "Document")}),  # attributed review suggestion or question (4c)
+    "HAS_EVENT": frozenset({("Bug", "BugEvent"), ("Feature", "FeatureEvent")}),  # event history, state derived (4b, 4c)
+    "IMPLEMENTED_BY": frozenset({("Feature", "PR")}),  # only with merged PR or explicit completion evidence (4c)
+    "DISCUSSES": frozenset({
+        ("Meeting", "Feature"), ("Meeting", "Document"),  # meeting segments about a feature or document (4c)
+        ("Message", "Feature"), ("Message", "Document"),  # Slack sessions about the same (4c)
+    }),
+    "ASSIGNED_TO": frozenset({("BugEvent", "Person")}),  # assignee of an ASSIGNED event; current assignee derived (4b)
+    "ACTED_BY": frozenset({("BugEvent", "Person")}),  # actor = message author; resolver, dismisser by traversal (4b)
+    "FIXES": frozenset({("PR", "Bug")}),  # a resolution message cites this PR; fix-PR author by traversal (4b)
+    "SIMILAR_TO": frozenset({("ExternalBug", "Bug")}),  # open-source look-alike of a customer bug (4b)
 }
 
 

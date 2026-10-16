@@ -52,3 +52,39 @@ def test_check_edge():
         check_edge(e("Document:d1", "Person:p1", "AUTHORED"))
     with pytest.raises(ValueError):
         check_edge(e("Person:p1", "Document:d1", "NOPE"))
+
+
+# ---- union-merged list properties (R6) ----
+
+def test_union_props_merge_without_conflict_and_keep_order():
+    a = Facts([n("Product:p", aliases=["A", "B"], details=["x"], descriptions=["d1"], name="p")], [])
+    b = Facts([n("Product:p", aliases=["B", "C"], details=["y", "x"], descriptions=["d2"], name="p")], [])
+    m = a.merge(b)
+    assert m.conflicts == 0
+    p = m.nodes[0].props
+    assert p["aliases"] == ["A", "B", "C"] and p["details"] == ["x", "y"] and p["descriptions"] == ["d1", "d2"]
+
+
+def test_union_props_copy_when_missing_and_wrap_scalars():
+    m = Facts([n("Product:p", name="p")], []).merge(Facts([n("Product:p", aliases=["A"])], []))
+    assert m.nodes[0].props["aliases"] == ["A"] and m.conflicts == 0
+    m2 = Facts([n("Product:p", aliases="A")], []).merge(Facts([n("Product:p", aliases=["B"])], []))
+    assert m2.nodes[0].props["aliases"] == ["A", "B"]
+
+
+def test_union_props_keep_unhashable_items_once():
+    a = Facts([n("Url:u", details=[{"k": 1}])], [])
+    m = a.merge(Facts([n("Url:u", details=[{"k": 1}, {"k": 2}])], []))
+    assert m.nodes[0].props["details"] == [{"k": 1}, {"k": 2}]
+
+
+def test_other_list_props_stay_first_value_wins():
+    a = Facts([n("Product:p", previous_names=["X"])], [])
+    m = a.merge(Facts([n("Product:p", previous_names=["Y"])], []))
+    assert m.nodes[0].props["previous_names"] == ["X"] and m.conflicts == 1
+
+
+def test_union_props_also_apply_to_edges():
+    a = Facts([], [e("Person:p1", "Document:d1", aliases=["A"])])
+    m = a.merge(Facts([], [e("Person:p1", "Document:d1", aliases=["B"])]))
+    assert m.edges[0].props["aliases"] == ["A", "B"] and m.conflicts == 0
