@@ -4,7 +4,9 @@ Expected groups when P leaves (default dependency rules), asserted in tests/test
 * newly unowned: bs, bnew, pr_orph, pr_orph2, pr_chain
 * already unowned: bnone, pr_na
 * affected: bfix (bug fixed by an orphaned PR), f_impl, f_dev, c1
-* nothing: bsh (P and Q), bmulti (P, Rob, Zed), bold and btie (re-assigned to Q), bclosed, pr_sh, pr_cu (closed, unmerged), pr_m (merged),
+* affected also: f_pend_missing, f_pend_false (not implemented, a development PR still open)
+* nothing: f_pend_impl (implemented), f_pend_closed (its development PR is closed), f_nondev (ABOUT is not development),
+  bsh (P and Q), bmulti (P, Rob, Zed), bold and btie (re-assigned to Q), bclosed, pr_sh, pr_cu (closed, unmerged), pr_m (merged),
   f_unrec (fate not reconciled), f_via_na (its PR was already unowned), f_alone, f_other (ABOUT but not development)
 """
 
@@ -27,6 +29,11 @@ SAM1, SAM2 = "eid_5a000005", "eid_5b000006"  # two employees named Sam Kim
 
 def pr(n: int) -> str:
     return f"https://github.com/salesforce/{P}/pull/{n}"
+
+
+def slug(n: int) -> str:
+    """The record id of a PR's own record (the link without scheme, punctuation as underscores)."""
+    return pr(n).split("://", 1)[1].replace("/", "_").replace(".", "_")
 
 
 def _e(typ, src, dst, rec, key="", **props):
@@ -90,7 +97,7 @@ def whatif_facts(chain: int = 5, reverse_chain: bool = False) -> Facts:
     }
     for n, (state, merged, authors) in prs.items():
         link = pr(n)
-        nodes.append(N("PR", link, link=link, title=f"PR {n}", state=state, merged=merged,
+        nodes.append(N("PR", link, link=link, title=f"PR {n}", summary=f"Summary of PR {n}", state=state, merged=merged,
                        open_unmerged=state == "open" and not merged))
         has(f"PR:{link}")
         edges.extend(_e("OPENED", f"Person:{a}", f"PR:{link}", [f"rec-pr{n}"]) for a in authors)
@@ -103,12 +110,26 @@ def whatif_facts(chain: int = 5, reverse_chain: bool = False) -> Facts:
         nodes.append(N("Feature", k, id=k, title=k.replace("_", " "), discussed_not_implemented=dni))
         has(f"Feature:{k}")
     edges += [
-        _e("IMPLEMENTED_BY", "Feature:f_impl", f"PR:{pr(1)}", ["rec-impl1"], basis="merged"),
-        _e("ABOUT", f"PR:{pr(6)}", "Feature:f_dev", ["rec-dev6"], kind="development", basis="batch"),
+        _e("IMPLEMENTED_BY", "Feature:f_impl", f"PR:{pr(1)}", [slug(1)], basis="merged"),
+        _e("ABOUT", f"PR:{pr(6)}", "Feature:f_dev", [slug(6)], kind="development", basis="batch"),
         _e("IMPLEMENTED_BY", "Feature:f_unrec", f"PR:{pr(1)}", ["rec-impl-u"]),
         _e("IMPLEMENTED_BY", "Feature:f_via_na", f"PR:{pr(5)}", ["rec-impl5"]),
         _e("ABOUT", f"PR:{pr(1)}", "Feature:f_other", ["rec-about"], kind="mention"),
         _e("IMPLEMENTED_BY", "Feature:f_done", f"PR:{pr(4)}", ["rec-impl4"]),
+    ]
+    pend = {"f_pend_missing": {}, "f_pend_false": {"implemented": False}, "f_pend_impl": {"implemented": True},
+            "f_pend_closed": {"implemented": False}, "f_nondev": {"implemented": False}}
+    for k, extra in pend.items():
+        nodes.append(N("Feature", k, id=k, title=k.replace("_", " "), discussed_not_implemented=False, **extra))
+        has(f"Feature:{k}")
+    edges += [
+        _e("ABOUT", f"PR:{pr(1)}", "Feature:f_pend_missing", ["rec-pm"], kind="development"),
+        _e("ABOUT", f"PR:{pr(6)}", "Feature:f_pend_false", ["rec-pf"], kind="development"),
+        _e("ABOUT", f"PR:{pr(1)}", "Feature:f_pend_impl", ["rec-pi"], kind="development"),
+        _e("ABOUT", f"PR:{pr(3)}", "Feature:f_pend_closed", ["rec-pc"], kind="development"),  # PR 3 is closed
+        _e("IMPLEMENTED_BY", "Feature:f_pend_closed", f"PR:{pr(1)}", ["rec-pc2"]),  # depends on an orphan, not open
+        _e("IMPLEMENTED_BY", "Feature:f_nondev", f"PR:{pr(1)}", ["rec-nd"]),
+        _e("ABOUT", f"PR:{pr(1)}", "Feature:f_nondev", ["rec-nd2"], kind="mention"),
     ]
     for i in range(1, chain + 1):
         nodes.append(N("Feature", f"c{i}", id=f"c{i}", title=f"chain {i}", discussed_not_implemented=True))
@@ -124,7 +145,10 @@ def whatif_facts(chain: int = 5, reverse_chain: bool = False) -> Facts:
             ("20260603-0-m0001", "2026-06-03T10:00:00", "ch1", "Solo bug: Quinn will look at it instead"),
             ("20260603-1-m0002", "2026-06-03T11:00:00", "ch2", "unrelated chatter"),
             ("20260604-0-m0003", "2026-06-04T11:00:00", "ch2", "any news on the solo bug?"),
-            ("20260502-0-m0004", "2026-05-02T11:00:00", "ch1", "an earlier remark about Solo bug")]
+            ("20260502-0-m0004", "2026-05-02T11:00:00", "ch1", "an earlier remark about Solo bug"),
+            ("20260609-0-p0001", "2026-06-09T09:00:00", "ch3", f"Review needed: {pr(1)}"),
+            ("20260609-1-p0002", "2026-06-09T10:00:00", "ch3", "Quinn will take this one over"),
+            ("20260609-2-p0003", "2026-06-09T11:00:00", "ch4", "nothing to do with it")]
     for mid, ts, ch, text in msgs:
         nodes.append(N("Message", mid, id=mid, ts=ts, channel_id=ch, text=text, user_id=ZED))
     return Facts(nodes, edges)

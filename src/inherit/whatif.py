@@ -15,7 +15,7 @@ source graph (docs/falkor-versions.md, rule W3). Steps, all in the copy:
 The copy is deleted in `finally`, and the deletion is verified with an allowed command (RO_QUERY on the missing key).
 
 Open work: active bugs; PRs with state 'open' and merged = false. Features enter group 3 only, when their fate is
-`discussed_not_implemented = true` (a reconciled fate). Documents are not open work (their processing status is not in
+`discussed_not_implemented = true`, or they are not implemented and an ABOUT-development PR is open and unmerged. Documents are not open work (their processing status is not in
 the records). A bug's owners are the people on its latest ASSIGNED event (timestamp, then record position, then
 sequence); a PR's owner is its OPENED author. A feature depends on the PR that implements it (IMPLEMENTED_BY, or ABOUT
 with kind 'development'); a bug depends on the PR that FIXES it.
@@ -24,6 +24,7 @@ with kind 'development'); a bug depends on the PR that FIXES it.
 from __future__ import annotations
 
 import json
+import sys
 import time
 import uuid
 
@@ -40,7 +41,11 @@ TOOL = "if_leaves"
 COPY_TRIES, COPY_WAIT = 12, 0.25  # retries of a GRAPH.COPY refused with "could not fork", seconds per step
 
 OPEN_OWNABLE = "(({v}:Bug AND {v}.active = true) OR ({v}:PR AND {v}.state = 'open' AND {v}.merged = false))"
-OPEN_ANY = ("(" + OPEN_OWNABLE + " OR ({v}:Feature AND {v}.discussed_not_implemented = true))")
+# A feature is open work when its fate is discussed_not_implemented, or when it is not implemented (a missing value
+# counts as not implemented) and an ABOUT-development PR is open and unmerged (original edges, not DEPENDS_ON).
+OPEN_FEATURE = ("({v}:Feature AND ({v}.discussed_not_implemented = true OR "
+                "(coalesce({v}.implemented, false) = false AND {v}.pending_dev = true)))")
+OPEN_ANY = "(" + OPEN_OWNABLE + " OR " + OPEN_FEATURE + ")"
 
 # Responsibility: a bug's latest ASSIGNED event (ts, then the record position date-index of its message id, then seq).
 RESPONSIBILITY_RULES = (
@@ -57,6 +62,11 @@ DEPENDENCY_RULES = (
     "MATCH (f:Feature)-[:IMPLEMENTED_BY]->(r:PR) MERGE (f)-[:DEPENDS_ON]->(r)",
     "MATCH (r:PR)-[a:ABOUT]->(f:Feature) WHERE a.kind = 'development' MERGE (f)-[:DEPENDS_ON]->(r)",
     "MATCH (r:PR)-[:FIXES]->(b:Bug) MERGE (b)-[:DEPENDS_ON]->(r)",
+)
+# Marks, in the copy, the features that an ABOUT-development PR (open, unmerged) is still working on.
+FEATURE_RULES = (
+    "MATCH (r:PR)-[x:ABOUT]->(f:Feature) WHERE x.kind = 'development' AND r.state = 'open' AND r.merged = false "
+    "SET f.pending_dev = true",
 )
 Q_UNOWNED = f"MATCH (w) WHERE {OPEN_OWNABLE.format(v='w')} AND NOT ()-[:RESPONSIBLE_FOR]->(w) RETURN w.id"
 Q_OWNED = f"MATCH (w) WHERE {OPEN_OWNABLE.format(v='w')} AND ()-[:RESPONSIBLE_FOR]->(w) RETURN w.id"
@@ -157,11 +167,11 @@ def if_leaves(conn, product: str, person_id: str) -> WhatIf:
     src, copy = f"herb:{product}", f"whatif:{product}:{uuid.uuid4().hex}"
     if not run.q(src, "MATCH (p:Person {id: $pid}) RETURN count(p)", ro=True, pid=pid)[0][0]:
         raise ValueError(f"no such person {person_id!r} in {src}")
-    made = False
+    attempted = False
     try:
+        attempted = True  # even a COPY that raises may have created the copy: always probe and clean
         run.copy(src, copy)
-        made = True
-        for text in (*RESPONSIBILITY_RULES, *DEPENDENCY_RULES):
+        for text in (*RESPONSIBILITY_RULES, *DEPENDENCY_RULES, *FEATURE_RULES):
             run.q(copy, text)
         already = _ids(run.q(copy, Q_UNOWNED))
         owned = _ids(run.q(copy, Q_OWNED))
@@ -169,8 +179,14 @@ def if_leaves(conn, product: str, person_id: str) -> WhatIf:
         newly = _ids(run.q(copy, Q_NEWLY, owned=owned))
         affected, bound_hit = _affected(run, copy, newly, sorted({*already, *newly}))
     finally:
-        if made:
-            _cleanup(run, copy)
+        if attempted:
+            err = sys.exc_info()[1]  # the error in flight, if any
+            try:
+                _cleanup(run, copy)
+            except Exception as ce:  # noqa: BLE001
+                if err is None:
+                    raise
+                err.add_note(f"cleanup of {copy} failed too: {type(ce).__name__}: {ce}")  # keep the original error
     return WhatIf(frozenset(already), frozenset(newly), frozenset(affected), bound_hit, tuple(run.ops), copy)
 
 

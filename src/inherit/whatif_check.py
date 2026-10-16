@@ -9,7 +9,8 @@ derives owners and dependency direction from the original edges, and walks the d
 import the graph implementation, and it never sees a projected edge, an owner set or a result row of it.
 
 Definitions (frozen in .superpowers/sdd/PLAN/task-12-decisions.md): open ownable work is an active bug or a PR with
-state 'open' and merged False; a feature is eligible for group 3 only when discussed_not_implemented is True.
+state 'open' and merged False; a feature is eligible for group 3 when discussed_not_implemented is True, or when implemented is not True
+and an ABOUT-development PR is open and unmerged.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import sys
 from collections import defaultdict
 
@@ -44,8 +46,10 @@ def check(snap: Snapshot, person_id: str) -> WhatIf:
         raise ValueError(f"no such person {person_id!r}")
     ownable = {n.id for n in snap.nodes if (n.label == "Bug" and n.props.get("active") is True)
                or (n.label == "PR" and n.props.get("state") == "open" and n.props.get("merged") is False)}
-    eligible = ownable | {n.id for n in snap.nodes
-                          if n.label == "Feature" and n.props.get("discussed_not_implemented") is True}
+    pending = {e.dst for e in snap.edges if e.type == "ABOUT" and e.props.get("kind") == "development"
+               and e.src in ownable and node[e.src].label == "PR"}  # features with a development PR still open
+    eligible = ownable | {n.id for n in snap.nodes if n.label == "Feature" and (
+        n.props.get("discussed_not_implemented") is True or (n.props.get("implemented") is not True and n.id in pending))}
     # owners: a bug's people on its latest ASSIGNED event; a PR's OPENED authors
     events, assigned, owners = defaultdict(list), defaultdict(set), defaultdict(set)
     for e in snap.edges:
@@ -127,7 +131,7 @@ def audit_samples(snap: Snapshot, results: dict[str, WhatIf], *, seed: int, n_un
                   n_paths: int = 20) -> dict:
     """Seeded samples for the raw-record audit, drawn from the results of one snapshot (person eid -> WhatIf):
     `n_unowned` newly unowned items with the assignment (or OPENED) evidence and the later raw messages that could
-    show a hand-over; `n_edges` dependency edges leading to newly unowned work with their citations; `n_paths`
+    show a hand-over; `n_edges` dependency edges drawn from all recorded dependencies (not only a person's) with their citations; `n_paths`
     affected items with a witness path and each edge's citations. A pool smaller than asked is returned whole and
     listed in `shortages`. Later context is every message after the evidence record, up to the snapshot's last
     message, in the item's channel or naming the item (title, alias or link)."""
@@ -149,13 +153,49 @@ def audit_samples(snap: Snapshot, results: dict[str, WhatIf], *, seed: int, n_un
             shortages[name] = {"requested": n, "available": len(pool)}
         return rng.sample(pool, min(n, len(pool)))
 
+    def mentions(n) -> "re.Pattern | None":
+        """Raw-text mentions of a PR: its link, 'pull/N', or 'PR N' / 'PR #N' (not N as a prefix of a longer number)."""
+        link, num = n.props.get("link"), n.props.get("number") or (n.props.get("link") or "").rsplit("/", 1)[-1]
+        alts = [re.escape(link) + r"(?!\d)"] if link else []
+        if num and str(num).isdigit():
+            alts += [rf"pull/{num}(?!\d)", rf"\bPR\s*#?\s*{num}(?!\d)"]
+        return re.compile("|".join(alts), re.I) if alts else None
+
     def later(item: str, after_id: str | None) -> list[dict]:
         n = node[item]
         names = [x.casefold() for x in [n.props.get("title"), n.props.get("link"), *(n.props.get("aliases") or [])] if x]
         start = _position(after_id) if after_id else (-1, -1)
+        if n.label == "PR":  # PR nodes have no channel: the channels that mention the PR, from its first mention on
+            pat = mentions(n)
+            hit = [m for m in msgs if pat and pat.search(m["text"] or "")]
+            chans = {m["channel_id"] for m in hit}
+            first = min((_position(m["id"]) for m in hit), default=None)
+            return [m for m in msgs if first is not None and _position(m["id"]) >= first and m["channel_id"] in chans
+                    or (pat and pat.search(m["text"] or ""))]
         return [m for m in msgs if _position(m["id"]) > start
                 and ((n.props.get("channel_id") and m["channel_id"] == n.props["channel_id"])
                      or any(x in (m["text"] or "").casefold() for x in names))]
+
+    def slug(link: str) -> str:
+        return re.sub(r"[^\w-]+", "_", link.split("://", 1)[-1])
+
+    prs_by_record = {slug(n.props["link"]): n for n in snap.nodes if n.label == "PR" and n.props.get("link")}
+
+    def record_text(rid: str) -> str | None:
+        """Raw text behind a record id: a Slack message, or the cited PR record (author, title, summary, state)."""
+        if rid in by_id:
+            return by_id[rid]["text"]
+        if rid in prs_by_record:
+            return pr_record(prs_by_record[rid])["text"]
+        return None
+
+    def pr_record(n) -> dict:
+        authors = sorted(e.src for e in snap.edges if e.type == "OPENED" and e.dst == n.id)
+        pp = n.props
+        return {"link": pp.get("link"), "title": pp.get("title"), "summary": pp.get("summary"), "state": pp.get("state"),
+                "merged": pp.get("merged"), "authors": authors,
+                "text": f"{pp.get('title')}: {pp.get('summary')} (state {pp.get('state')}, merged {pp.get('merged')}, "
+                        f"opened by {', '.join(authors) or 'nobody'})"}
 
     def evidence(item: str, who: str) -> dict:
         if node[item].label == "Bug":
@@ -168,7 +208,7 @@ def audit_samples(snap: Snapshot, results: dict[str, WhatIf], *, seed: int, n_un
                     "records": [r for e in snap.edges if e.type == "ASSIGNED_TO" and e.src == last.id for r in e.records],
                     "text": (by_id.get(mid) or {}).get("text")}
         rec = [r for e in snap.edges if e.type == "OPENED" and e.src == who and e.dst == item for r in e.records]
-        return {"kind": "opened", "records": rec, "message_id": None, "text": None}
+        return {"kind": "opened", "records": rec, "message_id": None, "text": None, "pr": pr_record(node[item])}
 
     def witness(item: str, targets: set) -> list[str]:
         queue, prev = [item], {item: None}
@@ -196,11 +236,10 @@ def audit_samples(snap: Snapshot, results: dict[str, WhatIf], *, seed: int, n_un
                         "assignment": ev, "later_context": [
                             {"id": m["id"], "channel_id": m["channel_id"], "ts": m["ts"], "text": m["text"]}
                             for m in later(i, ev["message_id"])]})
-    edge_pool = [(w, d, p) for w, r in sorted(results.items()) for (d, p) in sorted(dep) if p in r.newly_unowned]
-    edges = [{"person": w, "dependent": d, "prerequisite": p, "rule": dep[(d, p)].type,
-              "citations": list(dep[(d, p)].records),
-              "texts": [by_id[r]["text"] for r in dep[(d, p)].records if r in by_id]}
-             for w, d, p in draw("dependency_edges", edge_pool, n_edges)]
+    edge_pool = sorted(dep)  # the complete recorded dependency pool, independent of any person's result
+    edges = [{"dependent": d, "prerequisite": p, "rule": dep[(d, p)].type, "citations": list(dep[(d, p)].records),
+              "texts": [t for t in map(record_text, dep[(d, p)].records) if t is not None]}
+             for d, p in draw("dependency_edges", edge_pool, n_edges)]
     path_pool = [(w, i) for w, r in sorted(results.items()) for i in sorted(r.affected)]
     paths = []
     for w, i in draw("affected_paths", path_pool, n_paths):

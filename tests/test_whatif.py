@@ -76,7 +76,7 @@ def test_exact_groups_for_the_leaver(wi):
     r = whatif.if_leaves(conn, fx.P, fx.LEAVER)
     assert groups(r) == (B("bnone") | R(5),
                          B("bs", "bnew") | R(1, 6, 7),
-                         B("bfix") | F("f_impl", "f_dev", "c1"))
+                         B("bfix") | F("f_impl", "f_dev", "c1", "f_pend_missing", "f_pend_false"))
     assert r.bound_hit is False
 
 
@@ -91,6 +91,15 @@ def test_feature_implemented_by_an_orphaned_pr_is_affected(wi):
     assert F("f_impl", "f_dev") <= r.affected  # IMPLEMENTED_BY, and ABOUT with kind development
     assert not (F("f_unrec", "f_via_na", "f_alone", "f_other", "f_done") & (r.affected | r.newly_unowned))
     assert "Bug:bfix" in r.affected  # a bug whose fix PR is orphaned: not unowned itself (Queen), so affected
+
+
+def test_in_progress_features_are_open_work_only_by_the_ruling(wi):
+    _, conn = wi
+    r = whatif.if_leaves(conn, fx.P, fx.LEAVER)
+    assert F("f_pend_missing", "f_pend_false") <= r.affected  # implemented missing or false, development PR open
+    assert not (F("f_pend_impl", "f_pend_closed", "f_nondev") & r.affected)  # implemented / PR closed / not development
+    assert F("f_impl", "f_dev") <= r.affected  # the discussed-only rule still holds
+    assert whatif_check.check(export_snapshot(conn, fx.P), fx.LEAVER) == r
 
 
 def test_work_already_unowned_is_only_in_group_one(wi):
@@ -239,6 +248,41 @@ def test_copy_is_retried_while_the_server_cannot_fork(wi, monkeypatch):
     assert copies(db) == []
 
 
+def test_an_uncertain_copy_is_cleaned_and_the_original_error_kept(wi):
+    db, conn = wi
+    real = conn.execute_command
+
+    class CreatesThenRaises:
+        def __getattr__(self, name):
+            return getattr(conn, name)
+
+        def execute_command(self, *a, **k):
+            out = real(*a, **k)
+            if a[0] == "GRAPH.COPY":
+                assert copies(db)  # the server did create the copy
+                raise redis.exceptions.ConnectionError("response lost")
+            return out
+
+    with pytest.raises(redis.exceptions.ConnectionError, match="response lost"):
+        whatif.if_leaves(CreatesThenRaises(), fx.P, fx.LEAVER)
+    assert copies(db) == []
+
+
+def test_a_failed_cleanup_is_reported_on_the_original_error(wi, monkeypatch):
+    db, conn = wi
+
+    def boom(*a, **k):
+        raise RuntimeError("injected")
+
+    monkeypatch.setattr(whatif, "_affected", boom)
+    monkeypatch.setattr(whatif, "_cleanup", lambda run, g: (_ for _ in ()).throw(OSError("no delete")))
+    with pytest.raises(RuntimeError, match="injected") as e:
+        whatif.if_leaves(conn, fx.P, fx.LEAVER)
+    assert any("no delete" in n for n in e.value.__notes__)
+    for g in copies(db):
+        db.select_graph(g).delete()
+
+
 def test_the_copy_is_deleted_after_an_injected_exception(wi, monkeypatch):
     db, conn = wi
 
@@ -310,7 +354,7 @@ def test_tool_resolves_the_name_and_returns_typed_rows(wi):
                         "affected": set(r.affected)}
     head = res.rows[0]
     assert head["answer"] == fx.LEAVER and head["bound_hit"] is False
-    assert head["counts"] == {"already_unowned": 2, "newly_unowned": 5, "affected": 4}
+    assert head["counts"] == {"already_unowned": 2, "newly_unowned": 5, "affected": 6}
     assert "recorded" in head["basis"] and "prediction" in head["basis"]
     assert all(row["refs"] for row in res.rows[1:]) and any(o.command == "GRAPH.COPY" for o in t.ops)
     assert TOOLS["if_leaves"].run(conn, fx.P, person=fx.LEAVER).rows[0]["answer"] == fx.LEAVER  # by employee id
@@ -345,11 +389,17 @@ def test_audit_samples_carry_evidence_and_later_context(wi):
     assert "20260604-0-m0003" in ctx  # another channel, names the bug by title
     assert "20260603-1-m0002" not in ctx and "20260502-0-m0004" not in ctx  # unrelated / earlier
     edges = {(s["dependent"], s["prerequisite"]): s for s in a["dependency_edges"]}
-    assert ("Feature:f_impl", f"PR:{fx.pr(1)}") in edges and edges[("Feature:f_impl", f"PR:{fx.pr(1)}")]["citations"] == ["rec-impl1"]
-    assert a["shortages"]["dependency_edges"]["available"] == len(edges)
+    assert ("Feature:f_impl", f"PR:{fx.pr(1)}") in edges and edges[("Feature:f_impl", f"PR:{fx.pr(1)}")]["citations"] == [fx.slug(1)]
+    assert a["shortages"]["dependency_edges"]["available"] >= len(edges)
+    assert any("Summary of PR 1" in t and fx.LEAVER in t for t in edges[("Feature:f_impl", f"PR:{fx.pr(1)}")]["texts"])
+    # the pool is every recorded dependency, not only those leading to this person's newly unowned work
+    assert ("Feature:f_via_na", f"PR:{fx.pr(5)}") in edges or len(edges) < a["shortages"]["dependency_edges"]["available"]
     paths = {p["affected"]: p for p in a["affected_paths"]}
     assert paths["Bug:bfix"]["path"] == ["Bug:bfix", f"PR:{fx.pr(1)}"] and paths["Bug:bfix"]["edges"][0]["citations"] == ["20260610-0-fff01"]
-    assert a["cutoff"] == "20260604-0-m0003"
+    assert a["cutoff"] == "20260609-2-p0003"
+    pr1 = items[f"PR:{fx.pr(1)}"]  # a hand-over in a channel that mentioned the PR, without repeating link or title
+    assert pr1["assignment"]["pr"]["authors"] == [PID] and pr1["assignment"]["pr"]["summary"] == "Summary of PR 1"
+    assert {m["id"] for m in pr1["later_context"]} == {"20260609-0-p0001", "20260609-1-p0002"}
 
 
 def test_audit_sample_sizes_are_capped_and_seeded(wi):
@@ -369,7 +419,7 @@ def test_compare_runs_both_for_every_engineering_lead(wi):
     assert sorted(r["person"] for r in rows) == sorted([fx.LEAVER, fx.QUEEN])  # the two Engineering Leads
     assert all(r["match"] for r in rows)
     lead = next(r for r in rows if r["person"] == fx.LEAVER)
-    assert (lead["already_unowned"], lead["newly_unowned"], lead["affected"], lead["bound_hit"]) == (2, 5, 4, False)
+    assert (lead["already_unowned"], lead["newly_unowned"], lead["affected"], lead["bound_hit"]) == (2, 5, 6, False)
 
 
 def test_compare_owners_covers_everyone_with_work(wi):
@@ -392,13 +442,11 @@ DEV = ("ActionGenie", "AnomalyForce", "ContentForce", "KnowledgeForce", "LeadFor
 @pytest.mark.parametrize("server", ["4.22", "6.0"])
 def test_dev_engineering_leads_agree(server):
     acl = ROOT / "data" / "acl.json"
-    if not acl.exists():
-        pytest.skip("data/acl.json missing")
+    assert acl.exists(), "data/acl.json missing"
     db = fx.connect(server)
-    present = [p for p in DEV if f"herb:{p}" in db.list_graphs() and f"whatif_{p}" in json.loads(acl.read_text()).get(server, {})]
-    if not present:
-        pytest.skip("dev graphs not loaded")
-    for p in present:
-        conn = whatif.whatif_connection(p, server)
-        rows = whatif_check.compare(conn, p)
+    have = json.loads(acl.read_text()).get(server, {})
+    missing = [p for p in DEV if f"herb:{p}" not in db.list_graphs() or f"whatif_{p}" not in have]
+    assert not missing, f"dev products not loaded on {server} (graph or whatif user missing): {missing}"
+    for p in DEV:
+        rows = whatif_check.compare(whatif.whatif_connection(p, server), p)
         assert rows and all(r["match"] for r in rows), [r for r in rows if not r["match"]]
