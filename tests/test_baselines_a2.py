@@ -22,7 +22,7 @@ def _srcs(mini_bundle):
 def test_sources_cover_every_category(mini_bundle):
     ids = [s.doc_id for s in _srcs(mini_bundle)]
     kinds = {i.split(":", 1)[0] for i in ids}
-    assert kinds == {"slack", "document", "meeting", "pr", "url", "employees", "customers"}
+    assert kinds == {"slack", "document", "meeting", "prs", "urls", "employees", "customers"}
     assert len(ids) == len(set(ids))
     assert sum(i.startswith("slack:") for i in ids) >= 1
 
@@ -35,9 +35,9 @@ def test_sources_have_stable_ids_and_timestamps(mini_bundle):
     assert "2026-06-" in slack and "20260609-0-" in slack  # timestamp and message id on every line
     meeting = next(t for i, t in by.items() if i.startswith("meeting:"))
     assert "Meeting ID:" in meeting and "Chat" in meeting  # the transcript carries its chat
-    pr = by["pr:https://github.com/mini/mini-server/pull/101"]
-    assert "APPROVED" in pr and "eid_a1000001" in pr and "2026-06-16T09:00:00" in pr  # reviews with time
-    assert any(i.startswith("url:") for i in by)
+    pr = by["prs"]
+    assert "pull/101" in pr and "APPROVED" in pr and "eid_a1000001" in pr and "2026-06-16T09:00:00" in pr
+    assert "https://docs.example.com/export" in by["urls"]  # the duplicated link keeps both records
 
 
 def test_sources_hold_directories_and_no_team_or_questions(mini_bundle):

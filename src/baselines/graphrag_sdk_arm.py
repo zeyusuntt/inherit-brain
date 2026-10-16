@@ -9,8 +9,8 @@ and `a2` while answering. The SDK's own retries are switched off (the proxy retr
 for as the shared JSON through the SDK's answer prompt; one conversion call runs only when that reply does not parse,
 and it may only restate the SDK's answer.
 
-Source texts (F7), built from the bundle only, one per Slack channel, document, meeting with its chat, PR with its
-reviews, and URL, plus the employee and customer directories. Each carries stable record ids and timestamps.
+Source texts (F7), built from the bundle only: one per Slack channel, document and meeting (with its chat), one for
+all PRs with their reviews, one for all URLs, plus the employee and customer directories. Each carries stable record ids and timestamps.
 """
 
 from __future__ import annotations
@@ -44,14 +44,20 @@ ARM_BUILD, ARM_ANSWER = "a2-build", "a2"
 BUILD_CAP_USD, ANSWER_CAP_USD = 1.0, 0.3
 FALKOR_HOST, FALKOR_PORT = "localhost", 6380  # FalkorDB 6.0.2
 EMBED_DIM = 1024
-BUILD_MAX_TOKENS, ANSWER_MAX_TOKENS = 2048, agent.MAX_OUTPUT_TOKENS
+BUILD_MAX_TOKENS, ANSWER_MAX_TOKENS = 4096, agent.MAX_OUTPUT_TOKENS
 DEADLINE_S = agent.DEADLINE_S
-DISCOVERY_SAMPLE_CHUNKS = 3  # SDK default
+DISCOVERY_SAMPLE_CHUNKS = 3  # SDK default; F7 allows reducing it if the build is unaffordable
 DISCOVERY_SEED = 20261015
+DISCOVERY_CONCURRENCY = 12  # SDK default 4; wall-clock only, the calls are the same
+INGEST_CONCURRENCY = 3  # the SDK's own batch default
 GRAPH_PATTERN = "a2:{product}"
 EMBED_BATCH = 64
 
 logger = logging.getLogger(__name__)
+
+
+def ontology_path(product: str):
+    return ROOT / "runs" / "a2" / f"{product}.ontology.json"
 
 
 def graph_name(product: str) -> str:
@@ -99,20 +105,23 @@ def _meetings(product_data: dict) -> list[Source]:
 
 
 def _prs(product_data: dict) -> list[Source]:
-    out = []
+    """All of the product's PRs with their reviews as one source: a source per PR would be a hundred tiny
+    documents, each paying its own discovery summary and ingestion overhead."""
+    blocks = []
     for pr in sorted(product_data.get("prs") or [], key=lambda p: p["link"]):
         lines = [f"Pull request {pr['link']}", f"Title: {pr['title']}", f"Author: {pr['user']['login']}",
                  f"Created at: {pr['created_at']}", f"State: {pr['state']}", f"Mergeable: {pr['mergeable']}",
                  f"Merged: {pr['merged']}", f"Summary: {pr['summary']}", "Reviews:"]
         lines += [f"- {r['state']} by {r['user']['login']} at {r['submitted_at']}: {r['comment']}"
                   for r in pr.get("reviews") or []]
-        out.append(Source(f"pr:{pr['link']}", "\n".join(lines)))
-    return out
+        blocks.append("\n".join(lines))
+    return [Source("prs", "Pull requests\n\n" + "\n\n".join(blocks))] if blocks else []
 
 
 def _urls(product_data: dict) -> list[Source]:
-    return [Source(f"url:{u['link']}", f"URL {u['link']}\nDescription: {u['description']}")
-            for u in sorted(product_data.get("urls") or [], key=lambda u: u["link"])]
+    blocks = [f"URL {u['link']}\nDescription: {u['description']}"
+              for u in sorted(product_data.get("urls") or [], key=lambda u: (u["link"], u["description"]))]
+    return [Source("urls", "URLs\n\n" + "\n\n".join(blocks))] if blocks else []
 
 
 def source_texts(product: str, bundle_dir=BUNDLE_DIR) -> list[Source]:
@@ -123,11 +132,8 @@ def source_texts(product: str, bundle_dir=BUNDLE_DIR) -> list[Source]:
         f"{eid}: {e['name']} ({e['role']})" for eid, e in sorted(employees.items()))
     cust = "Customer directory (customer id: company)\n" + "\n".join(
         f"{c['id']}: {c['company']}" for c in sorted(customers, key=lambda c: c["id"]))
-    merged: dict[str, list[str]] = {}  # a repeated link (duplicate URL records) is one source holding every record
-    for s in [*_slack(data), *_documents(data), *_meetings(data), *_prs(data), *_urls(data),
-              Source("employees", emp), Source("customers", cust)]:
-        merged.setdefault(s.doc_id, []).append(s.text)
-    return [Source(i, "\n\n".join(t)) for i, t in merged.items()]
+    return [*_slack(data), *_documents(data), *_meetings(data), *_prs(data), *_urls(data),
+            Source("employees", emp), Source("customers", cust)]
 
 
 # ---------------------------------------------------------------- providers through the proxy
@@ -226,19 +232,28 @@ def _facade(product: str, arm: str, log: UsageLog, **llm_kw) -> GraphRAG:
 
 async def _build(product: str, sources: list[Source], log: UsageLog, report: dict) -> None:
     texts = {s.doc_id: s.text for s in sources}
-    discovery_llm = ProxyLLM(ARM_BUILD, log)
-    ontology = await Ontology.from_sources(
-        list(texts), discovery_llm, loader=_DictLoader(texts), sample_chunks_per_doc=DISCOVERY_SAMPLE_CHUNKS,
-        seed=DISCOVERY_SEED)
+    cache = ontology_path(product)  # a resumed build reuses the draft instead of paying for discovery again
+    if cache.exists():
+        ontology = Ontology.from_file(str(cache))
+    else:
+        ontology = await Ontology.from_sources(
+            list(texts), ProxyLLM(ARM_BUILD, log), loader=_DictLoader(texts),
+            sample_chunks_per_doc=DISCOVERY_SAMPLE_CHUNKS, concurrency=DISCOVERY_CONCURRENCY, seed=DISCOVERY_SEED)
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        ontology.save_to_file(str(cache))
     report["entity_types"] = [e.label for e in ontology.entities]
     report["relation_types"] = [r.label for r in ontology.relations]
     async with _facade(product, ARM_BUILD, log) as rag:
         await rag.set_ontology(ontology)
-        chunks = 0
-        for s in sources:
-            res = await rag.ingest(text=s.text, document_id=s.doc_id)
-            chunks += res.chunks_indexed
-        report["chunks"] = chunks
+        sem = asyncio.Semaphore(INGEST_CONCURRENCY)
+
+        async def one(s: Source) -> int:
+            async with sem:
+                if await rag._graph_store.get_document_record(s.doc_id) is not None:
+                    return 0  # already ingested by an interrupted build
+                return (await rag.ingest(text=s.text, document_id=s.doc_id)).chunks_indexed
+
+        report["chunks"] = sum(await asyncio.gather(*[one(s) for s in sources]))
         fin = await rag.finalize()
         report["finalize"] = fin.model_dump()
         report["stats"] = await rag.get_statistics()
@@ -258,6 +273,7 @@ def build(product: str, bundle_dir=BUNDLE_DIR, *, replace: bool = False) -> dict
             async with _facade(product, ARM_BUILD, log) as rag:
                 await rag.delete_all()
         asyncio.run(wipe())
+        ontology_path(product).unlink(missing_ok=True)
     asyncio.run(_build(product, sources, log, report))
     chat_calls = [c for c in log.calls if c.completion_tokens or c.model == load_settings().model]
     report.update(seconds=round(time.monotonic() - t0, 1), calls=len(log.calls),
