@@ -1472,7 +1472,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 edge("SUGGESTED", person(eid), f"Document:{doc_id}", [r["record"]],
                      r["record"] if n == 0 else f"{r['record']}#{n + 1}", section=r["section"], text=r["text"],
                      kind=r["kind"], ambiguous=r["ambiguous"], source_text=r["source_text"],
-                     doc_basis=r.get("doc_basis"), version_ambiguous=len(r["docs"]) > 1)
+                     doc_basis=r.get("doc_basis"), version_ambiguous=len(r["docs"]) > 1,
+                     review_origin=r.get("review_origin", "model"))
     for link, fl in feat_of_pr.items():
         for fid in fl:
             first = next(x for x in dev_links[link] if x["feature"] == fid)
@@ -1580,39 +1581,55 @@ def estimate_semantic(rec, *, cache_root=None) -> dict:
 
 # ---------------------------------------------------------------- type-level review discussions (rule)
 
-# What a rule-read reply must say: wording that proposes content (stricter than the model path, which a model chose),
-# and never a deadline, a request to review the work, or an invitation to contribute.
+# What a rule-read reply must say: an identifiable action on the document's content (add, include, detail, explain,
+# outline, cover, specify ... with an object), stricter than the model path, which a model chose. Bare ensure, make
+# sure and update are not enough, and neither is an evaluation ("will add value").
 _RULE_CUE = re.compile(
-    r"\b(?:consider|suggest(?:s|ed)?|recommend(?:s|ed)?|add(?:s|ed|ing)?|includ(?:e|es|ing)|highlight|detail|specify|emphasi[sz]e"
-    r"|make sure|elaborate|mention|outline|defin(?:e|es|ing)|cover|explain|ensure|clarif\w+|expand|replace|remove|improve|update"
-    r"|incorporate|address)\b", re.I)
+    r"\b(?:consider\w{0,3}|(?:add|adds|added|adding)|includ\w{0,3}|highlight\w{0,3}|detail\w{0,3}|specif\w{1,4}"
+    r"|emphasi[sz]\w{0,3}|elaborat\w{0,3}|mention\w{0,3}|outlin\w{0,4}|defin\w{0,3}|cover\w{0,3}|explain\w{0,3}"
+    r"|clarif\w+|expand\w{0,3}|replac\w{0,3}|remov\w{0,3}|improv\w{0,3}|incorporat\w{0,3})\b"
+    r"(?=\s+\w+\s+\w+|\s+(?:a|an|the|our|some|more)\b|\s+\w+\s*\?)", re.I)
+_EVALUATIVE = re.compile(r"\badd(?:s|ed)? (?:a lot of |much |great |real |some )?value\b|\bsounds? (?:good|great|like)\b|"
+                         r"\b(?:great|solid|good) (?:plan|idea|call|suggestions?)\b|\bon the right track\b", re.I)
+# Not document content: deadlines, review requests, invitations, coordination, timelines, progress, staffing, building.
 _RULE_NOT = re.compile(
-    r"\bdeadline\b|\bfeel free\b|\bonce i'?m done\b|\breview (?:it|this|that)\b|\bby (?:early |late |the )?(?:next|end|tomorrow|"
-    r"monday|tuesday|wednesday|thursday|friday)\b|\bnext (?:week|friday|monday)\b|\blet me know\b|\bsync\b", re.I)
+    r"\bdeadline\b|\bfeel free\b|\bonce i'?m done\b|\breview (?:it|this|that)\b|\bby (?:early |late |the |mid-?)?(?:next|end|tomorrow|"
+    r"week|monday|tuesday|wednesday|thursday|friday)\b|\bnext (?:week|friday|monday)\b|\blet me know\b|\bsync\b|"
+    r"\bcoordinat\w+|\btimelines?\b|\bprogress\b|\bstaff\w*|\bimplement(?:ed|ation|ing)?\b|\blet'?s get\b", re.I)
+# The opener must start a discussion of the document or share it, and not call it off.
+_OPEN_DISCUSSION = re.compile(r"\b(?:discuss\w*|review\w*|feedback|brainstorm\w*|thoughts|shar(?:e|ed|ing)|go(?:ing)? (?:over|through)"
+                              r"|talk(?:ing)? about|walk(?:ing)? through)\b", re.I)
+_OPEN_CANCEL = re.compile(r"\b(?:cancel\w*|postpon\w*|call(?:ed|ing)? off|skip\w*|no longer|instead|not (?:going|reviewing)"
+                          r"|won'?t|scrapp\w*)\b", re.I)
 
 
 def type_level_reviews(data, chunk, cat, doc_prev, reviews, discusses) -> int:
-    """A session that opens by naming a document type of this product ("I want to discuss the Product Vision Document for
-    <product>") is a type-level review discussion, whether or not a version of the document exists yet. The model reads
-    the session first; this rule only adds the replies it did not return a review for: a reply whose own sentence
-    proposes a change to the content (suggestion wording or a content question, never work allocation, scheduling or an
-    opener) is a review of every document of that type, marked by the caller as version_ambiguous. A message the model
-    did address (kept or dropped) is never re-read, so a ruling on its cited remark stands. Returns the number added."""
+    """A session that opens by starting a discussion of (or sharing) a document type of this product ("I want to
+    discuss the Product Vision Document for <product>") is a type-level review discussion, whether or not a version of
+    the document exists yet. The opener fixes the target once: the documents of that type, and only that type. The model
+    reads the session first; this rule only adds the replies it did not return a review for: a reply whose own sentence
+    proposes an identifiable change to the content (never work allocation, coordination, scheduling, an evaluation or an
+    opener, and not a sentence that turns to another document type) is a review of every document of that type, marked
+    by the caller as version_ambiguous. A message the model did address (kept or dropped) is never re-read, so a ruling
+    on its cited remark stands. Returns the number added."""
     real = [m for m in chunk if not m.is_bot]
-    if len(real) < 2 or not DOC_TYPE_RE.search(real[0].text):
+    if len(real) < 2 or not DOC_TYPE_RE.search(real[0].text) or not _OPEN_DISCUSSION.search(real[0].text) \
+            or _OPEN_CANCEL.search(real[0].text):
         return 0
+    docs, why = resolve_review_docs(cat, [real[0].text], "", doc_prev)
+    if not docs:
+        return 0  # no document of ours (a competitor's, or a type we have none of)
+    target = normalise(docs[0].type)
     modelled = {_str(r.get("message_id")) for r in _items(data, "reviews")}
     added = 0
-    for k, m in enumerate(real[1:], 1):
+    for m in real[1:]:
         if m.id in modelled or "http" in m.text or m.text.lstrip().startswith("@here"):
             continue  # a shared link or an announcement is not a remark about the document
         hit = next((x.strip() for x in _SENTENCES.split(m.text)
-                    if x.strip() and not _task_statement(x) and _RULE_CUE.search(_PURPOSE.sub(" ", x))
-                    and not _RULE_NOT.search(x)), None)
+                    if x.strip() and not _task_statement(x) and _RULE_CUE.search(_EVALUATIVE.sub(" ", _PURPOSE.sub(" ", x)))
+                    and not _RULE_NOT.search(x)
+                    and all(normalise(t.group(0)) == target for t in DOC_TYPE_RE.finditer(x))), None)
         if hit is None:
-            continue
-        docs, why = resolve_review_docs(cat, [x.text for x in real[:k + 1]], "", doc_prev)
-        if not docs:
             continue
         good, _ = validate_items([{"citations": [{"record_id": m.id, "quote": hit}]}],
                                  [SourceRecord(m.id, "message", "text", m.text)], SESSION_ALLOWED)
@@ -1620,7 +1637,7 @@ def type_level_reviews(data, chunk, cat, doc_prev, reviews, discusses) -> int:
             continue
         reviews.append({"docs": [d_.id for d_ in docs], "eids": [m.user_id], "ambiguous": False, "kind": "suggestion",
                         "section": None, "text": hit, "record": m.id, "citations": good[0]["citations"], "speaker": None,
-                        "source_text": m.text[:600], "doc_basis": why})
+                        "source_text": m.text[:600], "doc_basis": why, "review_origin": "type_level_rule"})
         for d_ in docs:
             discusses.add((f"Message:{m.id}", f"Document:{d_.id}"))
         added += 1

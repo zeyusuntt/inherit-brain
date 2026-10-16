@@ -537,3 +537,52 @@ def test_a_brainstorm_about_another_products_document_or_without_a_type_adds_not
                         day="20260603")
     out2, _ = run(None, plain, tmp_path / "b")
     assert _suggested_in(out2, "20260603") == set()
+
+
+# ---------------------------------------------------------------- round-3 review: admission, anchoring, gate, provenance
+
+OPEN = "Hi team, I want to discuss the Market Research Report for Mini. Let's brainstorm some ideas!"
+
+
+@pytest.mark.parametrize("reply", [
+    "I'll coordinate with the engineering team to ensure our timelines are realistic. @eid_439a052b, let's sync up tomorrow?",
+    "Thanks, George! I'll update everyone on the QA progress by mid-week. Let's do this!",
+    "Sounds like a solid plan, @Bob Garcia. Let's get these changes implemented and ensure Mini is on the right track.",
+    "Those suggestions will add value.",
+    "We should make sure everyone is staffed for the work.",
+])
+def test_workflow_and_evaluative_replies_are_not_read_as_reviews(tmp_path, reply):
+    out, _ = run(None, _brainstorm(OPEN, [(fx.BEN, reply)]), tmp_path)
+    assert _suggested_in(out) == set()
+
+
+def test_concrete_additions_are_still_read(tmp_path):
+    out, _ = run(None, _brainstorm(OPEN, [(fx.BEN, "I'll add a section on regulatory risks to the report."),
+                                         (fx.DEE, "We should explain how pricing tiers work.")]), tmp_path)
+    assert {k for k, _ in _suggested_in(out)} == {"20260601-1-q0001", "20260601-2-q0002"}
+
+
+def test_the_openers_document_type_is_the_only_target(tmp_path):
+    rec = _brainstorm("Hi team, I want to discuss the Market Research Report for Mini. Let's brainstorm!", [
+        (fx.BEN, "We should include a comparison table using our Product Vision Document as a source."),
+        (fx.DEE, "We should include a comparison table of the competitors.")])
+    out, _ = run(None, rec, tmp_path)
+    got = _suggested_in(out)
+    assert {k for k, _ in got} == {"20260601-2-q0002"}  # the first reply turns to another document type: skipped
+    assert {d for _, d in got} == {f"Document:{d}" for d in BOTH}
+
+
+def test_a_cancelled_review_opener_starts_no_discussion(tmp_path):
+    rec = _brainstorm("Hi team, we are cancelling the Market Research Report review; instead let's talk QA staffing.",
+                      [(fx.BEN, "We should include a staffing table.")])
+    out, _ = run(None, rec, tmp_path)
+    assert _suggested_in(out) == set()
+
+
+def test_edges_carry_their_origin(tmp_path):
+    rec = _brainstorm(OPEN, [(fx.BEN, "We should include a section on pricing.")])
+    out, _ = run(None, rec, tmp_path)
+    rule = [e for e in edges(out.facts, "SUGGESTED") if e.key == "20260601-1-q0001"]
+    assert rule and all(e.props["review_origin"] == "type_level_rule" for e in rule)
+    model = [e for e in edges(out.facts, "SUGGESTED") if e.key == "20260305-1-a0002"]
+    assert model and all(e.props["review_origin"] == "model" for e in model)
