@@ -64,3 +64,16 @@ _register_agent_arms()
 
 
 from baselines import graphrag_sdk_arm as _a2  # noqa: E402,F401  registers A2
+
+
+def _register_paper_arms() -> None:
+    """A0, A0f and A0v (and their dev twins): the HERB paper's retriever and tools over raw records or cards."""
+    from baselines import cards_react, hybrid_once, paper_tools, react_paper
+
+    for name, mod in (("A0", react_paper), ("A0f", cards_react), ("A0v", hybrid_once)):
+        for arm_name in (name, f"dev-{name.lower()}"):
+            register(Arm(arm_name, lambda inp, _n=arm_name, _m=mod: _m.run(inp, arm=_n), config=mod.config(),
+                         prompt_versions={"baseline": paper_tools.PROMPT_VERSION}))
+
+
+_register_paper_arms()
