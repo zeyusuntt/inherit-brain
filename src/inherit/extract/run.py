@@ -132,6 +132,29 @@ def write_semantic(root: Path, product: str, records, estimate: bool, **kw) -> d
     return r
 
 
+def run_layer(root: Path, layer: str, product: str, records, estimate: bool = False) -> dict | None:
+    """Run one layer for one product and write its files. Returns the report (bugs, semantic) or None."""
+    if layer == "names":
+        write_names(root, product, records)
+        return None
+    if layer == "bugs":
+        return write_bugs(root, product, records, estimate)
+    if layer == "semantic":
+        return write_semantic(root, product, records, estimate)
+    if layer == "rules":
+        write_rules(root, product, records)
+        return None
+    facts = LAYERS[layer](records)
+    out = root / "data" / "facts" / product / f"{layer}.jsonl"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    facts.to_jsonl(out)
+    nc, ec = counts(facts)
+    print(f"{product}: nodes {dict(sorted(nc.items()))} edges {dict(sorted(ec.items()))} "
+          f"conflicts {facts.conflicts} non_directory_people "
+          f"{sum(1 for n in facts.nodes if n.label == 'Person' and not n.props['in_directory'])}")
+    return None
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--layer", required=True, choices=sorted(LAYERS))
@@ -153,26 +176,9 @@ def main(argv: list[str] | None = None) -> int:
     for product in select_products(args.products, available):
         data = json.loads((bundle / "products" / f"{product}.json").read_text(encoding="utf-8"))
         records = build_records(data, employees, customers, product)
-        if args.layer == "names":
-            write_names(root, product, records)
-            continue
-        if args.layer == "bugs":
-            totals.append(write_bugs(root, product, records, args.estimate))
-            continue
-        if args.layer == "semantic":
-            totals.append(write_semantic(root, product, records, args.estimate))
-            continue
-        if args.layer == "rules":
-            write_rules(root, product, records)
-            continue
-        facts = LAYERS[args.layer](records)
-        out = root / "data" / "facts" / product / f"{args.layer}.jsonl"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        facts.to_jsonl(out)
-        nc, ec = counts(facts)
-        print(f"{product}: nodes {dict(sorted(nc.items()))} edges {dict(sorted(ec.items()))} "
-              f"conflicts {facts.conflicts} non_directory_people "
-              f"{sum(1 for n in facts.nodes if n.label == 'Person' and not n.props['in_directory'])}")
+        rep = run_layer(root, args.layer, product, records, args.estimate)
+        if rep is not None:
+            totals.append(rep)
     if args.layer == "semantic" and args.estimate:
         print(f"total projected {sum(t['projected_usd'] for t in totals):.4f} USD, "
               f"meeting calls {sum(t['meeting_calls'] for t in totals)}, "
