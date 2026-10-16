@@ -44,6 +44,8 @@ class Upstream:
             time.sleep(self.delay)
         if isinstance(item, Exception):
             raise item
+        if callable(item):
+            return item(request)
         status, body = item
         if isinstance(body, bytes):
             return httpx2.Response(status, content=body)
@@ -480,3 +482,38 @@ def test_client_timeout_is_distinct_from_unreachable(live, monkeypatch):
 
 def test_client_timeout_exceeds_proxy_deadline():
     assert llm._timeout() >= config.load_settings().proxy_deadline_s + 30
+
+
+# ---- proxy fix round 2: wall-clock deadline ----------------------------------
+
+
+def test_trickling_response_aborted_at_deadline(tmp_path):
+    payload = json.dumps(OK).encode()
+
+    def trickle():
+        for i in range(0, 20):
+            time.sleep(0.05)
+            yield payload[i : i + 1] if i < len(payload) else b" "
+
+    up = Upstream(default=lambda request: httpx2.Response(200, content=trickle()))
+    c, m = make(tmp_path, up, deadline=0.3)
+    t0 = time.monotonic()
+    r = c.post("/v1/chat/completions", json=body(), headers=H)
+    elapsed = time.monotonic() - t0
+    assert r.status_code == 504 and r.json()["error"]["type"] == "deadline_exceeded"
+    assert elapsed < 0.6
+    assert len(up.requests) == 1
+    evs = events(tmp_path)
+    assert [e["type"] for e in evs] == ["reserve", "settle"] and evs[1]["cost"] == evs[0]["amount"]
+
+
+def test_attempt_timeout_is_min_of_per_attempt_and_remaining(tmp_path):
+    up = Upstream()
+    c, _ = make(tmp_path, up, deadline=0.3)
+    c.post("/v1/chat/completions", json=body(), headers=H)
+    assert up.requests[0].extensions["timeout"]["read"] <= 0.3
+    up2 = Upstream()
+    (tmp_path / "b").mkdir()
+    c2, _ = make(tmp_path / "b", up2, deadline=1000.0, timeout=300.0)
+    c2.post("/v1/chat/completions", json=body(), headers=H)
+    assert up2.requests[0].extensions["timeout"]["read"] == 300.0

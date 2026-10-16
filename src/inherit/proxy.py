@@ -37,6 +37,10 @@ def _err(status: int, kind: str, message: str) -> JSONResponse:
     return JSONResponse({"error": {"type": kind, "message": message}}, status_code=status)
 
 
+class _DeadlineHit(Exception):
+    pass
+
+
 def _pos_int(v: Any) -> bool:
     return isinstance(v, int) and not isinstance(v, bool) and v > 0
 
@@ -104,25 +108,39 @@ def create_app(
             except BudgetExceeded as e:
                 return _err(402, "budget_exceeded", str(e))
             try:
-                resp = http.post(
+                # Wall-clock bound on the whole attempt: each network operation is limited to
+                # min(per-attempt timeout, time left), and the clock is checked between chunks.
+                with http.stream(
+                    "POST",
                     base + path,
                     content=content,
                     headers={"Authorization": f"Bearer {upstream_key}", "Content-Type": "application/json"},
-                    timeout=max(remaining, 0.1),
-                )
+                    timeout=min(timeout, max(remaining, 0.05)),
+                ) as resp:
+                    chunks = []
+                    for chunk in resp.iter_bytes():
+                        chunks.append(chunk)
+                        if time.monotonic() - start >= deadline:
+                            raise _DeadlineHit()
+                    data = b"".join(chunks)
+                    status = resp.status_code
+            except _DeadlineHit:
+                log.warning("upstream %s aborted at the deadline", path)
+                if not safe(meter.settle_full, r):  # billing unknown: keep the whole ceiling
+                    return ledger_error()
+                return _err(504, "deadline_exceeded", "proxy deadline reached during the upstream response")
             except httpx2.HTTPError as e:
                 log.warning("upstream %s failed: %s", path, type(e).__name__)
                 if not safe(meter.settle_full, r):  # sent, outcome unknown: keep the whole ceiling
                     return ledger_error()
                 return _err(502, "upstream_unreachable", type(e).__name__)
-            status = resp.status_code
             if 400 <= status < 500:
                 if not safe(meter.settle_unbilled, r, status):
                     return ledger_error()
                 if status == 429 and attempt < MAX_RETRIES:
                     sleep(2**attempt)
                     continue
-                return finish(status, resp.content, 0, r.amount)
+                return finish(status, data, 0, r.amount)
             if status != 200:
                 if not safe(meter.settle_full, r):
                     return ledger_error()
@@ -130,10 +148,10 @@ def create_app(
                     sleep(2**attempt)
                     continue
                 if status >= 500:
-                    return finish(status, resp.content, r.amount, r.amount)
+                    return finish(status, data, r.amount, r.amount)
                 return _err(502, "unexpected_upstream_status", str(status))
             try:
-                usage = resp.json()["usage"]
+                usage = json.loads(data)["usage"]
                 pt = usage["prompt_tokens"]
                 ct = usage.get("completion_tokens", 0) if path.endswith("/embeddings") else usage["completion_tokens"]
                 cost_pu = meter.cost_pu(model, pt, ct)
@@ -152,7 +170,7 @@ def create_app(
                                             "reserved": r.amount, "cost": cost_pu}) + "\n")
                 except Exception as e:
                     log.error("could not write %s: %s", bug_file, type(e).__name__)
-            return finish(200, resp.content, cost_pu, r.amount)
+            return finish(200, data, cost_pu, r.amount)
         raise AssertionError("unreachable")
 
     def parse(raw: bytes, request: Request) -> tuple[str, dict] | JSONResponse:
