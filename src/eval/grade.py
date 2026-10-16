@@ -25,11 +25,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from eval import run as R
-from eval.questions import Question
+from eval.questions import Question, snapshot_hash
+from inherit.config import MODEL
 from inherit import llm
 from inherit.contracts import QuestionKey, RunRecord
 
 PROMPT_VERSION = "herb-evaluate-v1"
+SCORER_VERSION = "eval.grade/2"
 JUDGE_MAX_TOKENS = 400
 
 
@@ -127,9 +129,11 @@ def likert_score_from(parsed: Any) -> int:
 def refusal_from(parsed: Any) -> str:
     """'no' means the answer does not address the question, which is the correct response to an unanswerable one."""
     done = parsed.get("done") if isinstance(parsed, dict) else None
-    if not (isinstance(done, str) and done.strip().lower() in ("yes", "no")):
+    # HERB lowercases and does not strip. A value other than exactly yes/no after lowercasing (for example
+    # " no ") is a judge error here, retried on the next pass, so no score depends on whitespace.
+    if not (isinstance(done, str) and done.lower() in ("yes", "no")):
         raise JudgeError(f"no usable 'done' in {str(parsed)[:120]!r}")
-    return done.strip().lower()
+    return done.lower()
 
 
 class Judge:
@@ -146,6 +150,9 @@ class Judge:
                     self.cache[e["k"]] = e["v"]
                 except (ValueError, KeyError, TypeError):
                     continue
+
+    def identity(self) -> dict[str, str]:
+        return {"model": self.model or MODEL, "prompt_version": PROMPT_VERSION, "scorer_version": SCORER_VERSION}
 
     def _key(self, prompt: str) -> str:
         blob = json.dumps([PROMPT_VERSION, self.model, JUDGE_MAX_TOKENS, prompt], ensure_ascii=False)
@@ -237,31 +244,60 @@ def _grade_lines(run_dir: Path) -> dict[str, dict]:
     return out
 
 
+def read_grading_manifest(run_dir: Path) -> dict[str, str]:
+    return json.loads((Path(run_dir) / "grading.json").read_text(encoding="utf-8"))
+
+
+def _sha(line: str) -> str:
+    return hashlib.sha256(line.encode()).hexdigest()
+
+
 def grade_run(run_dir: Path, questions: list[Question], judge: Judge) -> list[Graded]:
-    """Grade every slot of a finished (or interrupted) run, resumably. Slots with no terminal record count as
-    run_failed. Judge errors are written to grades.jsonl and retried on the next call; arms are never re-run.
+    """Grade every slot of a finished run, resumably. An unfinished run is refused: a missing terminal record is
+    not a grade. Each persisted grade is bound to the sha256 of its source record and is redone if that changes.
+    The judge identity is frozen in grading.json on the first pass; a different judge or prompt version is
+    refused. Judge errors are written to grades.jsonl and retried on the next call; arms are never re-run.
     Raises IncompleteGrading unless every slot ends up graded."""
     run_dir = Path(run_dir)
-    by_slot = {str(q.key): q for q in questions}
     manifest = R.read_manifest(run_dir)
+    lines = R.read_terminal_lines(run_dir)
+    unfinished = [s for s in manifest["slots"] if s not in lines]
+    if unfinished:
+        raise R.RunStateError(f"{len(unfinished)} slots have no terminal record (first: {unfinished[0]}); "
+                              "finish the run before grading")
+    by_slot = {str(q.key): q for q in questions}
     absent = [s for s in manifest["slots"] if s not in by_slot]
     if absent:
         raise ValueError(f"no question supplied for slots {absent[:3]}")
-    records = {str(r.key): r for r in R.reconcile(run_dir)}
+    if snapshot_hash([by_slot[s] for s in manifest["slots"]]) != manifest["question_sha"]:
+        raise R.RunStateError("the questions differ from the snapshot this run was started with")
+    ident = judge.identity()
+    gpath = run_dir / "grading.json"
+    if gpath.exists():
+        if read_grading_manifest(run_dir) != ident:
+            raise R.RunStateError(f"run was graded with {read_grading_manifest(run_dir)}, not {ident}; refusing to mix judges")
+    else:
+        tmp = gpath.with_suffix(".tmp")
+        tmp.write_text(json.dumps(ident, indent=1), encoding="utf-8")
+        tmp.replace(gpath)
+    records = R.read_records(run_dir)
     rows = _grade_lines(run_dir)
     errors: dict[str, str] = {}
     with open(run_dir / "grades.jsonl", "a", encoding="utf-8") as out:
         for slot in manifest["slots"]:
-            if rows.get(slot, {}).get("status") == "ok":
+            sha = _sha(lines[slot])
+            if rows.get(slot, {}).get("status") == "ok" and rows[slot].get("record_sha256") == sha:
                 continue
             try:
                 g = grade(records[slot], by_slot[slot], judge)
-                row = {"key": slot, "status": "ok", **{k: v for k, v in g.to_dict().items() if k != "key"}}
+                row = {"key": slot, "status": "ok", **{k: v for k, v in g.to_dict().items() if k != "key"},
+                       "record_sha256": sha}
             except JudgeError as e:
                 errors[slot] = str(e)
-                row = {"key": slot, "status": "error", "error": str(e)}
+                row = {"key": slot, "status": "error", "error": str(e), "record_sha256": sha}
             except llm.BudgetExceeded as e:
-                out.write(json.dumps({"key": slot, "status": "error", "error": f"BudgetExceeded: {e}"}) + "\n")
+                out.write(json.dumps({"key": slot, "status": "error", "error": f"BudgetExceeded: {e}",
+                                      "record_sha256": sha}) + "\n")
                 raise
             out.write(json.dumps(row) + "\n")
             out.flush()
@@ -271,15 +307,24 @@ def grade_run(run_dir: Path, questions: list[Question], judge: Judge) -> list[Gr
 
 
 def load_graded(run_dir: Path) -> list[Graded]:
-    """The graded slots in manifest order. Raises IncompleteGrading unless every slot is graded."""
+    """The graded slots in manifest order. Raises IncompleteGrading unless every slot is graded from its current
+    terminal record, and RunStateError if a grade belongs to another arm or the run is unfinished."""
     run_dir = Path(run_dir)
+    manifest = R.read_manifest(run_dir)
+    lines = R.read_terminal_lines(run_dir)
     rows = _grade_lines(run_dir)
-    slots = R.read_manifest(run_dir)["slots"]
+    slots = manifest["slots"]
+    if any(s not in lines for s in slots):
+        raise R.RunStateError("run is unfinished; its grades are not final")
     errors = {s: rows[s].get("error", "") for s in slots if rows.get(s, {}).get("status") == "error"}
-    missing = [s for s in slots if s not in rows]
+    stale = [s for s in slots if s in rows and rows[s].get("status") == "ok" and rows[s].get("record_sha256") != _sha(lines[s])]
+    missing = [s for s in slots if s not in rows or s in stale]
     if errors or missing:
         raise IncompleteGrading(errors, missing)
-    return [Graded.from_dict({**rows[s], "key": QuestionKey.parse(s).to_dict()}) for s in slots]
+    out = [Graded.from_dict({**rows[s], "key": QuestionKey.parse(s).to_dict()}) for s in slots]
+    if any(g.arm != manifest["arm"] for g in out):
+        raise R.RunStateError(f"grades of another arm found in {run_dir.name}")
+    return out
 
 
 # ---------------------------------------------------------------- grader audit sample (T14)

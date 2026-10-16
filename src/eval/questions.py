@@ -6,6 +6,7 @@ Gold answers and citations live on `Question` and stay on the eval side. Arms ar
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -17,6 +18,11 @@ from inherit.contracts import ExecInput, QuestionKey
 from inherit.data.split import split
 
 RAW_DIR = ROOT / "data" / "raw"
+
+# Frozen inventory (pre-registration). load_questions refuses anything else.
+DEV_PRODUCTS = ("ActionGenie", "AnomalyForce", "ContentForce", "KnowledgeForce", "LeadForce", "TrendForce")
+FROZEN_COUNTS = {"dev": (156, 155), "held": (659, 544)}  # answerable, unanswerable
+FROZEN_SEEN = (416, 243)  # held answerable questions whose template is seen / unseen
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,25 @@ def template(text: str, product: str) -> str:
     q = re.sub(r"\b[A-Za-z]*Force[A-Za-z]*\b", "<X>", q); q = re.sub(r"\d+", "<N>", q)
     q = re.sub(r"\b(TechCorp|FusionTech|BlueWave|DataSolutions|NextGenTech|CloudSync|ComputeWorks|InnovateAI|AITransformers|SmartData)\b", "<C>", q)
     return q.strip().rstrip("?.").lower()
+
+
+def snapshot_hash(questions: list["Question"]) -> str:
+    """sha256 of the canonical eval-side content of questions: key, text, type, gold, citations, in the given order."""
+    rows = [[str(q.key), q.text, q.type, q.gold, list(q.citations)] for q in questions]
+    return hashlib.sha256(json.dumps(rows, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+
+def _validate_frozen(split_name: str, dev: list[str], out: list["Question"]) -> None:
+    if set(dev) != set(DEV_PRODUCTS):
+        raise ValueError(f"frozen dev split changed: {dev}")
+    got = (sum(q.key.kind == "ans" for q in out), sum(q.key.kind == "unans" for q in out))
+    if got != FROZEN_COUNTS[split_name]:
+        raise ValueError(f"{split_name} split has {got[0]} answerable and {got[1]} unanswerable questions, "
+                         f"expected {FROZEN_COUNTS[split_name]}")
+    if split_name == "held":
+        seen = (sum(q.seen is True for q in out if q.key.kind == "ans"), sum(q.seen is False for q in out if q.key.kind == "ans"))
+        if seen != FROZEN_SEEN:
+            raise ValueError(f"held seen/unseen counts {seen}, expected {FROZEN_SEEN}")
 
 
 def _read(raw_dir: Path, product: str) -> dict:
@@ -84,9 +109,11 @@ def load_questions(split_name: Literal["dev", "held"], raw_dir: Path = RAW_DIR) 
     if split_name == "dev":
         for n in dev:
             out += _product_questions(n, data[n])
+        _validate_frozen("dev", dev, out)
         return out
     dev_templates = {template(q["question"], n) for n in dev for q in data[n]["answerable_questions"]}
     for n in held:
         for q in _product_questions(n, data[n]):
             out.append(Question(q.key, q.text, q.type, q.gold, q.citations, template(q.text, n) in dev_templates))
+    _validate_frozen("held", dev, out)
     return out

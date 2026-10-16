@@ -312,3 +312,10 @@ def test_leakage_in_a_metadata_file_is_flagged(mini_raw, mini_bundle):
 def test_leakage_check_fails_when_inputs_are_missing(mini_raw, mini_bundle, tmp_path):
     assert not check_question_leakage(mini_bundle, tmp_path / "no-raw").ok
     assert not check_question_leakage(tmp_path / "no-bundle", mini_raw).ok
+
+
+def test_leakage_check_fails_on_an_empty_question_inventory(mini_bundle, tmp_path):
+    raw = tmp_path / "raw2"
+    (raw / "products").mkdir(parents=True)
+    r = check_question_leakage(mini_bundle, raw)
+    assert not r.ok and "empty inventory" in r.details[0]

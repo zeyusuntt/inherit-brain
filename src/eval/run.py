@@ -33,7 +33,7 @@ from typing import Any, Callable, Literal
 
 from eval import receipt as rc
 from eval.arms import ARMS, ArmResult
-from eval.questions import Question, load_questions
+from eval.questions import Question, load_questions, snapshot_hash
 from inherit import llm
 from inherit.config import ROOT
 from inherit.contracts import FinalAnswer, QuestionKey, RunRecord, Usage
@@ -198,6 +198,7 @@ def run_arm(
     expected_facts_hash: str | None = None,
     cap_setter: Callable[[str, float], None] = _push_cap,
     meter_path: Path | None = None,
+    clean_check: Callable[[Path], None] = rc.require_clean_tree,
 ) -> Path:
     """Run `arm` over every slot of `split` and return the run directory. Resumes a compatible earlier run."""
     root = Path(root)
@@ -213,6 +214,11 @@ def run_arm(
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", run_id):
         raise ValueError(f"bad run id {run_id!r}")
     a = ARMS[arm]
+    if split == "held":
+        try:
+            clean_check(root)
+        except RuntimeError as e:
+            raise RunStateError(str(e)) from e
     env = env or rc.current_env(root)
     _check_facts(split, env, expected_facts_hash, root)
 
@@ -224,7 +230,7 @@ def run_arm(
         "arm_config_sha": a.config_sha(), "facts_hash": env.facts_hash,
         "split_facts_hash": rc.facts_hash(root / "data" / "facts", sorted({q.product for q in qs})),
         "bundle_sha": env.bundle_sha, "prompt_versions": a.prompt_versions, "model": env.model,
-        "limit": limit, "seed": seed, "slots": [str(q.key) for q in qs],
+        "limit": limit, "seed": seed, "question_sha": snapshot_hash(qs), "slots": [str(q.key) for q in qs],
     }
     run_dir = root / "runs" / "eval" / run_id
     mpath = run_dir / "manifest.json"

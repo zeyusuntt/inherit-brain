@@ -26,6 +26,7 @@ def reg(monkeypatch):
 def go(tmp_path, arm="fake", split="dev", questions=None, limit=None, **kw):
     kw.setdefault("env", env())
     kw.setdefault("cap_setter", lambda a, usd: None)
+    kw.setdefault("clean_check", lambda root: None)
     return R.run_arm(arm, split, limit, root=tmp_path, questions=questions or mk_questions(), **kw)
 
 
@@ -339,21 +340,77 @@ def test_interrupted_receipt_is_written(tmp_path, reg):
     assert rec["status"] == "interrupted" and rec["counts"]["finished"] == 1
 
 
-def test_facts_hash_is_over_sorted_paths_lengths_and_bytes(tmp_path):
+def test_facts_hash_is_over_sorted_paths_lengths_and_bytes_of_the_loader_layer_files(tmp_path):
     f = tmp_path / "facts"
     (f / "A").mkdir(parents=True)
     (f / "B").mkdir()
-    (f / "A" / "x.jsonl").write_bytes(b"ab")
-    (f / "B" / "y.jsonl").write_bytes(b"c")
+    (f / "A" / "rules.jsonl").write_bytes(b"ab")
+    (f / "B" / "bugs.jsonl").write_bytes(b"c")
     h0 = facts_hash(f)
     assert h0 == facts_hash(f) and len(h0) == 64
+    # files the loader never reads do not count: reports, caches, dotfiles, unknown names
     (f / ".DS_Store").write_bytes(b"junk")
+    (f / "A" / "rules_report.json").write_bytes(b"{}")
+    (f / "A" / "names.jsonl").write_bytes(b"x")
     assert facts_hash(f) == h0
-    (f / "A" / "x.jsonl").write_bytes(b"abc")
+    (f / "A" / "rules_report.json").write_bytes(b"{changed}")
+    assert facts_hash(f) == h0
+    (f / "A" / "rules.jsonl").write_bytes(b"abc")
     assert facts_hash(f) != h0
     # moving a byte across a file boundary changes the hash
-    (f / "A" / "x.jsonl").write_bytes(b"a")
-    (f / "B" / "y.jsonl").write_bytes(b"bc")
+    (f / "A" / "rules.jsonl").write_bytes(b"a")
+    (f / "B" / "bugs.jsonl").write_bytes(b"bc")
     assert facts_hash(f) != h0 and facts_hash(f) != facts_hash(f, ["A"])
     assert facts_hash(f, ["A"]) != facts_hash(f, ["B"])
     assert facts_hash(tmp_path / "absent") == facts_hash(tmp_path / "absent")
+
+
+def test_layer_files_come_from_the_loader():
+    from eval import receipt
+    from inherit.graph import load
+
+    assert receipt.LAYER_FILES is load.LAYER_FILES
+
+
+def test_changed_question_content_with_the_same_keys_blocks_resume(tmp_path, reg):
+    reg(make_arm())
+    qs = mk_questions()
+    go(tmp_path, questions=qs)
+    from dataclasses import replace
+    for changed in (replace(qs[0], text="Edited?"), replace(qs[0], gold=["other"]), replace(qs[0], citations=["zz"])):
+        with pytest.raises(R.IncompatibleResume, match="question_sha"):
+            go(tmp_path, questions=[changed] + qs[1:])
+
+
+def _git(cwd, *a):
+    import subprocess
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a], cwd=cwd, check=True, capture_output=True)
+
+
+def test_held_refuses_a_dirty_tree_but_runs_from_a_clean_commit(tmp_path, reg):
+    from eval.receipt import require_clean_tree
+    reg(make_arm())
+    (tmp_path / "PREREG.md").write_text(f"facts hash: {FACTS}\n")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x = 1\n")
+    _git(tmp_path, "init", "-q")
+    with pytest.raises(RuntimeError, match="valid|clean"):  # no commit yet
+        require_clean_tree(tmp_path)
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "c")
+    require_clean_tree(tmp_path)
+    kw = dict(split="held", clean_check=require_clean_tree)
+    (tmp_path / "src" / "new.py").write_text("y = 2\n")  # untracked under src
+    with pytest.raises(R.RunStateError, match="clean"):
+        go(tmp_path, **kw)
+    assert not (tmp_path / "runs" / "eval").exists()  # refused before the manifest
+    (tmp_path / "src" / "new.py").unlink()
+    (tmp_path / "src" / "a.py").write_text("x = 2\n")  # modified tracked file
+    with pytest.raises(R.RunStateError, match="clean"):
+        go(tmp_path, **kw)
+    _git(tmp_path, "checkout", "--", "src/a.py")
+    d = go(tmp_path, **kw)
+    assert (d / "receipt.json").exists()
+    (tmp_path / "src" / "b.py").write_text("z\n")  # a resume is refused too
+    with pytest.raises(R.RunStateError, match="clean"):
+        go(tmp_path, **kw)

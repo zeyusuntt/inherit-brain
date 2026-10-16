@@ -263,7 +263,7 @@ def test_compute_bootstraps_covers_h1_to_h3():
     a, b = two_arm_fixture()
     by_arm = {"A5": a, "A0": b, "A1f": b, "A4": b}
     keys = {str(g.key) for g in a if g.key.product == "Y"}
-    out = S.compute_bootstraps(by_arm, keys, None, n=40, seed=1)
+    out = S.compute_bootstraps(by_arm, keys, None, n=40, seed=1, expected_n=None)
     assert set(out) == {"H1", "H2", "H3", "H3_all"}
     assert out["H1"].diff == 60.0 and out["H3"].diff == 60.0
 
@@ -277,3 +277,16 @@ def test_multihop_families_come_from_prereg_text():
           Question(QuestionKey("P", "ans", 1), "Something else?", "person", ["a"], []),
           Question(QuestionKey("P", "unans", 0), "Who reviewed P?", "unanswerable", None, [])]
     assert S.multihop_keys(qs, {"who reviewed <p>"}) == {"P/ans/0"}
+
+
+def test_held_bootstrap_requires_the_full_frozen_denominator():
+    a, b = two_arm_fixture()
+    by_arm = {"A5": a, "A0": b, "A1f": b, "A4": b}
+    with pytest.raises(ValueError, match="659"):
+        S.compute_bootstraps(by_arm, set(), None, n=10, seed=1)
+
+
+def test_summarize_split_uses_the_frozen_counts():
+    assert S.summarize_split(held_like(3), "held")["n"]["answerable"] == 659
+    with pytest.raises(ValueError, match="156"):
+        S.summarize_split(held_like(3), "dev")

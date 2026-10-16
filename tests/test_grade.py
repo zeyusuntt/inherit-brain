@@ -230,7 +230,7 @@ def test_budget_exhaustion_stops_grading_and_keeps_what_was_done(finished_run):
         G.load_graded(d)
 
 
-def test_grading_an_unfinished_run_reconciles_missing_slots_as_failed(tmp_path, monkeypatch):
+def _interrupted(tmp_path, monkeypatch):
     qs = mk_questions()
 
     class Stop(KeyboardInterrupt):
@@ -244,10 +244,66 @@ def test_grading_an_unfinished_run_reconciles_missing_slots_as_failed(tmp_path, 
     monkeypatch.setitem(ARMS, "fake", make_arm(arm))
     with pytest.raises(Stop):
         R.run_arm("fake", "dev", None, root=tmp_path, questions=qs, env=env(), workers=1, cap_setter=lambda a, u: None)
-    d = tmp_path / "runs/eval/fake-dev"
-    graded = G.grade_run(d, qs, G.Judge(None, chat=FakeChat(default='{"done": "yes", "score": 50}')))
-    assert len(graded) == len(qs)
-    assert sum(g.failed for g in graded) == len(qs) - 3
+    return tmp_path / "runs/eval/fake-dev", qs
+
+
+def test_an_unfinished_run_is_not_graded_and_nothing_is_persisted(tmp_path, monkeypatch):
+    d, qs = _interrupted(tmp_path, monkeypatch)
+    with pytest.raises(R.RunStateError, match="finish the run"):
+        G.grade_run(d, qs, G.Judge(None, chat=FakeChat()))
+    assert not (d / "grades.jsonl").exists() and not (d / "grading.json").exists()
+    with pytest.raises(R.RunStateError):
+        G.load_graded(d)
+
+
+def test_grades_are_bound_to_their_source_record_and_redone_when_it_changes(finished_run):
+    d, qs, _ = finished_run
+    chat = FakeChat(default='{"done": "no", "score": 70}')
+    first = G.grade_run(d, qs, G.Judge(None, chat=chat))
+    # the record of slot 0 changes (as after a re-run); its old grade must not survive
+    lines = (d / "records.jsonl").read_text().splitlines()
+    rec = json.loads(lines[0])
+    rec["final"]["answer_ids"] = ["P1_g0a", "P1_g0b"] if rec["key"]["index"] == 0 else rec["final"]["answer_ids"]
+    lines[0] = json.dumps(rec)
+    (d / "records.jsonl").write_text("\n".join(lines) + "\n")
+    with pytest.raises(G.IncompleteGrading):
+        G.load_graded(d)
+    again = G.grade_run(d, qs, G.Judge(None, chat=chat))
+    assert again[0].score == 100.0 and first[0].score != 100.0
+    assert [g.score for g in again[1:]] == [g.score for g in first[1:]]
+
+
+def test_a_different_judge_or_prompt_version_cannot_resume_a_grading(finished_run, monkeypatch):
+    d, qs, _ = finished_run
+    bad = FakeChat({"Unanswerable P2 0?": TimeoutError("slow")}, default='{"done": "no", "score": 70}')
+    with pytest.raises(G.IncompleteGrading):
+        G.grade_run(d, qs, G.Judge(None, chat=bad))
+    assert json.loads((d / "grading.json").read_text())["prompt_version"] == G.PROMPT_VERSION
+    with pytest.raises(R.RunStateError, match="mix"):
+        G.grade_run(d, qs, G.Judge(None, chat=FakeChat(default='{"done": "no"}'), model="other-model"))
+    monkeypatch.setattr(G, "PROMPT_VERSION", "herb-evaluate-v2")
+    with pytest.raises(R.RunStateError, match="mix"):
+        G.grade_run(d, qs, G.Judge(None, chat=FakeChat(default='{"done": "no"}')))
+    monkeypatch.undo()
+    G.grade_run(d, qs, G.Judge(None, chat=FakeChat(default='{"done": "no", "score": 70}')))
+
+
+def test_grading_refuses_questions_that_differ_from_the_run_snapshot(finished_run):
+    from dataclasses import replace
+    d, qs, _ = finished_run
+    changed = [replace(qs[0], gold=["different"])] + qs[1:]
+    with pytest.raises(R.RunStateError, match="snapshot"):
+        G.grade_run(d, changed, G.Judge(None, chat=FakeChat()))
+
+
+def test_load_graded_rejects_grades_of_another_arm(finished_run):
+    d, qs, _ = finished_run
+    G.grade_run(d, qs, G.Judge(None, chat=FakeChat(default='{"done": "no", "score": 70}')))
+    rows = [json.loads(l) for l in (d / "grades.jsonl").read_text().splitlines()]
+    rows[0]["arm"] = "other"
+    (d / "grades.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    with pytest.raises(R.RunStateError, match="another arm"):
+        G.load_graded(d)
 
 
 def test_graded_round_trips():
@@ -326,6 +382,11 @@ def test_score_mappings_match_herb(herb):
         herb.stub.reply = {"score": raw}
         want = int(herb.answer_likert_score("q", "r", "c"))
         assert G.likert_score_from({"score": raw}) == want
+    # HERB does not strip: " no " is not "no" there. Here such a value is a judge error, never a score.
+    herb.stub.reply = {"done": " no "}
+    assert herb.unanswerability_eval("q", "a") is True  # HERB: answered (score 0)
+    with pytest.raises(G.JudgeError):
+        G.refusal_from({"done": " no "})
     for done in ("no", "No", "NO", "yes", "Yes"):
         herb.stub.reply = {"done": done}
         herb_says_answered = herb.unanswerability_eval("q", "a")

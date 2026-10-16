@@ -77,6 +77,13 @@ def summarize(graded: list[Graded], expected_n: tuple[int, int] | None = None) -
     return out
 
 
+def summarize_split(graded: list[Graded], split: str) -> dict[str, Any]:
+    """summarize() with the frozen denominator of the split (held 659/544, dev 156/155)."""
+    from eval.questions import FROZEN_COUNTS
+
+    return summarize(graded, expected_n=FROZEN_COUNTS[split])
+
+
 # ---------------------------------------------------------------- usage and citations
 def usage_summary(records: list[RunRecord]) -> dict[str, float | None]:
     """Tokens, tool calls and latency per question. The H2 token population is answerable questions only."""
@@ -205,9 +212,15 @@ def paired_bootstrap(
 
 def compute_bootstraps(
     by_arm: dict[str, list[Graded]], multihop: set[str], clusters: list[str] | None = None, n: int = 10000,
-    seed: int = SEED,
+    seed: int = SEED, expected_n: tuple[int, int] | None = HELD_N,
 ) -> dict[str, BootResult]:
-    """The three pre-registered intervals. H3_all is the all-questions difference, reported next to H3."""
+    """The three pre-registered intervals. H3_all is the all-questions difference, reported next to H3.
+    Every arm must cover the full frozen answerable denominator (pass expected_n=None only for pilots)."""
+    if expected_n is not None:
+        for arm, gs in by_arm.items():
+            n = sum(g.type != "unanswerable" for g in gs)
+            if n != expected_n[0]:
+                raise ValueError(f"arm {arm} has {n} answerable slots, expected {expected_n[0]}")
     return {
         "H1": paired_bootstrap_full(by_arm["A5"], by_arm["A0"], clusters, n, seed),
         "H2": paired_bootstrap_full(by_arm["A5"], by_arm["A1f"], clusters, n, seed),

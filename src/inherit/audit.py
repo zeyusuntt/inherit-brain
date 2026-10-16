@@ -206,6 +206,8 @@ def check_question_leakage(bundle: Path, raw_dir: Path) -> CheckResult:
         n_questions += 1
         k = min(3, len(words))
         index.setdefault(k, {}).setdefault(tuple(words[:k]), []).append((words, str(q.key)))
+    if n_questions == 0:
+        return CheckResult(name, False, [f"no questions found under {raw_dir}; an empty inventory proves nothing"])
     problems: list[str] = []
     files = sorted(p for p in bundle.rglob("*.json") if p.is_file() and p.name != "manifest.json")
     for p in files:

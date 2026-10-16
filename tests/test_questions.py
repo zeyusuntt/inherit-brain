@@ -80,3 +80,28 @@ def test_only_questions_py_reads_question_files():
         if rel not in allowed and re.search(r"answerable_questions|ground_truth", text):
             offenders.append(rel)
     assert offenders == []
+
+
+@needs_data
+def test_load_refuses_a_population_that_is_not_the_frozen_one(monkeypatch):
+    monkeypatch.setitem(Q.FROZEN_COUNTS, "held", (658, 544))
+    with pytest.raises(ValueError, match="658"):
+        Q.load_questions("held")
+    monkeypatch.undo()
+    monkeypatch.setattr(Q, "FROZEN_SEEN", (415, 244))
+    with pytest.raises(ValueError, match="seen"):
+        Q.load_questions("held")
+    monkeypatch.undo()
+    monkeypatch.setattr(Q, "DEV_PRODUCTS", ("ActionGenie",))
+    with pytest.raises(ValueError, match="split"):
+        Q.load_questions("dev")
+
+
+def test_snapshot_hash_covers_text_gold_citations_and_order(mini_raw):
+    from dataclasses import replace
+    qs = Q.load_all_questions(mini_raw)
+    h = Q.snapshot_hash(qs)
+    assert h == Q.snapshot_hash(list(qs)) and h != Q.snapshot_hash(qs[::-1])
+    assert h != Q.snapshot_hash([replace(qs[0], text="x")] + qs[1:])
+    assert h != Q.snapshot_hash([replace(qs[0], gold=["x"])] + qs[1:])
+    assert h != Q.snapshot_hash([replace(qs[0], citations=["x"])] + qs[1:])
