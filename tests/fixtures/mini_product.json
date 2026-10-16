@@ -172,7 +172,7 @@
    },
    "Message": {
     "User": {
-     "userId": "slack_deploy_bot",
+     "userId": "slack_admin_bot",
      "timestamp": "2026-06-16T14:00:00",
      "text": "Deploy to staging finished.",
      "utterranceID": "20260616-1-b0003"

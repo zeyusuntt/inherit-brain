@@ -13,6 +13,7 @@ from itertools import combinations
 from inherit.data.records import ProductRecords, build_records
 from inherit.extract.sessions import sessions
 from inherit.facts import Edge, Facts, Node
+from inherit.ontology import check_edge
 
 EXTRACTOR = "structural/v1"
 CUST_RE = re.compile(r"\bCUST-\d+\b")
@@ -26,6 +27,8 @@ def _links(text: str) -> set[str]:
 
 
 def structural_facts(bundle_product: dict, employees: dict, customers: list, product: str) -> Facts:
+    """structural_facts(bundle_product, employees, customers, product). The product name is needed to parse
+    bug channel names (`bug-<owner>-<Product>`)."""
     return structural_facts_from_records(build_records(bundle_product, employees, customers, product))
 
 
@@ -44,7 +47,9 @@ def structural_facts_from_records(rec: ProductRecords) -> Facts:
         return f"Person:{eid}"
 
     def edge(type_, src, dst, ids, key="", **props):
-        edges.append(Edge(type_, src, dst, props, tuple(ids), EXTRACTOR, key))
+        e = Edge(type_, src, dst, props, tuple(ids), EXTRACTOR, key)
+        check_edge(e)
+        edges.append(e)
 
     def pair(a: str, b: str, kind: str, token, ids) -> None:
         if a == b:
@@ -131,9 +136,9 @@ def structural_facts_from_records(rec: ProductRecords) -> Facts:
                 for table, label in ((doc_by_link, "Document"), (pr_by_link, "PR")):
                     if link in table:
                         target = f"Document:{table[link]}" if label == "Document" else table[link]
-                        edge("SHARED", poster, target, [m.id], m.id)
+                        edge("SHARED", poster, target, [m.id])
                 if link in url_ids:
-                    edge("SHARED", poster, f"Url:{link}", [m.id], m.id)
+                    edge("SHARED", poster, f"Url:{link}", [m.id])
         for eid in dict.fromkeys(m.mentions):
             target = person(eid)
             edge("MENTIONS", mid, target, [m.id])

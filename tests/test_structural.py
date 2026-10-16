@@ -67,10 +67,9 @@ def test_attended(facts):
 
 def test_posted_skips_bots_and_bots_are_not_people(facts):
     posted = edges(facts, "POSTED")
-    assert len(posted) == 18 - 2
-    assert not any("slack_admin_bot" in x.id for x in facts.nodes if x.label == "Person")
-    # slack_deploy_bot is not a known bot and not in the directory: a non-directory person
-    assert node(facts, "Person:slack_deploy_bot").props["in_directory"] is False
+    assert len(posted) == 18 - 3
+    assert not any("slack_admin_bot" in x.id for x in facts.nodes)
+    assert not any("slack_admin_bot" in e.src_id for e in posted)
     assert ("Person:eid_e5000005", "Message:20260610-0-a0002") in pairs(facts, "POSTED")
     assert node(facts, "Message:20260609-0-a0001").props["kind"] == "slack"
 
@@ -134,7 +133,36 @@ def test_shared(facts):
     assert ("Person:eid_a1000001", "PR:https://github.com/mini/mini-server/pull/102") in got
     # pull/10 style prefix must not match; the tensorflow link is not a known record
     assert not any("tensorflow" in k[1] for k in got)
-    assert len(edges(facts, "SHARED")) == 6
+    # b2 shares PR 101 in two messages: one edge, src is the union
+    assert got[("Person:eid_b2000002", "PR:https://github.com/mini/mini-server/pull/101")].src == (
+        "20260615-0-b0001", "20260618-0-c0003")
+    assert all(e.key == "" for e in edges(facts, "SHARED"))
+    assert len(edges(facts, "SHARED")) == 5
+
+
+def test_shared_prefix_link_does_not_collide(mini_raw):
+    d = json.loads((mini_raw / "products" / "mini.json").read_text())
+    pr = json.loads(json.dumps(d["prs"][0]))
+    pr.update(link="https://github.com/mini/mini-server/pull/10", id="pr10", number="10")
+    d["prs"].append(pr)
+    s = json.loads(json.dumps(d["slack"][1]))
+    s["Message"]["User"].update(utterranceID="u-10", text="See https://github.com/mini/mini-server/pull/10.")
+    s["id"] = "u-10"
+    d["slack"].append(s)
+    emp, cust = load_metadata(mini_raw)
+    f = structural_facts(d, emp, cust, "mini")
+    hit = [e for e in edges(f, "SHARED") if e.src == ("u-10",)]
+    assert [e.dst_id for e in hit] == ["PR:https://github.com/mini/mini-server/pull/10"]
+
+
+def test_production_edges_are_validated(mini_raw, monkeypatch):
+    from inherit import ontology
+
+    monkeypatch.setitem(ontology.SIGNATURES, "OPENED", frozenset({("Person", "Document")}))
+    d = json.loads((mini_raw / "products" / "mini.json").read_text())
+    emp, cust = load_metadata(mini_raw)
+    with pytest.raises(ValueError):
+        structural_facts(d, emp, cust, "mini")
 
 
 def test_customers(facts):
@@ -156,7 +184,7 @@ def test_collaborated(facts):
     pr = col[("Person:EMP_555000111", "Person:EMP_555000222")]
     assert pr.props["counts"]["pr_review"] == 1
     assert not any("slack_admin_bot" in a or "slack_admin_bot" in b for a, b in col)
-    assert col[("Person:eid_a1000001", "Person:slack_deploy_bot")].props["counts"]["session"] == 1
+    assert not any("slack_admin_bot" in k for e in edges(facts, "COLLABORATED") for k in (e.src_id, e.dst_id))
 
 
 def test_unknown_mentioned_and_slack_users_become_non_directory_people(mini_raw):

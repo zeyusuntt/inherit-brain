@@ -43,13 +43,12 @@ def test_slack_messages(rec):
     bot = by_id["20260609-0-a0001"]
     assert bot.is_bot and bot.mentions == ("eid_e5000005",)
     assert bot.in_directory is False
-    deploy = by_id["20260616-1-b0003"]  # unknown identity: not a known bot, not in the directory
-    assert not deploy.is_bot and not deploy.in_directory
+    assert by_id["20260616-1-b0003"].is_bot
     assert by_id["20260610-0-a0002"].in_directory
     bug = by_id["20260617-0-c0001"]
     assert bug.bug_channel_owner == "alicechen"
     assert not by_id["20260610-0-a0002"].is_bot
-    assert rec.anomalies["slack_user_unknown"] == 1
+    assert rec.anomalies["slack_user_unknown"] == 0
 
 
 def test_documents(rec):
