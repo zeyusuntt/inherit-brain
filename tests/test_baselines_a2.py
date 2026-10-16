@@ -49,6 +49,16 @@ def test_sources_hold_directories_and_no_team_or_questions(mini_bundle):
     assert "answerable" not in blob and "TEAM STRUCTURE" not in blob
 
 
+def test_discovery_sample_is_small_deterministic_and_covers_categories(mini_bundle):
+    srcs = _srcs(mini_bundle)
+    sub = a2.discovery_sources(srcs)
+    assert sub == a2.discovery_sources(srcs)
+    kinds = lambda xs: {s.doc_id.split(":", 1)[0] for s in xs}  # noqa: E731
+    assert kinds(sub) == kinds(srcs)
+    for k in kinds(sub):
+        assert sum(s.doc_id.split(":", 1)[0] == k for s in sub) <= a2.DISCOVERY_PER_CATEGORY
+
+
 # ---------------------------------------------------------------- answer prompt (F8)
 def test_answer_prompt_asks_for_shared_schema():
     for key in ("answer_text", "answer_ids", "evidence_ids", "outcome"):

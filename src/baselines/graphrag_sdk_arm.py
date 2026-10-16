@@ -46,7 +46,8 @@ FALKOR_HOST, FALKOR_PORT = "localhost", 6380  # FalkorDB 6.0.2
 EMBED_DIM = 1024
 BUILD_MAX_TOKENS, ANSWER_MAX_TOKENS = 4096, agent.MAX_OUTPUT_TOKENS
 DEADLINE_S = agent.DEADLINE_S
-DISCOVERY_SAMPLE_CHUNKS = 3  # SDK default; F7 allows reducing it if the build is unaffordable
+DISCOVERY_SAMPLE_CHUNKS = 1  # SDK default is 3
+DISCOVERY_PER_CATEGORY = 3  # sources per category the ontology is drafted from (F7: discovery sampling is cut first)
 DISCOVERY_SEED = 20261015
 DISCOVERY_CONCURRENCY = 12  # SDK default 4; wall-clock only, the calls are the same
 INGEST_CONCURRENCY = 3  # the SDK's own batch default
@@ -54,6 +55,20 @@ GRAPH_PATTERN = "a2:{product}"
 EMBED_BATCH = 64
 
 logger = logging.getLogger(__name__)
+
+
+def discovery_sources(sources: list[Source]) -> list[Source]:
+    """The sources the ontology is drafted from: the first DISCOVERY_PER_CATEGORY of each category, in id order.
+    Drafting from all of them gave a 100-type un-normalized draft (the SDK's normalization pass could not return
+    it), and every extraction prompt carries the ontology, so the draft size sets the whole build cost."""
+    seen: dict[str, int] = {}
+    out = []
+    for s in sources:
+        kind = s.doc_id.split(":", 1)[0]
+        seen[kind] = seen.get(kind, 0) + 1
+        if seen[kind] <= DISCOVERY_PER_CATEGORY:
+            out.append(s)
+    return out
 
 
 def ontology_path(product: str):
@@ -231,7 +246,7 @@ def _facade(product: str, arm: str, log: UsageLog, **llm_kw) -> GraphRAG:
 
 
 async def _build(product: str, sources: list[Source], log: UsageLog, report: dict) -> None:
-    texts = {s.doc_id: s.text for s in sources}
+    texts = {s.doc_id: s.text for s in discovery_sources(sources)}
     cache = ontology_path(product)  # a resumed build reuses the draft instead of paying for discovery again
     if cache.exists():
         ontology = Ontology.from_file(str(cache))
