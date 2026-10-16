@@ -4,12 +4,15 @@ One loop, one system prompt, one set of budgets and one answer handler; only the
 between the arms is a difference between their tools. The model sees the system prompt, the question text and tool
 traffic, nothing else (the product only selects the graph connection).
 
-Budgets, identical for every toolset: at most 12 tool calls (enforced by the tool layer; the 13th is refused), at most
-14 model calls (12 tool turns, one final-answer call, one JSON repair), at most 1,024 output tokens per call, a
-cumulative input budget of 40,000 prompt tokens (actual usage so far plus an estimate of the next call: the previous
-prompt and completion plus the new tool-result characters / 2; when that would exceed the budget the agent stops
-calling tools and makes the final-answer call with its history as is), and a cooperative 300 s deadline checked before
-every model and tool call.
+Budgets, identical for every toolset and every agentic arm (A5, A4, A4c, A0, A0f): at most 12 tool calls (enforced by
+the tool layer; the 13th is refused), at most 24 model calls in total counted by one counter (agent turns plus any call
+a custom tool set makes itself; the last 2 are kept for the final answer and one verification or repair; the built-in
+toolsets make no calls of their own, so they use at most 14: 12 tool turns, the final answer, one JSON repair), at most
+1,024 output tokens per call, a cumulative input budget of 40,000 prompt tokens (actual usage so far plus an estimate of
+the next call: the previous prompt and completion plus the new tool-result characters / 2; when that would exceed the
+budget the agent stops calling tools and makes the final-answer call with its history as is; a call a tool makes in
+the middle of a tool batch is checked against the same budget before it is sent), and a cooperative 300 s deadline
+checked before every model and tool call.
 
 After the model's final JSON: the output guard removes unsupported answer values and unsupported ids from the text
 (`project_depth1` is the one canonical answer-value projection for the depth-1 cards), then one consistency rule fixes
@@ -42,10 +45,9 @@ TOOLSETS = ("full", "depth1", "depth1_chain")
 SERVER = "6.0"  # the FalkorDB server the agents read (bridges uses the native algorithm there)
 MAX_TOOL_CALLS = CALL_CAP  # 12
 MAX_TOOL_TURNS = 12
-MAX_MODEL_CALLS = 14  # 12 tool turns + 1 final answer + 1 JSON repair
-# A custom tool set (tools_factory) makes model calls of its own (lookup extraction, answer verification, fallback).
-# Those share one per-question counter with the agent turns: at most 24 calls in total, the last two kept for the
-# final answer and one verification or repair.
+# One per-question counter for every model call of every agentic arm: at most 24 calls in total. A custom tool set
+# (tools_factory) makes calls of its own (lookup extraction, answer verification, fallback); the last two calls are kept
+# for the final answer and one verification or repair. The built-in toolsets never exceed 14 (12 turns + answer + repair).
 MAX_TOTAL_MODEL_CALLS = 24
 RESERVED_FINAL_CALLS = 2
 MAX_OUTPUT_TOKENS = 1024
@@ -86,10 +88,15 @@ class _Deadline(Exception):
     pass
 
 
+class AnswerRejected(Exception):
+    """Raised by a tool set's `review` when the final answer is rejected and no valid replacement exists."""
+
+
 # ---------------------------------------------------------------- configuration seen by the harness
 def arm_config(toolset: str) -> dict:
     """Every knob that changes behaviour; identical across toolsets except the toolset itself."""
-    return {"toolset": toolset, "max_tool_calls": MAX_TOOL_CALLS, "max_model_calls": MAX_MODEL_CALLS,
+    return {"toolset": toolset, "max_tool_calls": MAX_TOOL_CALLS, "max_model_calls": MAX_TOTAL_MODEL_CALLS,
+            "reserved_final_calls": RESERVED_FINAL_CALLS,
             "max_output_tokens": MAX_OUTPUT_TOKENS, "input_token_budget": INPUT_TOKEN_BUDGET,
             "deadline_s": DEADLINE_S, "server": SERVER, "temperature": 0}
 
@@ -291,25 +298,34 @@ class _Loop:
         self.tool_calls = 0
         self.model_outcome: str | None = None
         self.dropped: list[dict] = []
-        self.max_calls: int | None = None  # set by use_tools for a custom tool set; None keeps the 14-call arms as they were
+        self.max_calls = MAX_TOTAL_MODEL_CALLS  # the one declared limit of every agentic arm
 
     def use_tools(self, tools) -> None:
         """Install a custom tool set. It provides specs(), call(name, args) -> (envelope, guard rows) and ops, and
-        optionally system_prompt, review(loop, fields) -> fields and support(answer_ids, evidence_ids) -> rows. It
-        may call `nested_chat`; every such call is counted and limited with the agent's own."""
-        self.tools, self.max_calls = tools, MAX_TOTAL_MODEL_CALLS
+        optionally system_prompt, review(loop, fields) -> fields (raise AnswerRejected to reject), rescue(loop) -> fields
+        | None (the one fallback answer, used when the agent ends without a valid answer) and
+        support(answer_ids, evidence_ids) -> rows. It may call `nested_chat`; every such call is counted and limited
+        with the agent's own."""
+        self.tools = tools
         self.messages[0]["content"] = getattr(tools, "system_prompt", SYSTEM_PROMPT)
 
     def room(self, final: bool = False) -> bool:
-        if self.max_calls is None:
-            return True
         return len(self.calls) < self.max_calls - (0 if final else RESERVED_FINAL_CALLS)
+
+    def input_stop(self, next_chars: int) -> bool:
+        """The shared input stopping policy for a call about to be made: tokens already spent plus an estimate of the
+        call's own prompt (its characters / 2) must stay within the cumulative budget."""
+        return sum(c.prompt_tokens for c in self.calls) + next_chars // 2 > INPUT_TOKEN_BUDGET
 
     def nested_chat(self, messages: list[dict], *, response_format=None, final: bool = False):
         """A model call made by a tool or a finaliser: same deadline, counter and usage list as the agent turns.
-        Refused with a ToolError when the per-question limit leaves no room (`final` may use the reserved calls)."""
+        Refused with a ToolError when the per-question limit leaves no room (`final` may use the reserved calls) or,
+        for a call that is not a finalisation, when the input stopping policy says stop (the agent then answers)."""
         if not self.room(final):
             raise ToolError(f"model call limit reached: at most {self.max_calls} model calls per question")
+        if not final and self.input_stop(sum(len(str(m.get("content") or "")) for m in messages)):
+            self.budget_stop = True
+            raise ToolError("input token budget reached: answer now with what you have")
         return self.chat(response_format=response_format, messages=messages)
 
     def check_deadline(self) -> None:
@@ -318,7 +334,7 @@ class _Loop:
 
     def chat(self, tools=None, response_format=None, messages=None):
         self.check_deadline()
-        if self.max_calls is not None and len(self.calls) >= self.max_calls:
+        if len(self.calls) >= self.max_calls:
             raise ToolError(f"model call limit reached: at most {self.max_calls} model calls per question")
         r = self.model(self.messages if messages is None else messages, arm=self.arm, tools=tools, max_tokens=MAX_OUTPUT_TOKENS,
                        response_format=response_format)
@@ -368,7 +384,7 @@ class _Loop:
                 chars += len(text)
                 self.messages.append({"role": "tool", "tool_call_id": tc.id, "content": text})
             used = sum(c.prompt_tokens for c in self.calls)
-            if self.cap_hit:
+            if self.cap_hit or self.budget_stop:
                 break
             if used + r.prompt_tokens + r.completion_tokens + chars // 2 > INPUT_TOKEN_BUDGET:
                 self.budget_stop = True
@@ -378,17 +394,25 @@ class _Loop:
 
     def finish(self, content: str) -> "ArmResult":
         fields, err = _parse(content)
+        rescued = False
         if fields is None:
             self.repaired = True
             self.messages.append({"role": "assistant", "content": content})
             self.messages.append({"role": "user", "content": REPAIR.format(err=err)})
             content = self.chat(response_format=JSON_FORMAT).message.content or ""
             fields, err = _parse(content)
-            if fields is None:
-                return self.fail(f"invalid final answer after one repair: {err}")
+            if fields is None:  # an unsuccessful completion gets the one permitted fallback, if the tool set has one
+                rescue = getattr(self.tools, "rescue", None)
+                fields = rescue(self) if rescue is not None else None
+                rescued = fields is not None
+                if fields is None:
+                    return self.fail(f"invalid final answer after one repair: {err}")
         review = getattr(self.tools, "review", None)
-        if review is not None:
-            fields = review(self, fields) or fields
+        if review is not None and not rescued:  # the fallback answer is the paper's last resort: not verified again
+            try:
+                fields = review(self, fields) or fields
+            except AnswerRejected as e:
+                return self.fail(f"final answer rejected: {e}")
         self.model_outcome = fields["outcome"]
         asked = _bare(fields["answer_ids"])
         rows = self.guard_rows

@@ -266,9 +266,110 @@ def test_total_model_calls_and_tool_calls_are_limited_with_nested_calls_included
     res, m, r = run_a0(steps)
     assert len(m.calls) == 24 == agent.MAX_TOTAL_MODEL_CALLS
     assert r.queries == []  # the fallback did not fit
-    assert res.final.answer_ids == [ALICE_ID] and res.final.outcome == "path"
+    # a rejection is terminal unless a valid budgeted fallback replaces it: the rejected answer is not kept
+    assert res.final.outcome == "run_failed" and res.final.answer_ids == [] and "rejected" in res.failure
     diag = res.envelopes[-1]["agent"]
     assert diag["model_calls"] == 24 and diag["tool_calls"] == 11
+
+
+def test_a_rejected_answer_with_an_invalid_fallback_is_run_failed():
+    res, m, r = run_a0([J("Bob maybe", ids=[BOB_ID]), D(done="no"), Say("not json")])
+    assert r.queries == ["Who greeted?"] and len(m.calls) == 3
+    assert res.final.outcome == "run_failed" and res.final.answer_ids == [] and "rejected" in res.failure
+
+
+def test_malformed_json_after_repair_goes_to_the_one_fallback():
+    steps = [Say("garbage"), Say("still garbage"), J("Alice per records", ids=[ALICE_ID], evidence=["m1"])]
+    res, m, r = run_a0(steps)
+    assert len(m.calls) == 3 and r.queries == ["Who greeted?"]  # answer, repair, fallback; no verification of it
+    assert res.final.outcome == "path" and res.final.answer_ids == [ALICE_ID] and res.failure is None
+
+
+def test_malformed_json_after_repair_without_a_call_for_the_fallback_is_run_failed():
+    turns = []
+    for _ in range(11):
+        turns += [T(("name_to_id_search", {"content": "Alice"})), D(names=["Alice"])]
+    res, m, r = run_a0(turns + [Say("garbage"), Say("garbage")])  # calls 23 and 24; the fallback has no call
+    assert len(m.calls) == 24 and r.queries == []
+    assert res.final.outcome == "run_failed" and "invalid final answer" in res.failure
+
+
+def test_a_budget_stop_without_an_answer_uses_the_fallback():
+    steps = [T(("retrieve_all", {"query": "x"}), prompt=39_000), Say("no json"), Say("no json"),
+             J("Alice", ids=[ALICE_ID], evidence=["m1"])]
+    res, m, r = run_a0(steps)
+    assert res.envelopes[-1]["agent"]["budget_stop"] is True
+    assert res.final.answer_ids == [ALICE_ID] and r.queries == ["x", "Who greeted?"]
+
+
+# ---------------------------------------------------------------- the input stopping policy covers nested calls (C1)
+def test_a_metadata_call_after_the_input_budget_is_spent_is_not_sent_even_within_one_batch():
+    two = T(("name_to_id_search", {"content": "Alice"}), ("name_to_id_search", {"content": "Bob"}), prompt=39_000)
+    steps = [two, Say(json.dumps({"names": ["Alice Chen"]}), prompt=2_000),  # 41,000 spent after the first
+             J("Alice", ids=[ALICE_ID]), D(done="yes")]
+    res, m, _ = run_a0(steps)
+    assert len(m.calls) == 4  # turn, one extraction, final answer, verification: the second extraction never ran
+    assert res.envelopes[-1]["agent"]["budget_stop"] is True
+    refused = [e for e in res.envelopes if e.get("tool") == "name_to_id_search" and "error" in e]
+    assert len(refused) == 1 and "input token budget" in refused[0]["error"]
+
+
+def test_an_extraction_call_is_checked_against_the_budget_before_it_is_sent():
+    res, m, _ = run_a0([T(("id_to_name_search", {"content": "x" * 90_000})), J("none", outcome="not_in_graph"),
+                        D(done="yes")])
+    assert [c["arm"] for c in m.calls].count("A0") == 3 and m.calls[1]["tools"] is None  # no extraction call
+    assert m.calls[1]["response_format"] == {"type": "json_object"}
+
+
+# ---------------------------------------------------------------- answer support (C2, I4, I5)
+def test_an_unsuccessful_lookup_does_not_support_the_id_it_was_asked_about():
+    steps = [T(("id_to_name_search", {"content": "eid_deadbeef"})), D(ids=["eid_deadbeef"]),
+             J("It is eid_deadbeef.", ids=["eid_deadbeef"], evidence=["eid_deadbeef"]), D(done="yes")]
+    res, m, _ = run_a0(steps)
+    tool_text = [x["content"] for x in m.calls[2]["messages"] if x["role"] == "tool"][0]
+    assert "No names found" in tool_text and "eid_deadbeef" in tool_text  # the id is in the diagnostic ...
+    assert res.final.answer_ids == [] and res.final.evidence_ids == []  # ... which supports nothing
+    assert "eid_deadbeef" not in res.final.answer_text
+
+
+def test_an_extraction_that_is_not_a_record_supports_nothing_for_role_and_company_lookups():
+    steps = [T(("role_to_id_search", {"text": "Wizard"})), D(roles=["eid_deadbeef"]),
+             J("x", ids=["eid_deadbeef", "CUST-9999"]), D(done="yes")]
+    res, _, _ = run_a0(steps)
+    assert res.final.answer_ids == []
+
+
+def test_successful_inverse_lookups_support_the_matched_eids():
+    for tool, key in (("id_to_name_search", "ids"), ("id_to_role_search", "ids")):
+        steps = [T((tool, {"content": ALICE_ID})), D(**{key: [ALICE_ID]}), J("x", ids=[ALICE_ID]), D(done="yes")]
+        res, m, r = run_a0(steps)
+        assert res.final.answer_ids == [ALICE_ID] and r.queries == [], tool
+
+
+def test_a_successful_company_lookup_supports_the_company_name():
+    steps = [T(("id_to_company_search", {"content": "CUST-0003"})), D(ids=["CUST-0003"]),
+             J("BlueWave", ids=["BlueWave", "TechCorp"]), D(done="yes")]
+    res, _, _ = run_a0(steps)
+    assert res.final.answer_ids == ["BlueWave"]
+
+
+def test_urls_and_ids_are_supported_only_by_an_identical_complete_token():
+    seen = paper_tools.Seen()
+    seen.add(["see https://demo.example.com/report-v2, and eid_a1000001x and CUST-00012.",
+              "20260610-0-aaaaa then BlueWave-Labs"])
+    assert seen.has("https://demo.example.com/report-v2")
+    assert not seen.has("https://demo.example.com/report")
+    assert not seen.has("https://demo.example.com")
+    assert not seen.has("eid_a1000001") and not seen.has("CUST-0001") and seen.has("CUST-00012")
+    assert seen.has("20260610-0-aaaaa")
+    assert not seen.has("BlueWave") and seen.has("BlueWave-Labs")
+
+
+def test_a0v_does_not_support_a_prefix_of_a_returned_url():
+    m = FakeModel([J("x", ids=["https://demo.example.com/report", "https://demo.example.com/report-v2"])])
+    res = hybrid_once.run(ExecInput("acme", "q"), model=m,
+                          retriever=Retriever(["Link: https://demo.example.com/report-v2\nbody"]))
+    assert res.final.answer_ids == ["https://demo.example.com/report-v2"]
 
 
 def test_the_tool_call_limit_of_12_holds():
@@ -373,6 +474,87 @@ def test_a0f_answer_ids_come_from_returned_cards(tg):
     assert "entity cards" in m.calls[0]["messages"][0]["content"]
 
 
+def test_a0f_text_inside_a_card_does_not_support_an_answer_as_in_a4(tg):
+    whole = json.dumps({"id": "Document:d1", "label": "Document", "name": "Report (d1)",
+                        "props": {"link": "https://x/d1", "content": "BlueWave signed; ask eid_zz000000"},
+                        "neighbours": []})
+    fragment = ('us signed with BlueWave","feedback":"BlueWave"},"neighbours":[{"edge":"AUTHORED","dir":"in",'
+                '"label":"Person","id":"Person:' + ALICE + '","name":"Alice Ng","src":["m1"]},{"edge":"ABOUT",'
+                '"dir":"out","label":"Customer","id":"Customer:CUST-0003","name":"BlueWave","src":["m2"]}]}')
+    for chunk in (whole, fragment):
+        m = FakeModel([T(("retrieve_all", {"query": "q"})),
+                       J("x", ids=["BlueWave", "https://x/d1", ALICE, "eid_zz000000"], evidence=["m1"]), D(done="yes")])
+        res = cards_react.run(ExecInput(P, "q"), model=m, retriever=Retriever([chunk]), lookups=card_lookups(),
+                              graph=tg)
+        got = [i for i in res.final.answer_ids]
+        if chunk is whole:
+            assert got == ["https://x/d1"]  # BlueWave and eid_zz000000 sit in `content` only
+        else:
+            assert got == ["BlueWave", ALICE]  # the neighbour entries are answer-bearing, `content` text is not
+            assert res.final.evidence_ids == ["m1"]
+
+
+def test_a0f_content_only_mention_is_dropped_from_a_fragment(tg):
+    chunk = 'tent":"BlueWave renewed; eid_a1000001 agreed","link":"https://x/d1"},"neighbours":[]}'
+    rows = cards_react.chunk_rows(chunk)
+    assert {"answer": "https://x/d1"} in rows
+    assert not any(r.get("answer") in ("BlueWave", ALICE) for r in rows)
+
+
+def test_a0f_structured_results_use_the_shared_projection(tg):
+    t = card_tools(tg, {"names": ["Alice Ng"]})
+    env, rows = t.call("name_to_id_search", {"content": "Alice Ng"})
+    assert any(r.get("answer") == ALICE for r in rows) and rows == agent.project_depth1({"rows": env["result"]["alice ng"]}, {})
+    assert t.support is None
+
+
+# ---------------------------------------------------------------- the retrieval caches are keyed by content (I7)
+def test_a_changed_corpus_or_setting_does_not_reuse_the_persisted_index(tmp_path, monkeypatch):
+    calls: list[int] = []
+    texts = [f"Message ID: m{i}\n\neid_a1000001: topic{i} filler" for i in range(5)]
+    build_retriever(texts, tmp_path / "i", _embedding(calls))
+    n = len(calls)
+    build_retriever(texts, tmp_path / "i", _embedding(calls))
+    assert len(calls) == n  # same content, same settings: loaded
+    build_retriever([*texts[:-1], texts[-1] + " corrected"], tmp_path / "i", _embedding(calls))
+    assert len(calls) > n  # one text changed: rebuilt
+    n = len(calls)
+    monkeypatch.setattr(paper_retriever, "TOP_K", 7)
+    build_retriever([*texts[:-1], texts[-1] + " corrected"], tmp_path / "i", _embedding(calls))
+    assert len(calls) > n  # a retriever setting changed: rebuilt
+
+
+def test_a_property_change_with_the_same_counts_changes_the_graph_identity_and_the_process_cache(tsrv, tg, monkeypatch):
+    before = paper_retriever.graph_identity(tg)
+    assert paper_retriever.graph_identity(tg) == before
+    built: list[str] = []
+
+    def fake_build(texts, cache_dir, embed_model=None, identity=None):
+        built.append(identity)
+        return object()
+
+    monkeypatch.setattr(paper_retriever, "build_retriever", fake_build)
+    monkeypatch.setattr(react_paper, "_RETRIEVERS", {})
+    a = react_paper.shared_retriever("cards", P, graph=tg)
+    assert react_paper.shared_retriever("cards", P, graph=tg) is a and built == [before]
+    tsrv.select_graph(f"herb:{P}").query("MATCH (n:Person {eid: $e}) SET n.name = 'Alice Corrected'", {"e": ALICE})
+    assert paper_retriever.graph_identity(tg) != before
+    assert react_paper.shared_retriever("cards", P, graph=tg) is not a and len(built) == 2
+
+
+def test_the_raw_process_cache_is_keyed_by_the_bundle_content(tmp_path, monkeypatch):
+    seen_ids: list[str] = []
+    monkeypatch.setattr(paper_retriever, "build_retriever",
+                        lambda texts, cache_dir, embed_model=None, identity=None: seen_ids.append(identity) or object())
+    monkeypatch.setattr(react_paper, "_RETRIEVERS", {})
+    b = [bundle(slack=[slack_msg("eid_a1000001", "hi", "20260610-0-aaaaa")])]
+    monkeypatch.setattr(react_paper, "load_bundle", lambda d, p: b[0])
+    first = react_paper.shared_retriever("raw", "acme")
+    assert react_paper.shared_retriever("raw", "acme") is first
+    b[0] = bundle(slack=[slack_msg("eid_a1000001", "hi corrected", "20260610-0-aaaaa")])
+    assert react_paper.shared_retriever("raw", "acme") is not first and len(set(seen_ids)) == 2
+
+
 # ---------------------------------------------------------------- A0v: one retrieval, one answer call
 def test_a0v_makes_exactly_one_retrieval_and_one_answer_call():
     m = FakeModel([J("Alice greeted.", ids=[ALICE_ID], evidence=["m1"])])
@@ -402,7 +584,14 @@ def test_arms_are_registered_with_distinct_configs():
     for name in ("A0", "A0f", "A0v", "dev-a0", "dev-a0f", "dev-a0v"):
         assert name in ARMS
     assert len({ARMS[n].config_sha() for n in ("A0", "A0f", "A0v")}) == 3
-    assert ARMS["A0"].config["max_model_calls"] == 24 and ARMS["A0v"].config["max_model_calls"] == 1
+    assert ARMS["A0v"].config["max_model_calls"] == 1  # a single call, not an agentic arm
+
+
+def test_every_agentic_arm_declares_the_same_total_model_call_limit_and_counter():
+    for name in ("A5", "A4", "A4c", "A0", "A0f", "dev-a5", "dev-a4", "dev-a4c", "dev-a0", "dev-a0f"):
+        cfg = ARMS[name].config
+        assert cfg["max_model_calls"] == 24 == agent.MAX_TOTAL_MODEL_CALLS, name
+        assert cfg["reserved_final_calls"] == 2 and cfg["max_tool_calls"] == 12, name
 
 
 def test_every_arms_output_validates_against_the_shared_schema(tg):

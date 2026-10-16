@@ -13,8 +13,8 @@ Retrieval: `VectorIndexRetriever` top 20 and `BM25Retriever` top 20, joined as r
 nodes first, then vector nodes, deduplicated by node id, no rank fusion. Up to 40 chunks. The vectors are Qwen3-Embedding
 through `inherit.embed` (1024 dims, disk cached); the paper used text-embedding-3-large (disclosed).
 
-The index is persisted per product under data/cache/baselines/<kind>/<product>/ and reused while the corpus text, the
-splitter settings and the embedding model are unchanged.
+The index is persisted per product under data/cache/baselines/<kind>/<product>/ and reused while the content identity
+(hash of the corpus text, or of the frozen graph for cards), the splitter, retriever and embedding settings are unchanged.
 """
 
 from __future__ import annotations
@@ -129,23 +129,53 @@ class PaperRetriever:
         return [n.node.get_content() for n in self.retrieve_nodes(query)]
 
 
-def _fingerprint(texts: list[str]) -> str:
-    h = hashlib.sha256(json.dumps({"splitter": SPLITTER, "embed": EMBED_MODEL, "dim": embed.DIM}).encode())
+def _settings() -> dict:
+    """Every retrieval setting that changes what an index returns."""
+    return {"splitter": effective_splitter(), "embed": EMBED_MODEL, "dim": embed.DIM, "top_k": TOP_K}
+
+
+def texts_identity(texts: list[str]) -> str:
+    """Content identity of a raw corpus: the hash of its documents' text (the bundle's fact-layer files, as read)."""
+    h = hashlib.sha256()
     for t in texts:
         h.update(hashlib.sha256(t.encode("utf-8")).digest())
     return h.hexdigest()
 
 
-def build_retriever(texts: list[str], cache_dir: Path, embed_model: BaseEmbedding | None = None) -> PaperRetriever:
-    """Split, embed and index `texts` (or load the persisted index when its fingerprint matches)."""
+def graph_identity(graph) -> str:
+    """Content identity of a frozen graph: the hash of every node (label, id, properties) and edge (endpoints, type,
+    properties) plus the card definition version. Cards are a function of exactly this, so a corrected property or a
+    rewired edge changes it even when the node and edge counts do not."""
+    from inherit.graph import cards
+
+    nodes = graph.ro_query("MATCH (n) RETURN labels(n)[0], n.id, properties(n)").result_set
+    edges = graph.ro_query("MATCH (a)-[e]->(b) RETURN a.id, type(e), b.id, properties(e)").result_set
+    blob = json.dumps({"card_version": cards.CARD_VERSION, "nodes": sorted(map(list, nodes), key=str),
+                       "edges": sorted(map(list, edges), key=str)}, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def fingerprint(identity: str) -> str:
+    """Cache key of an index: the corpus identity plus the splitter, retriever and embedding settings."""
+    return hashlib.sha256(json.dumps({"identity": identity, **_settings()}, sort_keys=True).encode()).hexdigest()
+
+
+def build_retriever(texts: "list[str] | Callable[[], list[str]]", cache_dir: Path,
+                    embed_model: BaseEmbedding | None = None, identity: str | None = None) -> PaperRetriever:
+    """Split, embed and index the corpus (or load the persisted index when its fingerprint matches). `texts` may be a
+    callable that is only run on a miss; then `identity` must be given (it names the content the texts come from)."""
     embed_model = embed_model or QwenEmbedding()
     cache_dir = Path(cache_dir)
-    fp = _fingerprint(texts)
+    if identity is None:
+        texts = texts() if callable(texts) else texts
+        identity = texts_identity(texts)
+    fp = fingerprint(identity)
     meta = cache_dir / "meta.json"
     if meta.exists() and json.loads(meta.read_text())["fingerprint"] == fp:
         sc = StorageContext.from_defaults(persist_dir=str(cache_dir))
         index = load_index_from_storage(sc, embed_model=embed_model)
         return PaperRetriever(list(sc.docstore.docs.values()), index)
+    texts = texts() if callable(texts) else texts
     nodes = SentenceSplitter().get_nodes_from_documents([Document(text=t) for t in texts])
     sc = StorageContext.from_defaults()
     sc.docstore.add_documents(nodes)
@@ -165,19 +195,6 @@ def raw_retriever(product: str, bundle: dict, *, cache_root: Path = CACHE_ROOT,
 
 def cards_retriever(product: str, graph, *, cache_root: Path = CACHE_ROOT,
                     embed_model: BaseEmbedding | None = None) -> PaperRetriever:
-    """A0f: the product's serialised cards. Cards are read from the graph only when the cached index does not match
-    the graph's node and edge counts and the card definition version."""
-    from inherit.graph import cards
-
-    nodes_n = graph.ro_query("MATCH (n) RETURN count(n)").result_set[0][0]
-    edges_n = graph.ro_query("MATCH ()-[e]->() RETURN count(e)").result_set[0][0]
-    cache_dir = cache_root / "cards" / product
-    stamp = cache_dir / "graph.json"
-    want = {"card_version": cards.CARD_VERSION, "nodes": nodes_n, "edges": edges_n}
-    if stamp.exists() and json.loads(stamp.read_text()) == want and (cache_dir / "meta.json").exists():
-        sc = StorageContext.from_defaults(persist_dir=str(cache_dir))
-        index = load_index_from_storage(sc, embed_model=embed_model or QwenEmbedding())
-        return PaperRetriever(list(sc.docstore.docs.values()), index)
-    r = build_retriever(card_texts(graph), cache_dir, embed_model)
-    stamp.write_text(json.dumps(want))
-    return r
+    """A0f: the product's serialised cards, keyed by the graph's content identity (cards are read only on a miss)."""
+    return build_retriever(lambda: card_texts(graph), cache_root / "cards" / product, embed_model,
+                           identity=graph_identity(graph))

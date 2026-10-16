@@ -24,8 +24,7 @@ _LOCK = threading.Lock()
 
 
 def config() -> dict:
-    return {**agent.arm_config("paper"), "max_model_calls": agent.MAX_TOTAL_MODEL_CALLS,
-            "reserved_final_calls": agent.RESERVED_FINAL_CALLS, "corpus": "raw", "top_k": paper_retriever.TOP_K,
+    return {**agent.arm_config("paper"), "corpus": "raw", "top_k": paper_retriever.TOP_K,
             "splitter": paper_retriever.SPLITTER}
 
 
@@ -35,12 +34,18 @@ def load_lookups(product: str, bundle_dir: Path = BUNDLE_DIR) -> paper_tools.Loo
 
 
 def shared_retriever(kind: str, product: str, *, graph=None, bundle_dir: Path = BUNDLE_DIR):
-    """One retriever per (kind, product) in this process; the index itself is persisted under data/cache/baselines."""
+    """One retriever per (kind, product, content identity) in this process; the index itself is persisted under
+    data/cache/baselines. A changed bundle or graph has another identity, so it never reuses a stale retriever."""
+    if kind == "raw":
+        texts = paper_retriever.paper_texts(load_bundle(bundle_dir, product))
+        identity = paper_retriever.texts_identity(texts)
+    else:
+        texts, identity = (lambda: paper_retriever.card_texts(graph)), paper_retriever.graph_identity(graph)
     with _LOCK:
-        key = (kind, product)
+        key = (kind, product, identity)
         if key not in _RETRIEVERS:
-            _RETRIEVERS[key] = (paper_retriever.raw_retriever(product, load_bundle(bundle_dir, product))
-                                if kind == "raw" else paper_retriever.cards_retriever(product, graph))
+            _RETRIEVERS[key] = paper_retriever.build_retriever(
+                texts, paper_retriever.CACHE_ROOT / kind / product, identity=identity)
         return _RETRIEVERS[key]
 
 

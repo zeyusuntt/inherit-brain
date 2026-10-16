@@ -61,7 +61,7 @@ def run(inp, *, arm: str = ARM, model: Callable | None = None, retriever=None,
         if fields is None:
             return _failed(f"invalid final answer: {err}", calls)
         seen = Seen()
-        rows = seen.add({"chunks": chunks})
+        rows = seen.add(list(chunks))
         asked = agent._bare(fields["answer_ids"])
         rows = [rows, seen.support(asked, fields["evidence_ids"])]
         text, ids, _ = guard(fields["answer_text"], asked, rows)

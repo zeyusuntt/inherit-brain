@@ -12,7 +12,11 @@ given, then looks them up in a dictionary. Differences, all disclosed:
   name, under the loop's per-question counter and deadline (`_Loop.nested_chat`);
 * a failed verification triggers the paper's fallback answer once (retrieval over the question, one synthesis call);
   there is no second agent attempt;
-* tool outputs are JSON envelopes `{"result": ..., "message": ...}`; the message is the upstream "No ... found" text.
+* tool outputs are JSON envelopes `{"result": ..., "message": ...}`; the message is the upstream "No ... found" text;
+* answer support comes only from matched records and retrieved chunks (never from the "No ... found" message or the
+  model's own extraction); identifiers and links are supported by exact complete-token equality, other values (company
+  names) by a whole-word match in a returned string; a rejected final answer is terminal unless the one fallback
+  replaces it.
 
 `CardTools` (A0f, in cards_react.py) overrides `present` so the same tools return entity cards.
 """
@@ -25,7 +29,7 @@ import time
 from collections import defaultdict
 from typing import Any
 
-from inherit.agent import JSON_FORMAT, _parse
+from inherit.agent import JSON_FORMAT, AnswerRejected, _parse
 from inherit.contracts import TraceOp
 from inherit.tools.depth1 import ToolError
 from inherit.tools.guard import _TRAIL, ID_RE
@@ -210,24 +214,29 @@ def leaves(obj: Any) -> list[str]:
 
 
 class Seen:
-    """Every string a tool returned this question: the evidence an answer value is checked against."""
+    """Every string a matched record or a retrieved chunk held this question: the evidence an answer value is checked
+    against. Diagnostics ("No ... found" with the model's extraction) are never added."""
 
     def __init__(self) -> None:
         self.texts: list[str] = []
+        self.tokens: set[str] = set()
 
-    def add(self, obj: Any) -> list[dict]:
-        """Record the strings of `obj`; return guard rows naming the ids they contain."""
-        new = leaves(obj)
-        self.texts += new
-        toks = list(dict.fromkeys(t for s in new for t in id_tokens(s)))
+    def add(self, strings: list[str]) -> list[dict]:
+        """Record the strings; return guard rows naming the ids they contain."""
+        self.texts += strings
+        toks = list(dict.fromkeys(t for s in strings for t in id_tokens(s)))
+        self.tokens.update(toks)
         return [{"refs": toks}] if toks else []
 
     def has(self, value: str) -> bool:
-        pat = re.compile(rf"(?<!\w){re.escape(value)}(?!\w)")
+        """An identifier or link (the guard's own id pattern) is supported only by an identical complete token; any
+        other value (a company name) by a whole-word match, with '-', '/' and ':' joined to a word not a boundary."""
+        if ID_RE.fullmatch(value):
+            return value in self.tokens
+        pat = re.compile(rf"(?<![\w/:-]){re.escape(value)}(?![\w]|[-/:]\w)")
         return any(pat.search(t) for t in self.texts)
 
     def support(self, answer_ids: list[str], evidence_ids: list[str]) -> list[dict]:
-        """An answer value or evidence id is supported when it occurs, as a whole token, in a returned string."""
         return ([{"answer": a} for a in answer_ids if a and self.has(a)]
                 + [{"evidence": e} for e in evidence_ids if e and self.has(e)])
 
@@ -262,15 +271,23 @@ class PaperTools:
         if not isinstance(value, str):
             raise ToolError(f"{name} needs a string argument {arg!r}")
         t0 = time.monotonic()
-        env = self.retrieve(value) if name == "retrieve_all" else self.lookup(name, value)
-        rows = self.seen.add(env)
-        rows += self.card_rows(env)
+        if name == "retrieve_all":
+            env = self.retrieve(value)
+            rows = self.chunk_rows(env["chunks"])
+        else:
+            env, matched = self.lookup(name, value)
+            rows = self.matched_rows(env, matched)
         count = len(env.get("chunks") or env.get("result") or [])
         self.ops.append(TraceOp(name, "paper", "", dict(args), count, (time.monotonic() - t0) * 1000))
         return env, rows
 
-    def card_rows(self, env: dict) -> list[dict]:
-        return []
+    # ---- what supports an answer: matched records and retrieved chunks only
+    def chunk_rows(self, chunks: list[str]) -> list[dict]:
+        return self.seen.add(list(chunks))
+
+    def matched_rows(self, env: dict, matched: list[str]) -> list[dict]:
+        """`matched` holds the strings of the records the lookup really matched (never the extraction or a message)."""
+        return self.seen.add(matched)
 
     def retrieve(self, query: str) -> dict:
         return {"chunks": self.retriever.retrieve(query)}
@@ -284,7 +301,8 @@ class PaperTools:
         except ValueError:
             return None
 
-    def lookup(self, name: str, text: str) -> dict:
+    def lookup(self, name: str, text: str) -> tuple[dict, list[str]]:
+        """(envelope, strings of the matched records)."""
         lk = self.lk
         if name == "role_to_id_search":
             got = self.extract(EXTRACT_ROLES.format(text=text))  # upstream formatted with question=, a KeyError
@@ -312,6 +330,7 @@ class PaperTools:
                 res = [src[x.lower()] for x in items if src.get(x.lower())]
         except (AttributeError, TypeError):
             res = {} if name not in ("pr_search", "url_search") else []
+        matched = self.matched_strings(name, res)
         shown = self.present(name, res)
         env: dict = {"result": shown}
         if getattr(self, "truncated", False):
@@ -323,7 +342,19 @@ class PaperTools:
                               "id_to_name_search": "No names found", "id_to_role_search": "No roles found",
                               "pr_search": "No PR details found", "url_search": "No URL details found"}[name] \
                 + f": {got}"
-        return env
+        return env, matched
+
+    def matched_strings(self, name: str, res: Any) -> list[str]:
+        """The strings that support answers: ids and records the dictionaries returned. For the inverse lookups the
+        matched employee or customer id (the dictionary key) is a returned id too."""
+        lk = self.lk
+        if name in ("id_to_name_search", "id_to_role_search"):
+            return [s for i, v in res.items() for s in (i, v)]
+        if name == "id_to_company_search":
+            return [s for i, v in res.items() for s in (lk.cust_ids[i.lower()], v)]
+        if name in ("pr_search", "url_search"):
+            return leaves(res)
+        return leaves(list(res.values()))  # role / name / company to id: the ids (the keys echo the extraction)
 
     def present(self, name: str, res: Any) -> Any:
         """What the model sees for a lookup result. A0: the paper's records and dictionaries as they are."""
@@ -342,14 +373,25 @@ class PaperTools:
         if not self.loop.room(final=True):  # no call left: do not retrieve for nothing
             raise ToolError("model call limit reached")
         chunks = self.retriever.retrieve(question)
-        self.loop.guard_rows.append(self.seen.add({"chunks": chunks}))
+        self.loop.guard_rows.append(self.chunk_rows(chunks))
         prompt = FALLBACK_PROMPT.format(context="\n\n".join(chunks), question=question, format=ANSWER_FORMAT)
         r = self.loop.nested_chat([{"role": "user", "content": prompt}], response_format=JSON_FORMAT, final=True)
         fields, _ = _parse(r.message.content or "")
         return fields
 
+    def rescue(self, loop) -> dict | None:
+        """The one fallback answer: a valid answer, or None when no call was left or its reply was not valid."""
+        try:
+            fb = self.fallback_answer(loop.inp.text)
+        except ToolError:
+            loop.envelopes.append({"tool": "fallback_answer", "params": {}, "error": "model call limit reached"})
+            return None
+        loop.envelopes.append({"tool": "fallback_answer", "params": {}, "used": fb is not None})
+        return fb
+
     def review(self, loop, fields: dict) -> dict | None:
-        """Verify the final answer; if the verifier says no, replace it with the fallback answer."""
+        """Verify the final answer. A rejection is terminal unless the fallback answer replaces it (AnswerRejected);
+        if no call is left to verify, the answer stands unverified (that is not a rejection)."""
         answer = fields["answer_text"]
         if fields["answer_ids"]:
             answer += "\nAnswer values: " + ", ".join(fields["answer_ids"])
@@ -361,10 +403,7 @@ class PaperTools:
         loop.envelopes.append({"tool": "finish_agent", "params": {}, "done": ok})
         if ok:
             return None
-        try:
-            fb = self.fallback_answer(loop.inp.text)
-        except ToolError:
-            loop.envelopes.append({"tool": "fallback_answer", "params": {}, "error": "model call limit reached"})
-            return None
-        loop.envelopes.append({"tool": "fallback_answer", "params": {}, "used": fb is not None})
+        fb = self.rescue(loop)
+        if fb is None:
+            raise AnswerRejected("finish_agent said no and no valid fallback answer was available")
         return fb
