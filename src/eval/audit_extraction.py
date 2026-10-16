@@ -219,21 +219,22 @@ def product_aliases(src: Source) -> set[str]:
 
 
 def product_identity_records(src: Source) -> list[dict]:
-    """Raw records that establish the product's name and its other names: the channels of the product file (ids and names)
-    and the first two messages (creation notices) of every channel named after another name. Bundle only."""
+    """Neutral provenance from the bundle: the channels of the product file (ids and names) and the first two messages
+    (creation or announcement notices) of every channel whose name ends in a different name. Nothing says what those
+    names mean; the auditor decides from the raw text."""
     chans = {}
     for m in src.records.messages:
         chans.setdefault(m.channel_id, m.channel_name)
     aliases = product_aliases(src)
-    head = (f"This packet's product is {src.product}. Product file channels (id: name): "
+    head = (f"Product records (provenance). Product file: {src.product}. Channels in the file (id: name): "
             + "; ".join(f"{c}: {n}" for c, n in sorted(chans.items())) + ". Document ids: "
             + ", ".join(d.id for d in src.records.documents) + ".")
     out = [{"id": f"product:{src.product}", "text": head}]
     for c, n in sorted(chans.items()):
         if n.rsplit("-", 1)[-1].casefold() in aliases:
             first = sorted(src.channel[c], key=lambda m: (m.ts, m.id))[:2]
-            out.append({"id": f"channel:{c}", "text": f"Channel {c} is named {n} (named after another name of {src.product}); "
-                                                     "its first messages are included below."})
+            out.append({"id": f"channel:{c}", "text": f"Product records (provenance): channel {c}, named {n}; its first "
+                                                     "messages are listed as records."})
             out += [{"id": m.id, "text": fmt_message(src, m)} for m in first]
     return out
 
@@ -598,9 +599,8 @@ def _edge_records(src: Source, dependent: str, prereq: str, cites) -> tuple[list
 
 def _whatif_edge_packet(ident: str, src: Source, x: dict) -> dict:
     recs, miss = _edge_records(src, x["dependent"], x["prerequisite"], x["citations"])
-    claim = {"statement": f"'{node_title(src, x['dependent'])}' ({x['dependent']}) depends on "
-                          f"'{node_title(src, x['prerequisite'])}' ({x['prerequisite']}) "
-                          f"(the prerequisite must be done first)",
+    claim = {"statement": f"'{node_title(src, x['prerequisite'])}' ({x['prerequisite']}) is development work of "
+                          f"'{node_title(src, x['dependent'])}' ({x['dependent']}) (membership)",
              "rule": x["rule"], "cited records": ", ".join(x["citations"]) or "none"}
     return make_packet("whatif_edge", ident, src, claim=claim, records=recs,
                        meta={"rule": x["rule"], "unhydrated": miss})
@@ -614,13 +614,14 @@ def _whatif_path_packet(ident: str, src: Source, x: dict) -> dict:
     end = x["path"][-1]
     resp = responsibility_context(src, end, x["person"], assignment_message(src, end))
     recs += item_records(src, end) + resp
-    steps = [f"{e['dependent']} depends on {e['prerequisite']} (rule {e['rule']}, cited {', '.join(e['citations']) or 'none'})"
+    steps = [f"{e['prerequisite']} belongs to the development work of {e['dependent']} (rule {e['rule']}, cited {', '.join(e['citations']) or 'none'})"
              for e in x["edges"]]
     claim = {"statement": f"If {src.person(x['person'])} leaves, '{node_title(src, x['affected'])}' ({x['affected']}) is "
-                          "affected: it is open work or a pending feature and it depends, through the path below, "
-                          "on the last item of the path, which becomes newly unowned (open work whose only owner is this person)",
+                          "affected: it is open work or a pending feature and, through the membership steps below, the development work "
+                          "of each item includes the next, ending at the last item, which becomes newly unowned (open work whose "
+                          "only owner is this person)",
              "path (affected item first, newly unowned item last)": " -> ".join(x["path"]),
-             "dependency steps": " | ".join(steps)}
+             "membership steps": " | ".join(steps)}
     out = make_packet("whatif_path", ident, src, claim=claim, records=recs,
                       meta={"path_length": len(x["path"]), "unhydrated": miss, "later_messages": len(resp)})
     out["meta"]["chars"] = len(out["text"])
@@ -661,7 +662,8 @@ BUG_TASK = ("List every bug event in channel {name} (product {product}). Use onl
 REVIEW_TASK = ("List every reviewer of document {doc} (type {type}, product {product}): each person who gives a "
                "suggestion, a requested change or a review question about this document, or about a document of this "
                "type when the source names no version. " + REVIEW_BOUNDARY + " Sources are the document feedback, the meetings of this "
-               "document type and the Slack sessions that share the document link. One item per person per source "
+               "document type, the Slack sessions that share the document link and the same-product Slack discussions of the "
+               "document type that name no version and share no exact link. One item per person per source "
                "record. Give the reviewer as the name written in the record (or the eid when the record uses one) and "
                "the id of the source record (a meeting line id like meeting#12, a message id, or the document id).")
 
@@ -681,23 +683,52 @@ def bug_channel_eligible(src: Source, channel_id: str) -> bool:
         _human(m) and (CUST_RE.search(m.text) or BUG_WORDS.search(m.text)) for m in msgs)
 
 
+GENERIC_TYPE_TAIL = ("document", "report")
+SUBSTANTIVE_WORDS = 10  # a substantive message has at least this many words (an acknowledgement or a one-line aside does not)
+
+
+def doc_terms(d) -> list[str]:
+    """Lower-case terms that mean the document or its type: the type, the type without a generic last word (document,
+    report) when two or more words remain, and the document link."""
+    t = d.type.casefold().strip()
+    words = t.split()
+    out = [t]
+    if len(words) > 2 and words[-1] in GENERIC_TYPE_TAIL:
+        out.append(" ".join(words[:-1]))
+    return out + [d.link.casefold()]
+
+
+def attributes_a_person(src: Source, feedback: str) -> bool:
+    """A feedback line that names its author: it starts with a directory name or eid followed by ':' / '-' / '(' , or reads
+    'from <name>' / 'by <name>'."""
+    names = [re.escape(e["name"]) for e in src.records.employees.values()] + [r"eid_[A-Za-z0-9_]+"]
+    alt = "|".join(sorted(names, key=len, reverse=True))
+    pat = re.compile(rf"^\W*(?:{alt})\s*[:\-\u2013\u2014(]|\b(?:from|by)\s+(?:{alt})\b", re.I | re.M)
+    return bool(pat.search(feedback))
+
+
 def reviewer_eligible(src: Source, d) -> bool:
-    """Frozen before sampling, from the raw inventory only: an attributable review opportunity. Any of: named feedback
-    (the feedback names a directory person or eid); a meeting of the document's type with a named speaker other than the
-    author; a Slack session that discusses the document (its link) or its same-product document type and has a human
-    participant other than the author."""
-    author = src.name_of(d.author)
-    if d.feedback:
-        fb = d.feedback.casefold()
-        if EID_RE.search(d.feedback) or any(e["name"].casefold() in fb for e in src.records.employees.values()):
-            return True
+    """Frozen before sampling, from the raw inventory only: an attributable review opportunity. Any of:
+    - feedback with a line that attributes a person (name or eid at the line start before ':' '-' '(' , or 'from/by <name>');
+    - a meeting of the document's type with a named speaker other than the author in a segment that mentions the document
+      or its type (the type, the type without a generic last word, or the link);
+    - a Slack session in which a message names the document or its type and that message or a later one in the session is a
+      substantive message (at least SUBSTANTIVE_WORDS words) by a human participant other than the author."""
+    author, terms = src.name_of(d.author), doc_terms(d)
+    if d.feedback and attributes_a_person(src, d.feedback):
+        return True
     for m in src.records.meetings:
-        if m.document_type == d.type and any(sg.speaker and sg.speaker.casefold().strip() != author for sg in m.segments):
+        if m.document_type == d.type and any(sg.speaker and sg.speaker.casefold().strip() != author
+                                             and any(t in sg.text.casefold() for t in terms) for sg in m.segments):
             return True
-    return any(
-        any(_human(m) and m.user_id != d.author for m in sess)
-        and (d.link in (txt := "\n".join(m.text for m in sess)) or d.type.casefold() in txt.casefold())
-        for ch in src.channel.values() for sess in sessions(ch))
+    named = lambda m: any(t in m.text.casefold() for t in terms)  # noqa: E731
+    for ch in src.channel.values():
+        for sess in sessions(ch):
+            first = next((i for i, m in enumerate(sess) if named(m)), None)
+            if first is not None and any(_human(m) and m.user_id != d.author and len(m.text.split()) >= SUBSTANTIVE_WORDS
+                                         for m in sess[first:]):
+                return True
+    return False
 
 
 def recall_bug_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tuple[list[dict], dict]:
@@ -725,7 +756,8 @@ def recall_reviewer_packets(sources: dict[str, Source], n: int, rng: random.Rand
             if m.document_type == d.type:
                 recs += meeting_records(src, m.id)
         # sessions that share the link, and unversioned same-product discussions of the document type (no link needed)
-        linked = [m.id for m in src.records.messages if d.link in m.text or d.type.casefold() in m.text.casefold()]
+        terms = doc_terms(d)
+        linked = [m.id for m in src.records.messages if any(t in m.text.casefold() for t in terms)]
         recs += message_session_records(src, linked)
         task = REVIEW_TASK.format(doc=d.id, type=d.type, product=p)
         names = [s.speaker for m in src.records.meetings if m.document_type == d.type for s in m.segments if s.speaker]
@@ -832,7 +864,9 @@ when reported fixed or closed; dismissed when judged not a bug; reopened when it
 """ + ASSIGNED_PLACEMENT + """ A REPORTED event has no assignees.""",
     "recall_reviewer": """Each item: {"reviewer": "<name as written in the record, or the eid>", "source": "<source record
 id>"}. A reviewer is a person who gives a suggestion, a requested change or a review question about the document (or its
-document type when no version is named). """ + REVIEW_BOUNDARY + """ One item per person per source record.""",
+document type when no version is named). Sources are: Slack sessions that share the document link; same-product Slack
+discussions of the document type that name no version and share no exact link; named feedback; and meetings of the same
+document type. """ + REVIEW_BOUNDARY + """ One item per person per source record.""",
 }
 
 THIRD_PRECISION = """You are the third and final auditor. Two auditors disagreed, or one gave no usable answer. Read the

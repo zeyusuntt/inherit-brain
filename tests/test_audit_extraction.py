@@ -33,7 +33,7 @@ def data(P):
                        "date": "2026-01-02T00:00:00", "content": "y"}],
         "meeting_transcripts": [{"id": "mtg1", "date": "2026-01-03T00:00:00", "document_type": "Design Doc",
                                  "participants": ["eid_a", "eid_b"],
-                                 "transcript": "Attendees\nAnn Lee, Bob Ray\nTranscript\nAnn Lee: Ship it.\nBob Ray: Add examples."}],
+                                 "transcript": "Attendees\nAnn Lee, Bob Ray\nTranscript\nAnn Lee: Ship it.\nBob Ray: Add examples to the Design Doc."}],
         "meeting_chats": [], "urls": [],
         "prs": [{"id": "pr1", "title": "Fix crash", "summary": "s", "link": "https://github.com/o/r/pull/1",
                  "mergeable": "True", "merged": "False", "number": "1", "state": "open",
@@ -840,42 +840,82 @@ def test_edge_and_path_packets_keep_the_task_enumeration():
 
 
 def test_reviewer_eligibility_is_frozen_from_the_raw_inventory():
-    def only_anonymous(d):
+    def bare(d):
         d["meeting_transcripts"] = []
         d["slack"] = [m for m in d["slack"] if m["Message"]["User"]["utterranceID"] in ("m1", "m2", "m3")]
         d["documents"][0]["feedback"] = "- add a diagram"
-    anon = alias_source(mutate=only_anonymous)
-    d1 = anon.doc["design_v1"]
-    assert not ae.reviewer_eligible(anon, d1)  # anonymous feedback alone is not a review opportunity
+    el = lambda src: ae.reviewer_eligible(src, src.doc["design_v1"])  # noqa: E731
+    assert not el(alias_source(mutate=bare))  # anonymous feedback alone
 
     def named(d):
-        only_anonymous(d)
+        bare(d)
         d["documents"][0]["feedback"] = "- Bob Ray: add a diagram"
-    assert ae.reviewer_eligible(alias_source(mutate=named), alias_source(mutate=named).doc["design_v1"])
+    assert el(alias_source(mutate=named))
+    assert ae.attributes_a_person(alias_source(), "Feedback from Bob Ray on the intro")
+    assert not ae.attributes_a_person(alias_source(), "- Bob Ray is a name inside a sentence only")
+    assert not ae.attributes_a_person(alias_source(), "add a diagram for Ann")
 
-    def meeting_only(d):
-        only_anonymous(d)
+    def meeting_no_mention(d):
+        bare(d)
         d["meeting_transcripts"] = data("P1")["meeting_transcripts"]
-    s2 = alias_source(mutate=meeting_only)
-    assert ae.reviewer_eligible(s2, s2.doc["design_v1"])  # a named speaker other than the author (Ann Lee) exists
+        d["meeting_transcripts"][0]["transcript"] = "Attendees\nAnn Lee, Bob Ray\nTranscript\nBob Ray: Lunch is at noon."
+    assert not el(alias_source(mutate=meeting_no_mention))  # a named speaker, but not about the document or its type
+
+    def meeting_about_type(d):
+        meeting_no_mention(d)
+        d["meeting_transcripts"][0]["transcript"] = "Attendees\nAnn Lee, Bob Ray\nTranscript\nBob Ray: The design needs examples."
+    assert not el(alias_source(mutate=meeting_about_type))  # "Design Doc" is two words; "design" alone is not the type
+
+    def meeting_ok(d):
+        meeting_no_mention(d)
+        d["meeting_transcripts"][0]["transcript"] = "Attendees\nAnn Lee, Bob Ray\nTranscript\nBob Ray: The Design Doc needs examples."
+    assert el(alias_source(mutate=meeting_ok))
 
     def author_only(d):
-        meeting_only(d)
-        d["meeting_transcripts"][0]["transcript"] = "Attendees\nAnn Lee\nTranscript\nAnn Lee: Ship it."
-    s3 = alias_source(mutate=author_only)
-    assert not ae.reviewer_eligible(s3, s3.doc["design_v1"])
+        meeting_ok(d)
+        d["meeting_transcripts"][0]["transcript"] = "Attendees\nAnn Lee\nTranscript\nAnn Lee: The Design Doc is done."
+    assert not el(alias_source(mutate=author_only))
 
-    def slack_type_level(d):
+    long = "I think the Design Doc needs a risk section covering rollout, rollback and the monitoring plan for launch"
+    def slack_ack(d):
         author_only(d)
-        d["slack"].append(slack("t1", "I think the Design Doc needs a risk section", "2026-02-03T09:00:00", ch="ch-dev",
-                                name="develop-x-{P}", user="eid_b"))
-    s4 = alias_source(mutate=slack_type_level)
-    assert ae.reviewer_eligible(s4, s4.doc["design_v1"])  # same-product type-level discussion, no link, non-author
+        d["slack"].append(slack("t0", "ok Design Doc looks good", "2026-02-03T09:00:00", ch="ch-dev", name="develop-x-{P}",
+                                user="eid_b"))
+    assert not el(alias_source(mutate=slack_ack))  # an acknowledgement is not substantive
+
+    def slack_ok(d):
+        author_only(d)
+        d["slack"].append(slack("t1", long, "2026-02-03T09:00:00", ch="ch-dev", name="develop-x-{P}", user="eid_b"))
+    s4 = alias_source(mutate=slack_ok)
+    assert el(s4)
     pk, info = ae.recall_reviewer_packets({"P1": s4}, 3, random.Random(1))
     assert info["eligible"] == 2 and info["ineligible"] == 0 and info["available"] == 2
     assert "t1" in {r["id"] for r in pk[0]["records"]}  # unversioned discussion included
-    pk3, info3 = ae.recall_reviewer_packets({"P1": s3}, 3, random.Random(1))
-    assert pk3 == [] and info3["eligible"] == 0 and info3["ineligible"] == 2  # a disclosed stratum
+    pk3, info3 = ae.recall_reviewer_packets({"P1": alias_source(mutate=author_only)}, 3, random.Random(1))
+    assert pk3 == [] and info3["eligible"] == 0 and info3["ineligible"] == 2  # a disclosed stratum, not resampled
+
+
+def test_identity_is_neutral_provenance_and_claims_say_membership():
+    src = alias_source()
+    text = " ".join(r["text"] for r in ae.product_identity_records(src)).casefold()
+    assert "product records (provenance)" in text \
+        and "another name" not in text and "named after" not in text and "is an alias" not in text
+    x = {"dependent": "Feature:P1:x", "prerequisite": "PR:https://github.com/o/r/pull/1", "rule": "ABOUT",
+         "citations": ["pr1"], "texts": []}
+    e = ae._whatif_edge_packet("k", src, x)
+    pth = ae._whatif_path_packet("k", src, {"person": "eid_a", "affected": "Feature:P1:x", "path": [x["dependent"], x["prerequisite"]],
+                                            "edges": [{**x, "rule": "ABOUT"}]})
+    for p in (e, pth):
+        blob = json.dumps(p["claim"]).casefold()
+        assert "prerequisite" not in blob and "depends on" not in blob and "done first" not in blob
+        assert "development work" in blob
+    assert "(membership)" in e["claim"]["statement"] and "belongs to the development work" in pth["claim"]["membership steps"]
+
+
+def test_recall_reviewer_instructions_permit_type_level_discussions():
+    for text in (ae.RECALL_RULES["recall_reviewer"], ae.REVIEW_TASK):
+        t = " ".join(text.split())
+        assert "name no version and share no exact link" in t and ("named feedback" in t.lower() or "document feedback" in t)
 
 
 def test_bug_channel_needs_identity_and_human_report_content():
@@ -898,3 +938,14 @@ def test_round_three_seed_and_report_changes(tmp_path, sources):
     assert json.loads((tmp_path / "round-3" / "manifest.json").read_text())["seed"] == 20261018
     with pytest.raises(FileExistsError):
         write_round(tmp_path, sources, rnd=3)
+
+
+def test_slack_substance_must_come_in_the_document_discussion():
+    def before(d):
+        d["meeting_transcripts"] = []
+        d["documents"][0]["feedback"] = None
+        d["slack"] = [slack("u1", "Bob here with a long unrelated remark about lunch plans and the quarterly offsite agenda ok",
+                            "2026-02-03T09:00:00", ch="ch-dev", name="develop-x-{P}", user="eid_b"),
+                      slack("u2", "see the Design Doc", "2026-02-03T09:10:00", ch="ch-dev", name="develop-x-{P}", user="eid_a")]
+    src = alias_source(mutate=before)
+    assert not ae.reviewer_eligible(src, src.doc["design_v1"])  # the long message precedes the document mention
