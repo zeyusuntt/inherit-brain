@@ -1,0 +1,499 @@
+{
+ "team": [
+  "eid_a1000001",
+  "eid_b2000002",
+  "eid_c3000003",
+  "eid_d4000004",
+  "eid_e5000005",
+  "eid_f6000006"
+ ],
+ "customers": [
+  "CUST-0001",
+  "CUST-0002"
+ ],
+ "slack": [
+  {
+   "Channel": {
+    "name": "planning-mini",
+    "channelID": "ch-mini-plan"
+   },
+   "Message": {
+    "User": {
+     "userId": "slack_admin_bot",
+     "timestamp": "2026-06-09T00:11:00",
+     "text": "@eid_e5000005 created this channel on 2026-06-09 00:11:00. This is the very beginning of the planning-mini channel.",
+     "utterranceID": "20260609-0-a0001"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260609-0-a0001"
+  },
+  {
+   "Channel": {
+    "name": "planning-mini",
+    "channelID": "ch-mini-plan"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_e5000005",
+     "timestamp": "2026-06-10T09:00:00",
+     "text": "Draft design spec is up: https://sf-internal.slack.com/archives/docs/mini_design_spec. Thanks @eid_a1000001, @eid_f6000006, for the early input.",
+     "utterranceID": "20260610-0-a0002"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260610-0-a0002"
+  },
+  {
+   "Channel": {
+    "name": "planning-mini",
+    "channelID": "ch-mini-plan"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_a1000001",
+     "timestamp": "2026-06-11T10:15:00",
+     "text": "Reviewed it. @eid_e5000005, the export section needs numbers.",
+     "utterranceID": "20260611-0-a0003"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260611-0-a0003"
+  },
+  {
+   "Channel": {
+    "name": "planning-mini",
+    "channelID": "ch-mini-plan"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_d4000004",
+     "timestamp": "2026-06-12T15:30:00",
+     "text": "I tested the flow in https://sf-internal.slack.com/archives/docs/mini_design_spec and the export path times out on large files.",
+     "utterranceID": "20260612-0-a0004"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260612-0-a0004"
+  },
+  {
+   "Channel": {
+    "name": "planning-mini",
+    "channelID": "ch-mini-plan"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_c3000003",
+     "timestamp": "2026-06-12T16:00:00",
+     "text": "Agree on scope. @eid_e5000005.",
+     "utterranceID": "20260612-1-a0005"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260612-1-a0005"
+  },
+  {
+   "Channel": {
+    "name": "planning-mini",
+    "channelID": "ch-mini-plan"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_f6000006",
+     "timestamp": "2026-06-14T09:30:00",
+     "text": "Follow-up on the meeting notes: @eid_c3000003, please confirm.",
+     "utterranceID": "20260614-0-a0006"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260614-0-a0006"
+  },
+  {
+   "Channel": {
+    "name": "planning-mini",
+    "channelID": "ch-mini-plan"
+   },
+   "Message": {
+    "User": {
+     "userId": "slack_admin_bot",
+     "timestamp": "2026-06-15T08:00:00",
+     "text": "Reminder: standup at 10:00.",
+     "utterranceID": "20260615-0-a0007"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260615-0-a0007"
+  },
+  {
+   "Channel": {
+    "name": "develop-alicechen-mini",
+    "channelID": "ch-mini-dev"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_b2000002",
+     "timestamp": "2026-06-15T11:00:00",
+     "text": "Opened https://github.com/mini/mini-server/pull/101 for the export timeout.",
+     "utterranceID": "20260615-0-b0001"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260615-0-b0001"
+  },
+  {
+   "Channel": {
+    "name": "develop-alicechen-mini",
+    "channelID": "ch-mini-dev"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_a1000001",
+     "timestamp": "2026-06-16T13:20:00",
+     "text": "Closed https://github.com/mini/mini-server/pull/102 without merging, it was superseded.",
+     "utterranceID": "20260616-0-b0002"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260616-0-b0002"
+  },
+  {
+   "Channel": {
+    "name": "develop-alicechen-mini",
+    "channelID": "ch-mini-dev"
+   },
+   "Message": {
+    "User": {
+     "userId": "slack_deploy_bot",
+     "timestamp": "2026-06-16T14:00:00",
+     "text": "Deploy to staging finished.",
+     "utterranceID": "20260616-1-b0003"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260616-1-b0003"
+  },
+  {
+   "Channel": {
+    "name": "develop-alicechen-mini",
+    "channelID": "ch-mini-dev"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_b2000002",
+     "timestamp": "2026-06-17T09:05:00",
+     "text": "Draft in https://github.com/mini/mini-server/pull/103 adds retry settings; @eid_a1000001, can you look?",
+     "utterranceID": "20260617-0-b0004"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260617-0-b0004"
+  },
+  {
+   "Channel": {
+    "name": "bug-alicechen-mini",
+    "channelID": "ch-mini-bug"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_e5000005",
+     "timestamp": "2026-06-17T10:00:00",
+     "text": "New bug from customer CUST-0001 (TechCorp): CSV export times out on datasets over 1M rows.",
+     "utterranceID": "20260617-0-c0001"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260617-0-c0001"
+  },
+  {
+   "Channel": {
+    "name": "bug-alicechen-mini",
+    "channelID": "ch-mini-bug"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_a1000001",
+     "timestamp": "2026-06-17T10:30:00",
+     "text": "@eid_b2000002, please take the CSV export timeout bug.",
+     "utterranceID": "20260617-1-c0002"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260617-1-c0002"
+  },
+  {
+   "Channel": {
+    "name": "bug-alicechen-mini",
+    "channelID": "ch-mini-bug"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_b2000002",
+     "timestamp": "2026-06-18T16:45:00",
+     "text": "Fixed the CSV export timeout in https://github.com/mini/mini-server/pull/101, resolving the bug.",
+     "utterranceID": "20260618-0-c0003"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260618-0-c0003"
+  },
+  {
+   "Channel": {
+    "name": "bug-alicechen-mini",
+    "channelID": "ch-mini-bug"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_e5000005",
+     "timestamp": "2026-06-20T09:10:00",
+     "text": "CUST-0001 from TechCorp reports the CSV export timeout is back. Reopening.",
+     "utterranceID": "20260620-0-c0004"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260620-0-c0004"
+  },
+  {
+   "Channel": {
+    "name": "bug-alicechen-mini",
+    "channelID": "ch-mini-bug"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_e5000005",
+     "timestamp": "2026-06-21T08:40:00",
+     "text": "New bug from customer CUST-0002 (BlueWave): dashboard totals look stale after refresh.",
+     "utterranceID": "20260621-0-c0005"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260621-0-c0005"
+  },
+  {
+   "Channel": {
+    "name": "bug-alicechen-mini",
+    "channelID": "ch-mini-bug"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_f6000006",
+     "timestamp": "2026-06-21T11:00:00",
+     "text": "No fix needed for the stale totals, this is the documented 5 minute cache. Dismissing.",
+     "utterranceID": "20260621-1-c0006"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260621-1-c0006"
+  },
+  {
+   "Channel": {
+    "name": "bug-alicechen-mini",
+    "channelID": "ch-mini-bug"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_f6000006",
+     "timestamp": "2026-06-22T10:00:00",
+     "text": "FYI TensorFlow issue https://github.com/tensorflow/tensorflow/issues/12345 describes a memory leak in the dataset iterator. It looks like ours, but it is an open-source bug, not a customer bug.",
+     "utterranceID": "20260622-0-c0007"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260622-0-c0007"
+  }
+ ],
+ "documents": [
+  {
+   "content": "Design Spec for mini. Export: stream rows in 10k chunks. Retry: three attempts with backoff.",
+   "date": "2026-06-10T08:50:00",
+   "author": "eid_e5000005",
+   "document_link": "https://sf-internal.slack.com/archives/docs/mini_design_spec",
+   "type": "Design Spec",
+   "id": "mini_design_spec",
+   "feedback": "- Add numbers for the export section.\n- Specify the retry limit."
+  },
+  {
+   "content": "Release notes for mini 1.0. Fixed CSV export timeout. Known issue: dashboard cache is 5 minutes.",
+   "date": "2026-06-19T12:00:00",
+   "author": "eid_a1000001",
+   "document_link": "https://sf-internal.slack.com/archives/docs/mini_release_notes",
+   "type": "Release Notes",
+   "id": "mini_release_notes"
+  }
+ ],
+ "meeting_transcripts": [
+  {
+   "transcript": "Attendees\nDana Wu, Ian Miller, Eve Park, Ian Miller\nTranscript\nDana Wu: Team, I wanted your feedback on the Design Spec for mini. Let's go through export and retry.\nIan Miller: As QA I checked the export path and it times out on large files.\nEve Park: Can we add a retry with backoff?\nBob Ray: I can take that, the retry change is small.\nIan Miller: Scope looks fine to me, let's keep the spec short.\nDana Wu: Great, I will update the document.",
+   "date": "2026-06-13T17:07:00",
+   "document_type": "Design Spec",
+   "participants": [
+    "eid_e5000005",
+    "eid_c3000003",
+    "eid_f6000006",
+    "eid_d4000004"
+   ],
+   "id": "mini_design_1"
+  },
+  {
+   "transcript": "Attendees\nDana Wu, Alice Chen\nTranscript\nDana Wu: Let's review the release notes.\nAlice Chen: The cache note is accurate.",
+   "date": "2026-06-20T10:00:00",
+   "document_type": "Release Notes",
+   "participants": [
+    "eid_e5000005",
+    "eid_a1000001"
+   ],
+   "id": "mini_review_1"
+  }
+ ],
+ "meeting_chats": [
+  {
+   "text": "2026-06-13T17:07:00\nDana Wu: https://sf-internal.slack.com/archives/docs/mini_design_spec\nEve Park: Thanks @eid_a1000001, I will review.",
+   "id": "mini_design_1_chat"
+  },
+  {
+   "text": "2026-06-20T10:00:00\nAlice Chen: Notes at https://sf-internal.slack.com/archives/docs/mini_release_notes",
+   "id": "retro_notes_chat"
+  },
+  {
+   "text": "2026-07-01T09:00:00\nDana Wu: Unrelated chat.",
+   "id": "orphan_chat"
+  }
+ ],
+ "urls": [
+  {
+   "link": "https://docs.example.com/export",
+   "description": "Guide to streaming exports.",
+   "id": "docs_example_com_export"
+  },
+  {
+   "link": "https://docs.example.com/export",
+   "description": "Vendor reference for chunked CSV export.",
+   "id": "docs_example_com_export"
+  },
+  {
+   "link": "https://blog.example.com/retries",
+   "description": "A post on retry backoff.",
+   "id": "blog_example_com_retries"
+  }
+ ],
+ "prs": [
+  {
+   "title": "Change 101",
+   "summary": "Summary of change 101.",
+   "link": "https://github.com/mini/mini-server/pull/101",
+   "mergeable": "True",
+   "merged": "True",
+   "number": "101",
+   "state": "closed",
+   "user": {
+    "login": "eid_b2000002"
+   },
+   "created_at": "2026-06-15T10:00:00",
+   "reviews": [
+    {
+     "state": "APPROVED",
+     "user": {
+      "login": "eid_a1000001"
+     },
+     "comment": "Looks good.",
+     "submitted_at": "2026-06-16T09:00:00"
+    },
+    {
+     "state": "COMMENTED",
+     "user": {
+      "login": "eid_f6000006"
+     },
+     "comment": "Add a test.",
+     "submitted_at": "2026-06-16T12:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_101"
+  },
+  {
+   "title": "Change 102",
+   "summary": "Summary of change 102.",
+   "link": "https://github.com/mini/mini-server/pull/102",
+   "mergeable": "True",
+   "merged": "False",
+   "number": "102",
+   "state": "closed",
+   "user": {
+    "login": "eid_a1000001"
+   },
+   "created_at": "2026-06-14T10:00:00",
+   "reviews": [],
+   "id": "github_com_mini_mini-server_pull_102"
+  },
+  {
+   "title": "Change 103",
+   "summary": "Summary of change 103.",
+   "link": "https://github.com/mini/mini-server/pull/103",
+   "mergeable": "True",
+   "merged": "False",
+   "number": "103",
+   "state": "open",
+   "user": {
+    "login": "EMP_555000111"
+   },
+   "created_at": "2026-06-17T09:00:00",
+   "reviews": [
+    {
+     "state": "COMMENTED",
+     "user": {
+      "login": "EMP_555000222"
+     },
+     "comment": "Needs work.",
+     "submitted_at": "2026-06-18T10:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_103"
+  }
+ ],
+ "answerable_questions": [
+  {
+   "question": "FIXTURE-Q-1 who owns the export bug?",
+   "ground_truth": "FIXTURE-GT-1",
+   "citations": [
+    "20260617-1-c0002"
+   ],
+   "type": "person"
+  },
+  {
+   "question": "FIXTURE-Q-2 which pr fixed it?",
+   "ground_truth": "https://github.com/mini/mini-server/pull/101",
+   "citations": [
+    "20260618-0-c0003"
+   ],
+   "type": "pr"
+  },
+  {
+   "question": "FIXTURE-Q-3 which company reported it?",
+   "ground_truth": "TechCorp",
+   "citations": [
+    "20260617-0-c0001"
+   ],
+   "type": "company"
+  }
+ ],
+ "unanswerable_questions": [
+  "FIXTURE-UQ-1 what is the budget?",
+  "FIXTURE-UQ-2 who is the CFO?"
+ ]
+}

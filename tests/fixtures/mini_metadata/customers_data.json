@@ -1,0 +1,14 @@
+[
+ {
+  "name": "Tom Hill",
+  "role": "CTO",
+  "company": "TechCorp",
+  "id": "CUST-0001"
+ },
+ {
+  "name": "Sara Lee",
+  "role": "Product Manager",
+  "company": "BlueWave",
+  "id": "CUST-0002"
+ }
+]

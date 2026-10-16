@@ -1,0 +1,44 @@
+{
+ "eid_a1000001": {
+  "employee_id": "eid_a1000001",
+  "name": "Alice Chen",
+  "role": "Senior Engineer",
+  "location": "Remote",
+  "org": "slack"
+ },
+ "eid_b2000002": {
+  "employee_id": "eid_b2000002",
+  "name": "Bob Ray",
+  "role": "Software Engineer",
+  "location": "Remote",
+  "org": "slack"
+ },
+ "eid_c3000003": {
+  "employee_id": "eid_c3000003",
+  "name": "Ian Miller",
+  "role": "Product Manager",
+  "location": "Remote",
+  "org": "slack"
+ },
+ "eid_d4000004": {
+  "employee_id": "eid_d4000004",
+  "name": "Ian Miller",
+  "role": "QA Specialist",
+  "location": "Remote",
+  "org": "slack"
+ },
+ "eid_e5000005": {
+  "employee_id": "eid_e5000005",
+  "name": "Dana Wu",
+  "role": "Product Manager",
+  "location": "Remote",
+  "org": "slack"
+ },
+ "eid_f6000006": {
+  "employee_id": "eid_f6000006",
+  "name": "Eve Park",
+  "role": "Tech Lead",
+  "location": "Remote",
+  "org": "slack"
+ }
+}
