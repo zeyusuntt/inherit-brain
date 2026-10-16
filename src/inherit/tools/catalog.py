@@ -218,10 +218,13 @@ def _resolve_components(ctx: _Ctx, text: str | None) -> list[str] | None:
         return None
     key = _area_key(text)
     comps = [r[0] for r in ctx.q("MATCH (b:Bug) WHERE b.component IS NOT NULL RETURN DISTINCT b.component")]
-    exact = sorted(c for c in comps if _area_key(c) == key)
-    if exact:
-        return exact
-    return sorted(c for c in comps if _word_in(_area_key(c), key) or _word_in(key, _area_key(c)))
+    # The intake message sometimes names only part of a product area ("backend processing"): a stored area of two or
+    # more words that the question's phrase contains is that area's partial name, and counts with the exact match.
+    near = sorted(c for c in comps if _area_key(c) == key
+                  or (len(_area_key(c).split()) >= 2 and _word_in(_area_key(c), key)))
+    if near:
+        return near
+    return sorted(c for c in comps if _word_in(key, _area_key(c)))
 
 
 def _resolve_people(ctx: _Ctx, text: str | None) -> list[str] | None:

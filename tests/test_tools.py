@@ -592,3 +592,24 @@ def test_guard_drops_unknown_names_and_unsupported_links_and_everything_on_empty
     assert ids2 == [pr(1)] and pr(99) not in t2 and pr(1) in t2
     t3, ids3, d3 = guard(f"{ALICE} did it.", [ALICE], [rows_result([])])
     assert t3 == "" and ids3 == [] and d3
+
+
+# ---------------------------------------------------------------- component matching (extraction leaves partial areas)
+class _Comps:
+    def __init__(self, comps):
+        self.comps = comps
+
+    def q(self, text, **params):
+        return [[c] for c in self.comps]
+
+
+def test_component_resolution_adds_partial_areas_of_two_or_more_words_but_never_merges_siblings():
+    comps = ["Backend Processing & Task Queue Management", "backend processing", "User Interface & Frontend Performance",
+             "frontend performance", "User Interface & Data Visualization", "Security"]
+    rc = lambda t: catalog._resolve_components(_Comps(comps), t)  # noqa: E731, SLF001
+    assert rc("backend processing and task queue management") == ["Backend Processing & Task Queue Management",
+                                                                  "backend processing"]
+    assert rc("User Interface & Frontend Performance") == ["User Interface & Frontend Performance", "frontend performance"]
+    assert rc("user interface") == ["User Interface & Data Visualization", "User Interface & Frontend Performance"]
+    assert rc("API security and access control") == []  # a one-word area ("Security") is not a partial name
+    assert rc(None) is None
