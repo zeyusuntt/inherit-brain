@@ -114,3 +114,35 @@ def test_real_bundle_has_30_products_and_no_forbidden_keys(tmp_path):
     m = make_bundle(RAW, tmp_path / "bundle")
     assert len(m.products) == 30
     assert all("ground_truth" not in json.dumps(load_bundle(tmp_path / "bundle", p)) for p in m.products[:3])
+
+
+def test_bundle_rejects_nested_forbidden_key_in_product(mini_raw, tmp_path):
+    p = mini_raw / "products" / "mini.json"
+    d = json.loads(p.read_text())
+    d["prs"][0]["reviews"][0]["ground_truth"] = "x"
+    p.write_text(json.dumps(d))
+    out = tmp_path / "bundle"
+    with pytest.raises(ValueError, match="ground_truth"):
+        make_bundle(mini_raw, out)
+    assert not out.exists()
+
+
+def test_bundle_rejects_nested_question_key_in_metadata(mini_raw, tmp_path):
+    p = mini_raw / "metadata" / "employee.json"
+    d = json.loads(p.read_text())
+    d["eid_a1000001"]["extra"] = [{"question": "q"}]
+    p.write_text(json.dumps(d))
+    with pytest.raises(ValueError, match="question"):
+        make_bundle(mini_raw, tmp_path / "bundle")
+
+
+def test_failed_build_leaves_existing_bundle(mini_raw, tmp_path):
+    out = tmp_path / "bundle"
+    first = make_bundle(mini_raw, out)
+    p = mini_raw / "products" / "mini.json"
+    d = json.loads(p.read_text())
+    d["slack"][0]["citations"] = []
+    p.write_text(json.dumps(d))
+    with pytest.raises(ValueError):
+        make_bundle(mini_raw, out)
+    assert bundle_hash(out) == first.sha256

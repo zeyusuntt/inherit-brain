@@ -14,6 +14,8 @@ from pathlib import Path
 from inherit.data.bundle import load_bundle, load_metadata
 
 MENTION_RE = re.compile(r"@(eid_[A-Za-z0-9_]+)")
+# Bot IDs seen in the real data (only slack_admin_bot occurs; the other non-directory IDs are malformed eids).
+KNOWN_BOTS = frozenset({"slack_admin_bot"})
 BUG_CHANNEL_RE = re.compile(r"^bug-(?P<owner>.+)-(?P<product>[^-]+)$")
 SPEAKER_RE = re.compile(r"^([^:\n]{1,60}): (.*)$")
 ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
@@ -42,6 +44,7 @@ class SlackMessage:
     text: str
     mentions: tuple[str, ...]
     is_bot: bool
+    in_directory: bool
     bug_channel_owner: str | None
 
 
@@ -108,6 +111,8 @@ class PullRequest:
     in_directory: bool
     merged: bool | None
     mergeable: bool | None
+    merged_raw: str
+    mergeable_raw: str
     state: str
     created_at: str
     reviews: tuple[Review, ...]
@@ -153,14 +158,16 @@ def _slack(data: dict, product: str, employees: dict, an: Counter) -> list[Slack
     for r in data["slack"]:
         ch, msg = r["Channel"], r["Message"]["User"]
         uid = msg["userId"]
-        is_bot = uid not in employees
-        if is_bot and not uid.startswith("slack_"):
-            an["slack_user_not_employee_non_bot"] += 1
+        is_bot = uid in KNOWN_BOTS
+        in_directory = uid in employees
+        if not in_directory and not is_bot:
+            an["slack_user_unknown"] += 1
         if r.get("id") != msg["utterranceID"]:
             an["slack_id_mismatch"] += 1
         out.append(SlackMessage(
             id=msg["utterranceID"], channel_id=ch["channelID"], channel_name=ch["name"], user_id=uid,
             ts=msg["timestamp"], text=msg["text"], mentions=parse_mentions(msg["text"]), is_bot=is_bot,
+            in_directory=in_directory,
             bug_channel_owner=parse_bug_channel(ch["name"], product),
         ))
     return out
@@ -241,6 +248,7 @@ def _prs(data: dict, employees: dict, an: Counter) -> list[PullRequest]:
             in_directory=login in employees,
             merged=_bool_str(p["merged"], an, "pr_merged_unparsed"),
             mergeable=_bool_str(p["mergeable"], an, "pr_mergeable_unparsed"),
+            merged_raw=p["merged"], mergeable_raw=p["mergeable"],
             state=p["state"], created_at=p["created_at"], reviews=reviews,
         ))
     return out

@@ -16,11 +16,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from inherit.config import ROOT
-from inherit.ioguard import _real, _under, repo_dir_allowed
+from inherit.data.scan import FORBIDDEN_KEYS, find_forbidden_keys  # noqa: F401
+from inherit.ioguard import _real, _under, repo_dir_allowed, _is_write_mode
 
-FORBIDDEN_KEYS = frozenset({
-    "team", "customers", "answerable_questions", "unanswerable_questions", "ground_truth", "citations",
-})
 PREREG_HASH_RE = re.compile(r"facts[ _-]?hash\W{0,10}([0-9a-f]{64})", re.IGNORECASE)
 
 
@@ -31,38 +29,53 @@ class CheckResult:
     details: list[str] = field(default_factory=list)
 
 
-def _scan_keys(obj, path: str, found: list[str]) -> None:
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if k in FORBIDDEN_KEYS:
-                found.append(f"{path}: forbidden key {k!r}")
-            _scan_keys(v, path, found)
-    elif isinstance(obj, list):
-        for v in obj:
-            _scan_keys(v, path, found)
-
-
-def check_bundle(bundle: Path) -> CheckResult:
+def check_bundle(bundle: Path, expected_products: int | None = None) -> CheckResult:
     from inherit.data.bundle import ALLOWED_METADATA, MANIFEST, bundle_hash
 
     name = "1. bundle has no forbidden keys"
     bundle = Path(bundle)
-    problems: list[str] = []
-    manifest_path = bundle / MANIFEST
     if not bundle.is_dir():
         return CheckResult(name, False, [f"bundle directory {bundle} does not exist; run make bundle"])
+    problems: list[str] = []
+    manifest_path = bundle / MANIFEST
+    declared: list[str] | None = None
+    recorded = None
     if not manifest_path.exists():
         problems.append(f"bundle manifest {manifest_path} is missing; run make bundle")
-    files = sorted(p for p in bundle.rglob("*") if p.is_file())
+    else:
+        try:
+            m = json.loads(manifest_path.read_text(encoding="utf-8"))
+            recorded = m["sha256"]
+            declared = m["products"]
+            dk = m["dropped_keys"]
+            if not (isinstance(recorded, str) and re.fullmatch(r"[0-9a-f]{64}", recorded)):
+                raise ValueError("sha256 is not a 64-char hex string")
+            if not (isinstance(declared, list) and declared and all(isinstance(x, str) for x in declared)
+                    and len(set(declared)) == len(declared)):
+                raise ValueError("products must be a non-empty list of unique names")
+            if not (isinstance(dk, dict) and set(dk) == set(declared)
+                    and all(isinstance(v, list) for v in dk.values())):
+                raise ValueError("dropped_keys must map every declared product to a list")
+        except (ValueError, KeyError, TypeError) as e:
+            problems.append(f"manifest.json is invalid: {e}")
+            declared = None
+    if declared is not None and expected_products is not None and len(declared) != expected_products:
+        problems.append(f"manifest declares {len(declared)} products, expected {expected_products}")
+
     n_scanned = 0
-    for p in files:
+    seen_products: set[str] = set()
+    seen_meta: set[str] = set()
+    for p in sorted(x for x in bundle.rglob("*") if x.is_file()):
         rel = p.relative_to(bundle).as_posix()
-        ok_layout = (
-            rel == MANIFEST
-            or (rel.startswith("products/") and rel.count("/") == 1 and rel.endswith(".json"))
-            or (rel.startswith("metadata/") and rel.split("/")[1] in ALLOWED_METADATA)
-        )
-        if not ok_layout:
+        if rel == MANIFEST:
+            kind = None
+        elif rel.startswith("products/") and rel.count("/") == 1 and rel.endswith(".json"):
+            kind = "product"
+            seen_products.add(rel[len("products/"):-len(".json")])
+        elif rel.startswith("metadata/") and rel.count("/") == 1 and rel.split("/")[1] in ALLOWED_METADATA:
+            kind = "meta"
+            seen_meta.add(rel.split("/")[1])
+        else:
             problems.append(f"{rel}: unexpected file in bundle")
             continue
         try:
@@ -70,22 +83,24 @@ def check_bundle(bundle: Path) -> CheckResult:
         except ValueError as e:
             problems.append(f"{rel}: not valid JSON ({e})")
             continue
-        _scan_keys(data, rel, problems)
-        n_scanned += 1
-    if manifest_path.exists():
-        try:
-            recorded = json.loads(manifest_path.read_text(encoding="utf-8"))["sha256"]
-        except (ValueError, KeyError):
-            problems.append("manifest.json has no readable sha256")
-        else:
-            actual = bundle_hash(bundle)
-            if actual != recorded:
-                problems.append(f"bundle sha256 {actual} does not match manifest {recorded}")
-    if n_scanned == 0 and not problems:
-        problems.append("bundle holds no files")
+        problems += find_forbidden_keys(data, rel)
+        if kind:
+            n_scanned += 1
+    for f in ALLOWED_METADATA:
+        if f not in seen_meta:
+            problems.append(f"metadata/{f} is missing from the bundle")
+    if declared is not None:
+        for missing in sorted(set(declared) - seen_products):
+            problems.append(f"declared product {missing} has no file in the bundle")
+        for extra in sorted(seen_products - set(declared)):
+            problems.append(f"products/{extra}.json is not declared in the manifest")
+    if recorded is not None and not problems:
+        actual = bundle_hash(bundle)
+        if actual != recorded:
+            problems.append(f"bundle sha256 {actual} does not match manifest {recorded}")
     if problems:
         return CheckResult(name, False, problems)
-    return CheckResult(name, True, [f"{n_scanned} files scanned, manifest hash matches"])
+    return CheckResult(name, True, [f"{len(seen_products)} products and {len(seen_meta)} metadata files scanned, manifest hash matches"])
 
 
 def check_access_log(access_dir: Path, repo_root: Path) -> CheckResult:
@@ -111,8 +126,10 @@ def check_access_log(access_dir: Path, repo_root: Path) -> CheckResult:
             count += 1
             if allowed is not True:
                 problems.append(f"{log.name}:{i}: refused access to {path}")
+            if str(e.get("mode", "")).startswith(("os.", "subprocess.")):
+                continue
             real = _real(path)
-            if _under(real, root) and not repo_dir_allowed(real, root):
+            if _under(real, root) and not repo_dir_allowed(real, root, write=_is_write_mode(e.get("mode"))):
                 problems.append(f"{log.name}:{i}: in-repo path outside allowed dirs: {path}")
         if count == 0:
             problems.append(f"{log.name}: log has no events")
@@ -155,10 +172,10 @@ def check_receipts(receipt_dirs: list[Path], prereg: Path) -> CheckResult:
     return CheckResult(name, True, [f"{len(receipts)} receipts, one facts hash, matches {prereg.name}"])
 
 
-def audit(root: Path = ROOT) -> list[CheckResult]:
+def audit(root: Path = ROOT, expected_products: int | None = None) -> list[CheckResult]:
     root = Path(root)
     return [
-        check_bundle(root / "data" / "bundle"),
+        check_bundle(root / "data" / "bundle", expected_products),
         check_access_log(root / "runs" / "access", root),
         check_receipts([root / "results" / "receipts", root / "runs" / "receipts"], root / "PREREG.md"),
     ]
@@ -167,8 +184,9 @@ def audit(root: Path = ROOT) -> list[CheckResult]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Run the three audit checks.")
     ap.add_argument("--root", default=str(ROOT))
+    ap.add_argument("--expect-products", type=int, default=30)
     args = ap.parse_args(argv)
-    results = audit(Path(args.root))
+    results = audit(Path(args.root), args.expect_products)
     for r in results:
         print(f"{'PASS' if r.ok else 'FAIL'}  {r.name}")
         for d in r.details[:20]:

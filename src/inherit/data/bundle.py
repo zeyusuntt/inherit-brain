@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from inherit.config import ROOT
+from inherit.data.scan import find_forbidden_keys
 
 RAW_DIR = ROOT / "data" / "raw"
 BUNDLE_DIR = ROOT / "data" / "bundle"
@@ -50,24 +51,36 @@ def bundle_hash(out: Path) -> str:
 
 def make_bundle(raw: Path, out: Path) -> BundleManifest:
     raw, out = Path(raw), Path(out)
-    if out.exists() and any(out.iterdir()):
-        if not (out / MANIFEST).exists():
-            raise ValueError(f"{out} exists and is not a bundle (no {MANIFEST}); refusing to wipe it")
-        shutil.rmtree(out)
-    (out / "products").mkdir(parents=True, exist_ok=True)
-    (out / "metadata").mkdir(exist_ok=True)
-
+    # Load and validate everything before touching the output directory.
     names = sorted(p.stem for p in (raw / "products").glob("*.json"))
+    products: dict[str, dict] = {}
     dropped: dict[str, list[str]] = {}
+    problems: list[str] = []
     for name in names:
         data = json.loads((raw / "products" / f"{name}.json").read_text(encoding="utf-8"))
         missing = [k for k in ALLOWED_PRODUCT_KEYS if k not in data]
         if missing:
             raise ValueError(f"product {name} is missing allowed keys {missing}")
         dropped[name] = [k for k in data if k not in ALLOWED_PRODUCT_KEYS]
-        (out / "products" / f"{name}.json").write_bytes(_dump({k: data[k] for k in ALLOWED_PRODUCT_KEYS}))
+        products[name] = {k: data[k] for k in ALLOWED_PRODUCT_KEYS}
+        problems += find_forbidden_keys(products[name], f"products/{name}.json")
+    metadata = {}
     for f in ALLOWED_METADATA:
-        (out / "metadata" / f).write_bytes(_dump(json.loads((raw / "metadata" / f).read_text(encoding="utf-8"))))
+        metadata[f] = json.loads((raw / "metadata" / f).read_text(encoding="utf-8"))
+        problems += find_forbidden_keys(metadata[f], f"metadata/{f}")
+    if problems:
+        raise ValueError("refusing to build the bundle, forbidden keys in retained data: " + "; ".join(problems[:10]))
+
+    if out.exists() and any(out.iterdir()):
+        if not (out / MANIFEST).exists():
+            raise ValueError(f"{out} exists and is not a bundle (no {MANIFEST}); refusing to wipe it")
+        shutil.rmtree(out)
+    (out / "products").mkdir(parents=True, exist_ok=True)
+    (out / "metadata").mkdir(exist_ok=True)
+    for name, data in products.items():
+        (out / "products" / f"{name}.json").write_bytes(_dump(data))
+    for f, data in metadata.items():
+        (out / "metadata" / f).write_bytes(_dump(data))
 
     manifest = BundleManifest(sha256=bundle_hash(out), dropped_keys=dropped, products=names)
     (out / MANIFEST).write_text(json.dumps(manifest.to_dict(), indent=1) + "\n", encoding="utf-8")

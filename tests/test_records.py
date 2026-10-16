@@ -42,11 +42,14 @@ def test_slack_messages(rec):
     assert not m.is_bot and m.bug_channel_owner is None
     bot = by_id["20260609-0-a0001"]
     assert bot.is_bot and bot.mentions == ("eid_e5000005",)
-    assert by_id["20260616-1-b0003"].is_bot
+    assert bot.in_directory is False
+    deploy = by_id["20260616-1-b0003"]  # unknown identity: not a known bot, not in the directory
+    assert not deploy.is_bot and not deploy.in_directory
+    assert by_id["20260610-0-a0002"].in_directory
     bug = by_id["20260617-0-c0001"]
     assert bug.bug_channel_owner == "alicechen"
     assert not by_id["20260610-0-a0002"].is_bot
-    assert "slack_user_not_employee_non_bot" not in rec.anomalies
+    assert rec.anomalies["slack_user_unknown"] == 1
 
 
 def test_documents(rec):
@@ -119,6 +122,8 @@ def test_pr_string_booleans_never_bool(mini_bundle):
     assert prs["101"].merged is False
     assert prs["102"].merged is None
     assert prs["103"].mergeable is None
+    assert (prs["101"].merged_raw, prs["102"].merged_raw) == ("False", "maybe")
+    assert prs["103"].mergeable_raw == "" and prs["103"].merged_raw == "False"
     assert rec.anomalies["pr_merged_unparsed"] == 1 and rec.anomalies["pr_mergeable_unparsed"] == 1
 
 
@@ -143,7 +148,9 @@ def test_malformed_values_kept_and_counted(mini_bundle):
     d["slack"][1]["Message"]["User"]["userId"] = "eid_unknown1"
     d["meeting_transcripts"][1]["transcript"] = "Attendees\nA B\nTranscript\nno speaker here"
     rec = build_records(d, {"eid_e5000005": {}}, [], name="mini")
-    assert rec.anomalies["slack_user_not_employee_non_bot"] >= 1
+    assert rec.anomalies["slack_user_unknown"] >= 1
+    unknown = [m for m in rec.messages if m.user_id == "eid_unknown1"][0]
+    assert not unknown.is_bot and not unknown.in_directory
     assert rec.anomalies["segment_no_speaker"] == 1
     seg = [m for m in rec.meetings if m.id == "mini_review_1"][0].segments[0]
     assert seg.speaker is None and seg.text == "no speaker here"

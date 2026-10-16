@@ -28,7 +28,7 @@ def test_audit_flags_forbidden_key(mini_bundle):
 
 
 def test_check_bundle_each_forbidden_key(mini_bundle):
-    for key in ["team", "customers", "answerable_questions", "unanswerable_questions", "ground_truth", "citations"]:
+    for key in ["question", "team", "customers", "answerable_questions", "unanswerable_questions", "ground_truth", "citations"]:
         p = mini_bundle / "products" / "mini.json"
         orig = p.read_text()
         d = json.loads(orig)
@@ -60,6 +60,42 @@ def test_check_bundle_hash_mismatch_fails(mini_bundle):
 def test_check_bundle_unexpected_file_fails(mini_bundle):
     (mini_bundle / "metadata" / "salesforce_team.json").write_text("{}")
     assert not check_bundle(mini_bundle).ok
+
+
+def test_check_bundle_manifest_only_fails(tmp_path):
+    import hashlib
+
+    b = tmp_path / "bundle"
+    b.mkdir()
+    (b / "manifest.json").write_text(json.dumps(
+        {"sha256": hashlib.sha256(b"").hexdigest(), "dropped_keys": {}, "products": []}))
+    assert not check_bundle(b).ok
+
+
+def test_check_bundle_missing_product_fails(mini_raw, tmp_path):
+    (mini_raw / "products" / "second.json").write_text((mini_raw / "products" / "mini.json").read_text())
+    b = tmp_path / "bundle"
+    make_bundle(mini_raw, b)
+    assert check_bundle(b).ok
+    (b / "products" / "second.json").unlink()
+    r = check_bundle(b)
+    assert not r.ok and any("second" in x for x in r.details)
+
+
+def test_check_bundle_missing_metadata_fails(mini_bundle):
+    (mini_bundle / "metadata" / "customers_data.json").unlink()
+    r = check_bundle(mini_bundle)
+    assert not r.ok and any("customers_data" in x for x in r.details)
+
+
+def test_check_bundle_bad_manifest_schema_fails(mini_bundle):
+    (mini_bundle / "manifest.json").write_text(json.dumps({"sha256": "zz", "products": ["mini"], "dropped_keys": {}}))
+    assert not check_bundle(mini_bundle).ok
+
+
+def test_check_bundle_expected_product_count(mini_bundle):
+    assert check_bundle(mini_bundle, expected_products=1).ok
+    assert not check_bundle(mini_bundle, expected_products=30).ok
 
 
 # check 2: access log
@@ -188,7 +224,8 @@ def test_audit_fails_when_inputs_missing_and_main_exits_nonzero(mini_raw, tmp_pa
     make_bundle(mini_raw, root / "data" / "bundle")
     results = audit(root)
     assert [r.ok for r in results] == [True, False, False]
-    assert main(["--root", str(root)]) == 1
+    assert main(["--root", str(root)]) == 1  # default expects 30 products
+    assert main(["--root", str(root), "--expect-products", "1"]) == 1
     out = capsys.readouterr().out
     assert "PASS" in out and out.count("FAIL") >= 2
 
@@ -203,4 +240,4 @@ def test_audit_all_pass(mini_raw, tmp_path):
     write_prereg(root / "PREREG.md")
     write_receipt(root / "results" / "receipts", "1.json", H)
     assert all(r.ok for r in audit(root))
-    assert main(["--root", str(root)]) == 0
+    assert main(["--root", str(root), "--expect-products", "1"]) == 0

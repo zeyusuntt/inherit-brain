@@ -138,3 +138,79 @@ def test_guarded_process_reads_bundle_not_raw(tmp_path):
     assert real(repo / "data/raw") in by_path
     if BETA_COPY.exists():
         assert False in by_path[real(BETA_COPY)]
+
+
+def test_forbidden_names_beat_directory_allowances(tmp_path):
+    repo, _ = make_repo(tmp_path)
+    for rel in ["runs/answerable_questions.json", "src/salesforce_team.json", "data/cache/ground_truth.json",
+                "data/bundle/citations.json", "data/facts/unanswerable_questions.json", "runs/other.json"]:
+        assert not is_allowed(str(repo / rel), repo), rel
+    assert is_allowed(str(repo / "src/inherit/graph/udf/herb.js"), repo)
+    assert not is_allowed(str(repo / "runs/eval/out.json"), repo)
+    assert is_allowed(str(repo / "runs/access/a.jsonl"), repo)
+    assert not is_allowed("/usr/lib/python3/answerable_questions.py", repo)
+
+
+def test_write_rules(tmp_path):
+    repo, _ = make_repo(tmp_path)
+    w = lambda rel: is_allowed(str(repo / rel), repo, write=True)  # noqa: E731
+    assert w("runs/access/a.jsonl") and w("data/cache/x") and w("data/facts/x")
+    assert not w("src/x.py") and not w("data/bundle/products/mini.json") and not w("runs/out.json")
+    assert w("src/inherit/__pycache__/x.cpython-311.pyc")
+
+
+def test_guarded_process_cannot_start_child(tmp_path):
+    repo, _ = make_repo(tmp_path)
+    log = repo / "runs/access/p.jsonl"
+    code = """
+import json, os, sys, subprocess
+sys.path.insert(0, {src!r})
+from inherit import ioguard
+ioguard.install({repo!r}, {log!r})
+out = {{}}
+for name, fn in {{
+    "popen": lambda: subprocess.Popen(["/bin/echo", "hi"]),
+    "run": lambda: subprocess.run(["/bin/echo", "hi"]),
+    "system": lambda: os.system("echo hi"),
+    "fork": lambda: os.fork(),
+    "spawn": lambda: os.spawnv(os.P_WAIT, "/bin/echo", ["echo"]),
+    "execv": lambda: os.execv("/bin/echo", ["echo"]),
+    "write_src": lambda: open({srcfile!r}, "w"),
+    "write_log": lambda: open({log!r}, "a").close(),
+}}.items():
+    try:
+        fn(); out[name] = "ok"
+    except PermissionError:
+        out[name] = "denied"
+print(json.dumps(out))
+""".format(src=str(SRC), repo=str(repo), log=str(log), srcfile=str(repo / "src/new.py"))
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(repo))
+    assert p.returncode == 0, p.stderr
+    got = json.loads(p.stdout.strip().splitlines()[-1])
+    assert {k: got[k] for k in ["popen", "run", "system", "fork", "spawn", "execv", "write_src"]} == {
+        k: "denied" for k in ["popen", "run", "system", "fork", "spawn", "execv", "write_src"]}
+    assert got["write_log"] == "ok"
+    events = [json.loads(l) for l in log.read_text().splitlines()]
+    refused = {e["mode"] for e in events if not e["allowed"]}
+    assert {"subprocess.Popen", "os.system", "os.fork", "os.exec"} <= refused
+
+
+def test_guarded_client_construction_loads_settings_before_hook(tmp_path):
+    repo, _ = make_repo(tmp_path)
+    log = repo / "runs/access/c.jsonl"
+    code = """
+import json, sys
+sys.path.insert(0, {src!r})
+from inherit import ioguard, llm
+ioguard.install({repo!r}, {log!r})
+c = llm._client("A1", None)
+try:
+    open({env!r}).read(); env = "readable"
+except PermissionError:
+    env = "denied"
+print(json.dumps({{"client": type(c).__name__, "env": env}}))
+""".format(src=str(SRC), repo=str(repo), log=str(log), env=str(ROOT / ".env"))
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(repo))
+    assert p.returncode == 0, p.stderr
+    got = json.loads(p.stdout.strip().splitlines()[-1])
+    assert got == {"client": "OpenAI", "env": "denied"}
