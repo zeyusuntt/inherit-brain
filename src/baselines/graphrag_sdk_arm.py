@@ -61,7 +61,7 @@ from inherit.tools.guard import guard, guard_evidence
 PROMPT_VERSION = "a2/v2"
 ARM_BUILD, ARM_ANSWER = "a2-build", "A2"  # the one meter name per phase; ARM_ANSWER is also the registered arm name
 SAMPLE_SEED, SAMPLE_SIZE = 20261015, 6  # the pre-registered draw of held-out products A2 runs on
-BUILD_CAP_USD, ANSWER_CAP_USD = 1.30, 0.3  # build cap raised from 1.0 by the controller to finish the AnomalyForce dev build
+BUILD_CAP_USD, ANSWER_CAP_USD = 1.45, 0.3  # build cap raised from 1.0 by the controller to finish the AnomalyForce dev build
 FALKOR_HOST, FALKOR_PORT = "localhost", 6379  # FalkorDB 4.22.1: the SDK's fulltext DDL (db.idx.fulltext.createNodeIndex
 # with a label and fields) is rejected by 6.0.2, which then trips the SDK's circuit breaker mid-ingest
 EMBED_DIM = 1024
@@ -519,12 +519,35 @@ async def _build(product: str, sources: list[Source], log: UsageLog, report: dic
         report["stats"] = await rag.get_statistics()
 
 
+NER_SOFT_FAILURE = "LLM NER returned invalid JSON"
+
+
+class _SoftFailureCounter(logging.Handler):
+    """Counts the SDK's NER replies that were not JSON (the chunk is skipped). Disclosed, not a reason to reject."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+        self.count = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if NER_SOFT_FAILURE in record.getMessage():
+            self.count += 1
+
+
 def _stats(log: UsageLog, report: dict, t0: float) -> None:
     chat_calls = [c for c in log.calls if c.completion_tokens or c.model == load_settings().model]
     report.update(seconds=round(time.monotonic() - t0, 1), calls=len(log.calls),
                   chat_calls=len(chat_calls), prompt_tokens=sum(c.prompt_tokens for c in log.calls),
                   completion_tokens=sum(c.completion_tokens for c in log.calls),
                   cost_usd=round(sum(c.cost_usd for c in log.calls), 4))
+
+
+def _record_soft_failures(product: str, counter: _SoftFailureCounter, report: dict) -> None:
+    """Add this run's count to the build manifest (a resumed build keeps the earlier runs' counts)."""
+    state = read_state(product)
+    state["ner_soft_failures"] = state.get("ner_soft_failures", 0) + counter.count
+    write_state(product, state)
+    report["ner_soft_failures_this_run"], report["ner_soft_failures_total"] = counter.count, state["ner_soft_failures"]
 
 
 def build(product: str, bundle_dir=BUNDLE_DIR, *, replace: bool = False) -> dict:
@@ -542,11 +565,17 @@ def build(product: str, bundle_dir=BUNDLE_DIR, *, replace: bool = False) -> dict
         asyncio.run(wipe())
         ontology_path(product).unlink(missing_ok=True)
         state_path(product).unlink(missing_ok=True)
+    counter = _SoftFailureCounter()
+    logging.getLogger().addHandler(counter)
     try:
         asyncio.run(_build(product, sources, log, report))
     except BuildIncomplete as e:
+        _record_soft_failures(product, counter, e.report)
         _stats(log, e.report, t0)
         raise
+    finally:
+        logging.getLogger().removeHandler(counter)
+    _record_soft_failures(product, counter, report)
     _stats(log, report, t0)
     return report
 

@@ -310,7 +310,7 @@ def test_caps_are_set_before_use(monkeypatch):
     posted = []
     monkeypatch.setattr(a2, "_post_cap", lambda arm, usd: posted.append((arm, usd)))
     a2.set_caps()
-    assert posted == [("a2-build", 1.3), ("A2", 0.3)]
+    assert posted == [("a2-build", 1.45), ("A2", 0.3)]
 
 
 def test_one_meter_name_for_answering(monkeypatch):
@@ -526,6 +526,20 @@ def test_clean_build_completes_every_source_and_finalizes(build_env):
     assert sorted(build_env["rag"].order) == sorted(ids) and build_env["rag"].finalized == 1
     assert a2.build_problems("mini", build_env["sources"]) == []
     assert rep["sources_complete"] == len(ids)
+
+
+def test_ner_soft_failures_are_counted_in_the_manifest_not_rejected(build_env):
+    import logging
+
+    async def noisy(rag, doc_id):
+        logging.getLogger("graphrag_sdk.x").warning("LLM NER returned invalid JSON, skipping chunk abc")
+    build_env["hook"] = noisy
+    rep = run_build(build_env)
+    n = len(build_env["sources"])
+    assert rep["ner_soft_failures_this_run"] == n and a2.read_state("mini")["ner_soft_failures"] == n
+    build_env["docs"] = set(build_env["rag"].docs)
+    rep = run_build(build_env)  # a resumed run with nothing to ingest adds nothing
+    assert rep["ner_soft_failures_this_run"] == 0 and rep["ner_soft_failures_total"] == n
 
 
 def test_build_problems_name_missing_sources_and_missing_finalize(build_env):
