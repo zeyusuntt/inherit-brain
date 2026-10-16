@@ -39,7 +39,7 @@ REOPEN = re.compile(r"\bre-?opened\b", re.I)
 NOFIX = re.compile(
     r"not an? (?:actual |real )?(?:bug|issue|defect)|does not require (?:a |any )?(?:fix|change)|"
     r"doesn'?t require (?:a |any )?(?:fix|change)|no fix (?:is )?(?:needed|required)|no changes? (?:are |is )?"
-    r"(?:needed|necessary|required)|expected behaviou?r|working as (?:intended|designed)|functioning as designed|"
+    r"(?:needed|necessary|required)|expected behaviou?r|(?:working|functioning|behaving) as (?:intended|designed|expected)|"
     r"by design|won'?t fix", re.I)
 GENERIC_CUE = re.compile(RESOLVED_AUX.pattern + "|" + REOPEN.pattern + "|" + NOFIX.pattern + r"|\bre-?assign\w*|"
                          r"duplicate of", re.I)
@@ -154,6 +154,15 @@ def quotes(text: str) -> list:
 def area_key(text: str) -> str:
     """Comparison key of a product area: case-folded words, `&` and `and` equal."""
     return " ".join(w for w in re.findall(r"[a-z0-9]+", straight(text).casefold().replace("&", " and ")))
+
+
+_FUNCTION_WORDS = frozenset("the a an in of for to during on at and with from by our is are be this that its their".split())
+
+
+def content_words(text: str) -> frozenset:
+    """The words of a bug name without articles and prepositions: `in`, `during the` and the like do not distinguish
+    one bug from another."""
+    return frozenset(w for w in area_key(text).split() if w not in _FUNCTION_WORDS and w != "and")
 
 
 def cust_ids(text: str) -> list[str]:

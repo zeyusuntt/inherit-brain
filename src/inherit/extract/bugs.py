@@ -346,8 +346,9 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
             return _dt(ch_bugs[bid]["first_ts"]) <= _dt(ts)
 
         def find_bug(text, ts):
-            """(bug id, method) or (None, None): exact or alias key, else a unique bug whose title or alias (3 words
-            or more) sits whole inside the mention or the other way round. More than one candidate is no match."""
+            """(bug id, method) or (None, None): exact or alias key; else a unique bug whose title or alias (3 words or
+            more) sits whole inside the mention or the other way round; else a unique bug whose title or alias has the
+            same content words (3 or more). More than one candidate is no match."""
             k = key_of(text)
             bid = registry.get(k)
             if bid and eligible(bid, ts):
@@ -356,7 +357,12 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                 return None, None
             hits = {rb for rk, rb in registry.items() if eligible(rb, ts) and (
                 (len(rk.split()) >= 3 and f" {rk} " in f" {k} ") or (len(k.split()) >= 3 and f" {k} " in f" {rk} "))}
-            return (next(iter(hits)), "contained") if len(hits) == 1 else (None, None)
+            if len(hits) == 1:
+                return next(iter(hits)), "contained"
+            words = br.content_words(text)
+            same = {rb for rk, rb in registry.items() if eligible(rb, ts) and len(words) >= 3
+                    and br.content_words(rk) == words}
+            return (next(iter(same)), "words") if len(same) == 1 else (None, None)
 
         for si, session in enumerate(sessions(msgs)):
             rep["sessions"] += 1

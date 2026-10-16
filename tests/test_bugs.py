@@ -557,3 +557,28 @@ def test_bug_title_slightly_reworded_by_the_model_is_cited_by_its_customer_id(tm
     assert out.report["repaired_citations"] == 1
     ev = nodes(out.facts, "BugEvent")["BugEvent:Mini:20260111-5-b0006:0"]
     assert ev.props["citations"][0]["quote"] == "CUST-0064"
+
+
+def test_mention_with_the_same_content_words_links_without_the_model(tmp_path):
+    slack = _two_bug_slack("Hi team, the bug about Manual Actions Log Entries Duplicate has been resolved.")
+    chat = fx.ScriptedChat()
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    assert chat.calls == []
+    r = next(n for n in nodes(out.facts, "BugEvent").values() if n.props["type"] == "RESOLVED")
+    assert r.props["link_method"] == "words" and r.props["bug"].endswith("duplicate-log-entries-for-manual-actions")
+
+
+def test_dropping_function_words_makes_during_the_same_as_in(tmp_path):
+    slack = [
+        ("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
+        ("20260111-1-b0002", fx.IAN, "2026-01-11T09:02:00",
+         f"First up, we have a 'Insecure Data Transmission in Export Process' issue. Customer CUST-0047 is affected. "
+         f"@{fx.EMMA}, can you take this one?"),
+        ("20260126-0-f0001", fx.EMMA, "2026-01-26T13:00:00",
+         "Hi team, I looked into the reported issue about insecure data transmission during the export process."),
+        ("20260126-1-f0002", fx.EMMA, "2026-01-26T13:02:00", "After reviewing, this is functioning as intended."),
+    ]
+    chat = fx.ScriptedChat()
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    assert chat.link_calls == []  # (a session call for the missing product area is separate)
+    assert out.report["events"]["unmatched"] == 0
