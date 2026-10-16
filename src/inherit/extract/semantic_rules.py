@@ -17,6 +17,7 @@ DEMO_DESC = re.compile(r"\bdemo showing how (.+?) works\b", re.IGNORECASE)
 PREV_CUE = re.compile(
     r"\b(?:last|previous|prior|latest|older) (?:release|version|team)\b|\bdifferent team\b"
     r"|\b(?:didn't|did not) develop this release\b", re.IGNORECASE)
+URL_IN_TEXT = re.compile(r"https?://")
 PR_NUMBER = re.compile(r"\bPRs?\s*#?\s*\d+", re.IGNORECASE)
 PR_LINK = re.compile(r"https?://github\.com/([^/\s]+)/([^/\s]+)/pull/\d+")
 DOC_WORDS = r"(?:Market Research Report|Product Vision Document|Product Requirements Document" \

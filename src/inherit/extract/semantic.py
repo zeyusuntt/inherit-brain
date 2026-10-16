@@ -35,7 +35,7 @@ FATE_VERSION = "feature_fate/v1"
 PENDING_VERSION = "pending/v1"
 PROMPT_VERSION = SEMANTIC_PROMPT_VERSION
 SESSION_CHARS = 18000  # about 6,000 input tokens of message text per call
-MEMBERSHIP_BATCH = 20
+MEMBERSHIP_BATCH = 10
 MEETING_ALLOWED = {("segment", "text"), ("chat", "text")}
 SESSION_ALLOWED = {("message", "text")}
 PR_ALLOWED = {("pr", "title"), ("pr", "summary")}
@@ -48,7 +48,35 @@ CLAIM_KINDS = COMPETITOR_KINDS | {"customer_issue", "customer_strength", "qa_iss
 CUSTOMER_KINDS = {"customer_issue", "customer_strength"}
 ACTIONS = {"withhold", "resume", "merge", "revert", "question"}
 CUST_RE = re.compile(r"\bCUST-\d+\b")
+DOC_TYPE_RE = re.compile(sr.DOC_WORDS, re.IGNORECASE)
 PRODUCT_PLANNING = "product-planning"
+# Wording a cited record must contain for a model feature event of that kind (the model over-reads plans as results).
+EVENT_CUES = {
+    "implemented": re.compile(r"complet|\bmerged\b|finish|\bdone\b|shipp|deliver|deploy|launch|implemented|released"
+                              r"|wrapped up|resolved|went live|in production", re.I),
+    "held": re.compile(r"\bhold\b|on hold|delay|postpon|paus|put off|defer|\bdrop|shelve|halt|cancel|scrap|\bstop"
+                       r"|not (?:to )?(?:merge|proceed|move forward|go ahead)|won't|hold off", re.I),
+    "resumed": re.compile(r"resum|move forward|proceed|go ahead|restart|reinstat|back on|pick (?:it )?back|continue"
+                          r"|reopen", re.I),
+    "reverted": re.compile(r"revert|roll(?:ed)? back|\bundo|backed out", re.I),
+}
+COMP_CUE = re.compile(r"competitor|\brivals?\b|competing", re.IGNORECASE)
+# A PR decision's action needs its own wording in the deciding message; a reason needs support in the session so far.
+ACTION_CUES = {
+    "withhold": re.compile(r"not (?:be )?merg|n't (?:be )?merg|\bhold|unmerged|best not|withhold|not proceed|not going to"
+                           r"|shouldn't|should not|\bclose|\bstop|\bpaus", re.I),
+    "resume": re.compile(r"merg|go ahead|proceed|move forward|resum|continue|reinstat|back on", re.I),
+    "merge": re.compile(r"merg|go ahead|proceed|move forward", re.I),
+    "revert": re.compile(r"revert|roll(?:ed)? back|\bundo", re.I),
+}
+REASON_CUES = {
+    "product_direction": re.compile(r"direction|priorit|strateg|roadmap|pivot|\bfocus|shift|no longer", re.I),
+    "security": re.compile(r"secur|vulnerab|exploit|breach", re.I),
+    "introduced_bugs": re.compile(r"\bbugs?\b|crash|fail|regress|degrad|errors?\b", re.I),
+}
+# A lead or assignment cited on the segment where someone is asked, not on the answer, is the requester's line.
+REQUEST_CUE = re.compile(r"\b(?:can|could|would|will) you\b|\byou(?:'re| are) (?:assigned|on|responsible|going to|the one)"
+                         r"|\bcan we get you\b", re.I)
 
 
 @dataclass
@@ -77,15 +105,6 @@ def _header(rec, cat) -> list[str]:
     return [f"PRODUCT: {rec.product}{also}"]
 
 
-def _feature_pr_list(cat) -> list[str]:
-    seen, out = set(), []
-    for p in sorted(cat.prs, key=lambda p: (p.repo or "", int(p.number) if p.number.isdigit() else 0)):
-        if p.repo_scope == "product" and parse_revert_title(p.title) is None and p.title not in seen:
-            seen.add(p.title)
-            out.append(f"- {p.title}")
-    return out
-
-
 def build_meeting_request(mt, rec, cat, chats, known_titles) -> tuple[list[dict], int]:
     lines = _header(rec, cat) + [f"MEETING: {mt.id}", f"DATE: {mt.date}"]
     if mt.document_type and mt.document_type != PRODUCT_PLANNING:
@@ -96,15 +115,13 @@ def build_meeting_request(mt, rec, cat, chats, known_titles) -> tuple[list[dict]
     else:
         lines.append("This is a PRODUCT PLANNING meeting.")
     lines.append("KNOWN FEATURES: " + ("; ".join(known_titles) if known_titles else "none"))
-    plist = _feature_pr_list(cat)
-    lines += ["PR LIST (exact titles of the product's pull requests):"] + (plist or ["- none"])
     lines += ["", "SEGMENTS:"]
     for s in mt.segments:
         lines.append(f"[{s.id}] {s.speaker}: {s.text}" if s.speaker else f"[{s.id}] {s.text}")
     clines = [(f"{c.id}@{k}", sp, tx) for c in chats for k, (sp, tx) in enumerate(chat_lines(c.text), 1)]
     if clines:
         lines += ["", "CHAT LINES:"] + [f"[{ref}] {sp}: {tx}" for ref, sp, tx in clines]
-    max_tokens = min(6000, 1200 + 60 * (len(mt.segments) + len(clines)))
+    max_tokens = min(8000, 2400 + 80 * (len(mt.segments) + len(clines)))
     return [{"role": "system", "content": MEETING_SYSTEM}, {"role": "user", "content": "\n".join(lines)}], max_tokens
 
 
@@ -125,30 +142,41 @@ def build_session_request(chunk, rec, cat, competitors, anchors) -> tuple[list[d
             min(4000, 800 + 80 * len(real)))
 
 
-def build_membership_request(batch, features) -> tuple[list[dict], int]:
+def build_membership_request(batch, features, examples=()) -> tuple[list[dict], int]:
     lines = ["FEATURES:"]
     for i, f in enumerate(features, 1):
         det = "; ".join(f["details"][:6])
         lines.append(f"F{i}: {f['title']}" + (f" | {det}" if det else ""))
+    if examples:
+        lines += ["", "EXAMPLES (PRs already assigned from the meetings):"] + [f"- {t} -> F{k}" for t, k in examples]
     lines += ["", "PRS:"]
     for i, p in enumerate(batch, 1):
-        lines.append(f"P{i}: {p['title']} | {' '.join(p['summary'].split())[:240]}")
+        lines.append(f"P{i}: {p['title']} | {' '.join(p['summary'].split())[:200]}")
     return ([{"role": "system", "content": PR_MEMBERSHIP_SYSTEM}, {"role": "user", "content": "\n".join(lines)}],
-            min(3000, 300 + 60 * len(batch)))
+            min(3000, 400 + 90 * len(batch)))
 
 
 # ---------------------------------------------------------------- the run
 
 def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> SemanticResult:
     product = rec.product
-    _, rules_rep = run_rules(rec)
+    rules_facts, rules_rep = run_rules(rec)
     cat = build_catalog(rec).with_previous(rules_rep["previous_names"])
     anchors = set(rules_rep["anchor_messages"])
     _, name_rows = resolve_meeting_names(rec)
     caller = Caller(chat, cache_root, PROMPT_VERSION, dry=dry)
     own_names = [product, *cat.aliases]
     own_keys = {normalise(n) for n in own_names}
-    pr_rec = {p.id: p for p in rec.prs}
+    doc_prev = {n.id.split(":", 1)[1] for n in rules_facts.nodes
+                if n.label == "Document" and n.props.get("release_scope") == "previous"}
+    doc_feedback = {d.id for d in rec.documents if d.feedback}
+
+    def pick_doc(type_name):
+        """One document of a type named in a session: not the previous release's, then one that has feedback."""
+        c = [d for d in cat.documents if normalise(d.type) == normalise(type_name)]
+        c = [d for d in c if d.id not in doc_prev] or c
+        return ([d for d in c if d.id in doc_feedback] or c or [None])[0]
+
     prs_raw = {p.link: p for p in rec.prs}
 
     drops: dict[str, Counter] = defaultdict(Counter)
@@ -199,6 +227,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
     competitor_alias: dict[str, set] = defaultdict(set)
     failed_sessions: list[dict] = []  # {first_message, reason, text}
     session_sums = {"planning": Counter(), "other": Counter(), "excluded": Counter()}
+    excluded_ids: dict[str, list[str]] = defaultdict(list)
 
     # ---- 1. documents: anonymous feedback bullets
     n_feedback_docs = n_items = 0
@@ -263,9 +292,18 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 state["unresolved_feature_refs"] += 1
             return fid
 
-        ok, bad = validate_items(_items(data, "features"), supplied, MEETING_ALLOWED)
-        lose("features", bad)
-        state["unresolved_feature_refs"] += sum(bad.values())
+        ok = []
+        for f in _items(data, "features"):
+            good, bad = validate_items([f], supplied, MEETING_ALLOWED)
+            if good:
+                ok += good
+            elif bad.get("no_citation") and cat.resolve_feature(_str(f.get("title"))) and _str(f.get("local_id")):
+                # the model listed a known feature without evidence from this meeting: a reference, not a mention
+                local[_str(f["local_id"])] = cat.resolve_feature(_str(f.get("title")))
+                state["known_feature_references"] = state.get("known_feature_references", 0) + 1
+            else:
+                lose("features", bad)
+                state["unresolved_feature_refs"] += 1
         for f in ok:
             title = _str(f.get("title"))
             if not title:
@@ -287,6 +325,9 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 continue
             if fid is None:
                 drops["contributions"]["feature_unresolved"] += 1
+                continue
+            if c["kind"] in ("lead", "assigned") and all(REQUEST_CUE.search(x["quote"]) for x in c["citations"]):
+                drops["contributions"]["request_not_acceptance"] += 1
                 continue
             sp = speaker_of[ref]
             res = lookup(name_rows, mt.id, sp) if sp else None
@@ -322,6 +363,10 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 continue
             if fid is None:
                 drops["feature_events"]["feature_unresolved"] += 1
+                continue
+            cited = " ".join(r.text for r in supplied if r.id in {c["record_id"] for c in ev["citations"]} | {record_of.get(ref)})
+            if ev["kind"] in EVENT_CUES and not EVENT_CUES[ev["kind"]].search(cited):
+                drops["feature_events"]["no_evidence_for_kind"] += 1
                 continue
             reason_ = ev.get("reason") if ev.get("reason") in REASONS else None
             if reason_ is None and ev["kind"] in ("held", "reverted"):
@@ -363,7 +408,22 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 continue
             reviews.append({"doc": doc.id, "eids": res.ids, "ambiguous": res.ambiguous, "kind": rv["kind"],
                             "section": _str(rv.get("section")) or None, "text": _str(rv.get("text")),
-                            "record": record_of[ref], "citations": rv["citations"], "speaker": sp})
+                            "record": record_of[ref], "citations": rv["citations"], "speaker": sp,
+                            "source_text": next((r_.text for r_ in supplied if r_.id == record_of[ref]), "")[:600]})
+
+    # ---- competitors named by demo links (rule, no model): known before any session is read
+    demo_links = []
+    for u in rec.urls:
+        name = next((n for n in (sr.competitor_of_demo(d, own_names) for d in u.descriptions) if n), None)
+        if name is None:
+            continue
+        cid = cat.register_competitor(name, citations=[{"record_id": u.id, "quote": u.descriptions[0]}])
+        competitor_alias[cid].add(name)
+        for link in u.links:
+            nodes.append(Node("Url", f"Url:{link}", {"link": link, "kind": "demo", "subject": cid,
+                                                     "source_competitor": name}))
+            edge("ABOUT", f"Url:{link}", cid, [u.id], kind="demo")
+            demo_links.append({"link": link, "competitor": cid})
 
     # ---- 3. Slack sessions: planning channels always, other channels routed by rules
     by_channel: dict[str, list] = defaultdict(list)
@@ -382,6 +442,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             send, why = sr.route_session(sess)
             if not send:
                 session_sums["excluded"][why] += 1
+                excluded_ids[why].append(real[0].id)
                 continue
             if group == "other":
                 session_sums["other"]["routed"] += 1
@@ -403,24 +464,13 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 continue
             session_sums[group]["extracted"] += 1
             _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, reviews, observations,
-                             decisions, discusses, competitor_alias)
-
-    # ---- 4. competitor demo links (rule, no model)
-    demo_links = []
-    for u in rec.urls:
-        name = next((n for n in (sr.competitor_of_demo(d, own_names) for d in u.descriptions) if n), None)
-        if name is None:
-            continue
-        cid = cat.register_competitor(name, citations=[{"record_id": u.id, "quote": u.descriptions[0]}])
-        competitor_alias[cid].add(name)
-        for link in u.links:
-            nodes.append(Node("Url", f"Url:{link}", {"link": link, "kind": "demo", "subject": cid,
-                                                     "source_competitor": name}))
-            edge("ABOUT", f"Url:{link}", cid, [u.id], kind="demo")
-            demo_links.append({"link": link, "competitor": cid})
+                             decisions, discusses, competitor_alias, pick_doc)
 
     # ---- 5. PR association: meeting titles first, then batches of the unmatched
-    product_prs = [p for p in cat.prs if p.repo_scope == "product" and parse_revert_title(p.title) is None]
+    bugfix = {m_.group(0) for m in rec.messages if m.bug_channel_owner for m_ in sr.PR_LINK.finditer(m.text)}
+    product_prs = [p for p in cat.prs if p.repo_scope == "product" and parse_revert_title(p.title) is None
+                   and p.link not in bugfix]  # a PR a bug channel cites fixes a bug; it is not feature development
+    product_prs.sort(key=lambda p: (p.repo or "", int(p.number) if p.number.isdigit() else 0))
     feats = [{"id": fid, "title": e["title"], "details": e["details"]} for fid, e in feature_info.items()]
     unmatched = [p for p in product_prs if p.link not in dev_links]
     batches = [unmatched[i:i + MEMBERSHIP_BATCH] for i in range(0, len(unmatched), MEMBERSHIP_BATCH)]
@@ -428,7 +478,10 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         if not feats:
             break
         rows = [{"title": p.title, "summary": prs_raw[p.link].summary, "entry": p} for p in batch]
-        req, tokens = build_membership_request(rows, feats)
+        fidx = {f["id"]: k for k, f in enumerate(feats, 1)}
+        examples = [(prs_raw[link].title, fidx[ls[0]["feature"]]) for link, ls in dev_links.items()
+                    if ls[0]["basis"] == "meeting_title" and ls[0]["feature"] in fidx][:12]
+        req, tokens = build_membership_request(rows, feats, examples)
         data, reason = caller.json_call("membership", req, tokens)
         if data is None:
             failures.append({"kind": "membership", "id": batch[0].link, "reason": reason})
@@ -564,12 +617,16 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         edge("DISCUSSES", src, dst, [src.split(":", 1)[1]])
     for c in contributions:
         for eid in c["eids"]:
-            edge("CONTRIBUTED", person(eid), c["feature"], [c["record"]], c["ref"], kind=c["kind"],
+            edge("CONTRIBUTED", person(eid), c["feature"], [c["record"]], f"{c['ref']}:{c['kind']}", kind=c["kind"],
                  ambiguous=c["ambiguous"], speaker_name=c["speaker"], n_candidates=len(c["eids"]))
+    remark_n: Counter = Counter()
     for r in reviews:
+        n = remark_n[(r["record"], r["doc"])]  # several remarks of one message get their own edge
+        remark_n[(r["record"], r["doc"])] += 1
         for eid in r["eids"]:
-            edge("SUGGESTED", person(eid), f"Document:{r['doc']}", [r["record"]], r["record"], section=r["section"],
-                 text=r["text"], kind=r["kind"], ambiguous=r["ambiguous"])
+            edge("SUGGESTED", person(eid), f"Document:{r['doc']}", [r["record"]],
+                 r["record"] if n == 0 else f"{r['record']}#{n + 1}", section=r["section"], text=r["text"],
+                 kind=r["kind"], ambiguous=r["ambiguous"], source_text=r["source_text"])
     for link, fl in feat_of_pr.items():
         for fid in fl:
             first = next(x for x in dev_links[link] if x["feature"] == fid)
@@ -616,7 +673,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             "planning": {"total": session_sums["planning"]["total"],
                          "extracted": session_sums["planning"]["total"] - sessions_failed_planning},
             "other": {"total": session_sums["other"]["total"], "routed": session_sums["other"]["routed"],
-                      "excluded": dict(session_sums["excluded"]),
+                      "excluded": dict(session_sums["excluded"]), "excluded_first_messages": dict(excluded_ids),
                       "extracted": session_sums["other"]["routed"] - (len(failed_ids) - sessions_failed_planning)},
             "failed": failed_ids, "split_sessions": state["split_sessions"]},
         "unresolved_feature_refs": state["unresolved_feature_refs"],
@@ -628,7 +685,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         "feature_events": dict(Counter(e["kind"] for e in fevents)),
         "contributions": dict(Counter(c["kind"] for c in contributions)),
         "contributors": len({e for c in contributions for e in c["eids"]}),
-        "pr_membership": {"by_basis": dict(Counter(l_["basis"] for ls in dev_links.values() for l_ in ls[:1])),
+        "pr_membership": {"bugfix_prs_excluded": len(bugfix), "by_basis": dict(Counter(l_["basis"] for ls in dev_links.values() for l_ in ls[:1])),
                           "unassigned": unassigned, "features_with_prs": len({f for fl in feat_of_pr.values() for f in fl})},
         "pr_decisions": {"by_action": dict(decision_prs), "unresolved_prs": state.get("unresolved_prs", [])},
         "pending": dict(pending_counts),
@@ -668,7 +725,7 @@ def estimate_semantic(rec, *, cache_root=None) -> dict:
 # ---------------------------------------------------------------- one Slack session chunk
 
 def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, reviews, observations, decisions,
-                     discusses, competitor_alias) -> None:
+                     discusses, competitor_alias, pick_doc) -> None:
     msgs = {m.id: m for m in chunk if not m.is_bot}
     supplied = [SourceRecord(m.id, "message", "text", m.text) for m in msgs.values()]
     text_all = "\n".join(m.text for m in msgs.values())
@@ -690,23 +747,22 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
             drops["reviews"]["bad_message_or_kind"] += 1
             continue
         doc = None
-        for m in msgs.values():  # the document shared in this session, latest at or before the remark
-            if order[m.id] > order[mid]:
-                break
+        upto = [m for m in msgs.values() if order[m.id] <= order[mid]]
+        for m in upto:  # the document shared in this session, latest at or before the remark
             for link in sorted(_links(m.text)):
                 doc = cat.doc_by_link(link) or doc
-        ref = _str(rv.get("document_ref"))
-        if doc is None and ref:
-            doc = cat.doc(ref)
-            if doc is None:
-                types = [d for d in cat.documents if normalise(d.type) == normalise(ref)]
-                doc = types[0] if types else None
+        if doc is None:  # else the document type named closest before the remark
+            for m in reversed(upto):
+                hit = list(DOC_TYPE_RE.finditer(m.text))
+                if hit:
+                    doc = pick_doc(hit[-1].group(0))
+                    break
         if doc is None:
             drops["reviews"]["document_unresolved"] += 1
             continue
         reviews.append({"doc": doc.id, "eids": [msgs[mid].user_id], "ambiguous": False, "kind": rv["kind"],
                         "section": _str(rv.get("section")) or None, "text": _str(rv.get("text")), "record": mid,
-                        "citations": rv["citations"], "speaker": None})
+                        "citations": rv["citations"], "speaker": None, "source_text": msgs[mid].text[:600]})
         discusses.add((f"Message:{mid}", f"Document:{doc.id}"))
 
     # claims
@@ -727,8 +783,15 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
             if not key or key in own_keys:
                 drops["claims"]["subject_is_product"] += 1
                 continue
-            if key not in text_norm and cat.resolve_competitor(subject) is None:
+            known = cat.resolve_competitor(subject) is not None
+            if key not in text_norm and not known:
                 drops["claims"]["subject_not_in_session"] += 1
+                continue
+            if not known and not any(COMP_CUE.search(m.text) and key in normalise(m.text) for m in msgs.values()):
+                drops["claims"]["subject_not_a_competitor"] += 1  # named, but never called a competitor or rival
+                continue
+            if sr.URL_IN_TEXT.search(msgs[mid].text) and "demo" in msgs[mid].text.lower():
+                drops["claims"]["demo_share_message"] += 1  # sharing a demo link states no feature or weakness
                 continue
             cid = cat.register_competitor(subject, citations=c["citations"])
             competitor_alias[cid].add(subject)
@@ -738,8 +801,13 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
         cust = []
         if kind in CUSTOMER_KINDS:
             cust = [x for x in dict.fromkeys(c.get("customer_ids") or []) if isinstance(x, str)]
+            cited_text = " ".join(msgs[r["record_id"]].text for r in c["citations"] if r["record_id"] in msgs)
             if any(CUST_RE.fullmatch(x) is None or x not in text_all for x in cust):
                 drops["claims"]["customer_not_in_session"] += 1
+                continue
+            cust = [x for x in cust if x in cited_text or x in msgs[mid].text]
+            if not cust:
+                drops["claims"]["no_customer_in_cited_message"] += 1
                 continue
         reporters = []
         if kind == "qa_issue":
@@ -750,11 +818,14 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
                     break
         scope, basis = "unknown", "none"
         if kind not in COMPETITOR_KINDS:
+            # R2: only record-specific evidence. The claim's own message says last/previous release (rules anchor), or
+            # the session it belongs to does (a rules anchor, or the cue words in its text). The model's own scope
+            # label is not evidence either way.
             if mid in anchors:
                 scope, basis = "previous", "phrase"
             elif anchor_session:
                 scope, basis = "previous", "anchor_session"
-            elif c.get("release_scope") == "previous" and session_prev:
+            elif session_prev:
                 scope, basis = "previous", "session_cue"
             elif c.get("release_scope") == "previous":
                 state["scope_downgraded"] += 1
@@ -772,7 +843,15 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
         if mid not in msgs or d.get("action") not in ACTIONS:
             drops["pr_decisions"]["bad_message_or_action"] += 1
             continue
+        act = d["action"]
+        if act in ACTION_CUES and not ACTION_CUES[act].search(msgs[mid].text):
+            drops["pr_decisions"]["no_evidence_for_action"] += 1
+            continue
         reason = d.get("reason") if d.get("reason") in REASONS else None
+        if reason in REASON_CUES and not REASON_CUES[reason].search(
+                " ".join(m.text for m in msgs.values() if order[m.id] <= order[mid])):
+            drops["pr_decisions"]["reason_unsupported"] += 1
+            reason = None
         for idx, ref in enumerate(d.get("prs") or []):
             p, why = sr.resolve_pr(ref, cat)
             if p is None:

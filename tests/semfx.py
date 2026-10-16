@@ -106,6 +106,8 @@ SLACK = [
     ("20260404-0-f0004", EVE, "2026-04-04T09:00:00", D_PR7) + DEV,
     ("20260405-0-g0001", EVE, "2026-04-05T09:00:00", ART) + DEV,
     ("20260406-0-h0001", ANN, "2026-04-06T09:00:00", B_BUG) + BUGCH,
+    ("20260406-1-h0002", BEN, "2026-04-06T09:05:00",
+     "The crash is fixed in https://github.com/salesforce/Mini/pull/10") + BUGCH,
 ]
 
 
@@ -137,6 +139,7 @@ PRS = [
     pr(7, "Integrate LSTM Forecasting", author=BEN, states=("CHANGES_REQUESTED",)),  # same title, other author
     pr(8, "Unrelated Cleanup", summary="Remove dead code.", state="closed", merged=True),
     pr(9001, "Support RNN Streams", repo=("apache", "kafka"), merged=True, state="closed"),
+    pr(10, "Fix Crash In Export", merged=True, state="closed", summary="Fixes the export crash."),  # a bug-fix PR
 ]
 
 URLS = [

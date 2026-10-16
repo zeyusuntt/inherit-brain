@@ -63,7 +63,7 @@ def test_contribution_person_comes_from_the_referenced_segment_speaker(res):
     assert (f"Person:{fx.BEN}", ALERTS, "lead") in c  # Ben speaks in segment 5; Ann (who asked) is not the lead
     assert (f"Person:{fx.ANN}", ALERTS, "lead") not in c
     assert (f"Person:{fx.CY}", ALERTS, "support") in c and not c[(f"Person:{fx.CY}", ALERTS, "support")].props["ambiguous"]
-    assert c[(f"Person:{fx.BEN}", ALERTS, "lead")].key == f"{fx.M1}#5"
+    assert c[(f"Person:{fx.BEN}", ALERTS, "lead")].key == f"{fx.M1}#5:lead"
 
 
 def test_ambiguous_speaker_keeps_both_candidates_and_unresolved_is_counted(res):
@@ -77,9 +77,9 @@ def test_ambiguous_speaker_keeps_both_candidates_and_unresolved_is_counted(res):
 def test_meeting_prompt_carries_catalogue_and_names_no_employee_ids(res):
     _, chat = res
     first = chat.kind("meeting")[0]["user"]
-    assert f"MEETING: {fx.M1}" in first and "Integrate LSTM Forecasting" in first
-    assert "Support RNN Streams" not in first  # external PRs are not catalogue entries
-    assert "Revert PR# 1" not in first  # revert PRs are not feature titles
+    assert f"MEETING: {fx.M1}" in first
+    assert "PR LIST" not in first and "Add Metrics Export" in first  # only titles the speakers say; no catalogue to copy
+    assert "Support RNN Streams" not in first and "Revert PR# 1" not in first
     assert fx.BEN not in first.split("SEGMENTS")[1]
     second = chat.kind("meeting")[1]["user"]
     assert "real-time alerts" in second  # KNOWN FEATURES from the first meeting
@@ -95,6 +95,28 @@ def test_meeting_citation_that_is_not_a_quote_drops_the_item(tmp_path):
     assert out.report["dropped"]["features"] == {"quote_not_found": 1}
     assert out.report["unresolved_feature_refs"] >= 3  # its contributions, events and links lost their feature
     assert out.report["manifest"]["complete"] is False  # a validation loss on a feature-bearing record
+
+
+def test_event_without_the_wording_of_its_kind_is_dropped(tmp_path):
+    bad = json.loads(fx.M1_ANSWER)
+    bad["feature_events"].append({"feature_ref": "f1", "kind": "implemented", "reason": None, "pr": None,
+                                  "segment_ref": f"{fx.M1}#5", "citations": [fx.cite(f"{fx.M1}#5", "I'll lead real-time alerts")]})
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(bad)
+    out, _ = run(chat, tmp=tmp_path)
+    assert out.report["dropped"]["feature_events"] == {"no_evidence_for_kind": 1}
+    assert nodes(out.facts, "Feature")[ALERTS].props["implemented"] is False
+
+
+def test_lead_cited_on_the_asking_segment_is_dropped(tmp_path):
+    bad = json.loads(fx.M1_ANSWER)
+    bad["contributions"].append({"feature_ref": "f1", "segment_ref": f"{fx.M1}#4", "kind": "lead",
+                                 "citations": [fx.cite(f"{fx.M1}#4", "Ben, can you lead real-time alerts?")]})
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(bad)
+    out, _ = run(chat, tmp=tmp_path)
+    assert out.report["dropped"]["contributions"] == {"request_not_acceptance": 1}
+    assert (f"Person:{fx.ANN}", ALERTS) not in pairs(out.facts, "CONTRIBUTED")
 
 
 def test_citation_to_a_record_outside_the_call_is_dropped(tmp_path):
@@ -148,8 +170,12 @@ def test_batch_call_assigns_unmatched_prs_and_only_with_a_valid_quote(res):
     assert (f"PR:{P}3", ALERTS) in about and (f"PR:{P}4", ALERTS) in about
     assert not [k for k in about if k[0] == f"PR:{P}8"]  # nothing answered for it
     prompt = chat.kind("membership")[0]["user"]
-    assert "Predictive Model Evaluation" in prompt and "Add Metrics Export" not in prompt  # matched by title already
+    prs_part = prompt.split("PRS:")[1]
+    assert "Predictive Model Evaluation" in prs_part and "Add Metrics Export" not in prs_part  # matched by title already
+    assert "Add Metrics Export -> F2" in prompt  # shown as an example of an assignment
     assert "Support RNN Streams" not in prompt and "Revert PR# 1" not in prompt
+    assert "Fix Crash In Export" not in prompt  # a bug channel cites it: a bug fix, not feature development
+    assert out.report["pr_membership"]["bugfix_prs_excluded"] == 1
     assert out.report["pr_membership"]["unassigned"] == [f"{P}8"]
 
 
@@ -376,7 +402,7 @@ def test_competitor_registry_is_passed_to_later_sessions(res):
     later = [c["user"] for c in chat.kind("session") if "[20260315-0-c0001]" in c["user"]][0]
     assert "KNOWN COMPETITORS: RivalCo" in later
     earlier = [c["user"] for c in chat.kind("session") if "[20260305-0-a0001]" in c["user"]][0]
-    assert "KNOWN COMPETITORS: none" in earlier
+    assert "KNOWN COMPETITORS: RivalCo" in earlier  # named by its demo link before any session is read
 
 
 # ---------------------------------------------------------------- cache, failures, estimate, graph integrity
@@ -428,7 +454,7 @@ def test_report_counts(res):
     assert r["features"] == 2 and r["feature_events"]["held"] == 2 and r["feature_events"]["resumed"] == 1
     assert r["suggestions"] == 4 and r["contributions"]["lead"] == 1
     assert r["pr_membership"]["by_basis"] == {"meeting_title": 3, "batch": 3}
-    assert r["prompt_version"] == "semantic-v1"
+    assert r["prompt_version"] == "semantic-v2"
     assert r["extraction_failures"] == []
 
 
@@ -445,7 +471,7 @@ def test_write_semantic_writes_facts_and_report_and_estimate_writes_nothing(tmp_
     d = root / "data" / "facts" / "Mini"
     facts = Facts.from_jsonl(d / "semantic.jsonl")
     assert {n.id for n in facts.nodes if n.label == "Feature"} == {ALERTS, PRED}
-    assert json.loads((d / "semantic_report.json").read_text())["prompt_version"] == "semantic-v1"
+    assert json.loads((d / "semantic_report.json").read_text())["prompt_version"] == "semantic-v2"
     assert r["manifest"]["complete"] is True
     assert "complete True" in capsys.readouterr().out
 
@@ -466,3 +492,97 @@ def test_runner_semantic_estimate_from_the_cli(tmp_path, mini_bundle):
     assert r.returncode == 0, r.stderr
     assert "meeting calls" in r.stdout and "projected" in r.stdout and "total projected" in r.stdout
     assert not (root / "data" / "facts" / "mini" / "semantic.jsonl").exists()
+
+
+def test_two_remarks_in_one_message_and_two_kinds_on_one_segment_do_not_collide(tmp_path):
+    two = json.loads(fx.session_json(reviews=fx.REVIEWS))
+    two["reviews"].append({**two["reviews"][0], "section": "Market Trends", "text": "Second remark",
+                           "citations": [fx.cite("20260305-1-a0002", "advanced algorithms")]})
+    chat = fx.standard_chat()
+    chat.script["[20260305-1-a0002]"] = json.dumps(two)
+    m1 = json.loads(fx.M1_ANSWER)
+    m1["contributions"].append({"feature_ref": "f1", "segment_ref": f"{fx.M1}#5", "kind": "design",
+                                "citations": [fx.cite(f"{fx.M1}#5", "use WebSockets for pushing alerts")]})
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+    out, _ = run(chat, tmp=tmp_path)
+    assert out.facts.conflicts == 0
+    keys = sorted(e.key for e in edges(out.facts, "SUGGESTED") if e.src_id == f"Person:{fx.BEN}"
+                  and e.dst_id == "Document:mini_market_research_report")
+    assert keys == ["20260305-1-a0002", "20260305-1-a0002#2"]
+    assert {e.props["kind"] for e in edges(out.facts, "CONTRIBUTED") if e.src_id == f"Person:{fx.BEN}"} == {"lead", "design"}
+
+
+def test_a_name_that_is_never_called_a_competitor_is_not_one(tmp_path):
+    bad = json.loads(fx.session_json(claims=fx.RIVAL_CLAIMS))
+    for c in bad["claims"]:
+        c["subject_ref"] = "Interesting"  # in the session text, but not introduced as a competitor and no demo link
+    chat = fx.standard_chat()
+    chat.script["[20260310-0-b0001]"] = json.dumps(bad)
+    out, _ = run(chat, tmp=tmp_path)
+    assert out.report["dropped"]["claims"]["subject_not_a_competitor"] == 2
+    assert "Competitor:Interesting" not in nodes(out.facts, "Competitor")
+
+
+def test_a_demo_share_message_states_no_claim(tmp_path):
+    claim = dict(fx.RIVAL_CLAIMS[0], message_id="20260312-0-b0003",
+                 citations=[fx.cite("20260312-0-b0003", "see how RivalCo works")])
+    chat = fx.standard_chat()
+    chat.script["[20260312-0-b0003]"] = fx.session_json(claims=[claim])
+    # the share is routed only when another cue is present: a "competitor" word in the same message
+    slack = [(i, a, t, tx.replace("see how", "a competitor demo: see how") if i == "20260312-0-b0003" else tx, c, n)
+             for i, a, t, tx, c, n in fx.SLACK]
+    out, _ = run(chat, fx.records(slack=slack), tmp_path)
+    assert out.report["dropped"]["claims"]["demo_share_message"] == 1
+    assert "Observation:Mini:20260312-0-b0003:0" not in nodes(out.facts, "Observation")
+
+
+def test_withhold_needs_hold_wording_in_the_deciding_message(tmp_path):
+    chat = fx.standard_chat()
+    dec = json.loads(fx.session_json(pr_decisions=fx.PR3_DECISIONS))
+    dec["pr_decisions"].append({"message_id": "20260320-2-d0003", "prs": ["3"], "action": "withhold", "reason": None,
+                                "conditional": False, "citations": [fx.cite("20260320-2-d0003", "please revert it")]})
+    chat.script["[20260320-0-d0001]"] = json.dumps(dec)
+    out, _ = run(chat, tmp=tmp_path)
+    assert out.report["dropped"]["pr_decisions"]["no_evidence_for_action"] == 1
+
+
+def test_a_reason_the_session_does_not_support_is_dropped(tmp_path):
+    chat = fx.standard_chat()
+    dec = json.loads(fx.session_json(pr_decisions=fx.PR3_DECISIONS))
+    dec["pr_decisions"][1]["reason"] = "security"  # the session never mentions security
+    chat.script["[20260320-0-d0001]"] = json.dumps(dec)
+    out, _ = run(chat, tmp=tmp_path)
+    assert out.report["dropped"]["pr_decisions"]["reason_unsupported"] == 1
+    held = [e for e in edges(out.facts, "ABOUT") if e.src_id == "Message:20260320-1-d0002"]
+    assert held and held[0].props["reason"] is None
+
+
+def test_model_scope_label_is_not_evidence(tmp_path):
+    chat = fx.standard_chat()
+    cs = json.loads(fx.session_json(claims=fx.CUST_CLAIMS))
+    for c in cs["claims"]:
+        c["release_scope"] = "current"  # the model calls it current; the session says the previous team
+    chat.script["[20260316-0-c0003]"] = json.dumps(cs)
+    out, _ = run(chat, tmp=tmp_path)
+    o = nodes(out.facts, "Observation")["Observation:Mini:20260316-0-c0003:0"]
+    assert o.props["release_scope"] == "previous" and o.props["scope_basis"] == "session_cue"
+
+
+def test_known_feature_listed_without_evidence_is_a_reference_not_a_loss(tmp_path):
+    again = json.loads(fx.M1_ANSWER)
+    m2 = json.loads(fx.meeting_json(
+        features=[{"local_id": "g1", "title": "real-time alerts", "details": [], "citations": []}],
+        contributions=[{"feature_ref": "g1", "segment_ref": f"{fx.M2}#5", "kind": "support",
+                        "citations": [fx.cite(f"{fx.M2}#5", "add a comparison table")]}]))
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M2}"] = json.dumps(m2)
+    out, _ = run(chat, tmp=tmp_path)
+    assert out.report["unresolved_feature_refs"] == 0 and out.report["manifest"]["complete"] is True
+    assert (f"Person:{fx.DEE}", ALERTS) in pairs(out.facts, "CONTRIBUTED")
+    assert again  # the first meeting is unchanged
+
+
+def test_suggested_edge_keeps_the_source_message_text(res):
+    out, _ = res
+    e = next(x for x in edges(out.facts, "SUGGESTED") if x.key == "20260305-1-a0002")
+    assert e.props["source_text"] == fx.R_BEN
