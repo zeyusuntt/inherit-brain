@@ -27,7 +27,7 @@ from typing import Callable
 
 from inherit.config import ROOT
 from inherit.data.records import ProductRecords, load_records, parse_mentions
-from eval import audit_prompts_v1, audit_prompts_v2, audit_prompts_v3
+from eval import audit_prompts_v1, audit_prompts_v2, audit_prompts_v3, audit_prompts_v4
 from inherit.data.split import SEED as SPLIT_SEED
 from inherit.data.split import split
 from inherit.extract.sessions import sessions
@@ -36,7 +36,7 @@ BASE_SEED = SPLIT_SEED  # 20261015; round N samples with BASE_SEED + N
 AUDIT_DIR = ROOT / "runs" / "audit"
 BUNDLE_DIR = ROOT / "data" / "bundle"
 FACTS_DIR = ROOT / "data" / "facts"
-PROMPT_VERSION = "audit-prompts/v4"  # v1 to v3 are frozen in audit_prompts_v1.py .. _v3.py
+PROMPT_VERSION = "audit-prompts/v5"  # v1 to v4 are frozen in audit_prompts_v1.py .. _v4.py
 
 PRECISION_QUOTAS = {"bug_event": 50, "review_relation": 50, "name_resolution": 50,
                     "whatif_unowned": 30, "whatif_edge": 30, "whatif_path": 20}
@@ -653,6 +653,18 @@ AUTHOR_WORDING = (
     "reviewer contribution. Independently proposed content changes or substantive review questions are judged by the same "
     "rule regardless of authorship.")
 
+PRODUCT_IDENTITY = (
+    "Records in this product's own file belong to this product: its channels, meetings and documents, including names the "
+    "product's own channels use for it (internal or code names). A document of another company's product (named as a "
+    "competitor or an external product) does not belong to this product.")
+
+NAME_RULE = (
+    "For a name spoken in a meeting, the candidates are the same-name attendees of that meeting; only if no same-name "
+    "attendee exists are same-name people with a related post within 3 days or a mention considered. A same-name "
+    "non-attendee is added (the name becomes ambiguous) only when the speaker's own words match that person's role and "
+    "no same-name attendee's role matches. Among candidates: 3 x role cue + 2 x related post within 3 days + 1 x "
+    "mentioned in the meeting; a unique top score resolves, ties are ambiguous.")
+
 REVIEW_BOUNDARY = (
     "A review relation needs a proposal about the document's content or a review question about it. Pure work allocation "
     "(taking a section, gathering input, proposing to collaborate) is not a review relation; a concrete content suggestion "
@@ -816,29 +828,23 @@ none; identity, status and time are never "na". A missing required field in your
 "correct" only if every field is "correct" (or such an "na"); otherwise "incorrect" (or "uncertain" under the general
 boundary).""",
     "review_relation": """Kind review_relation. The claim says a person suggested a change, or asked a review question,
-about a document. """ + REVIEW_BOUNDARY + """ Judge the cited content proposal independently of adjacent allocation language; a message containing both can support a review relation. When the claim lists several candidate speakers (the name resolution kept several
-candidates and the claim shows ambiguous: True), judge it as a candidate set, not as an assertion about one person. It is
-correct only when the candidates are exactly the complete tied set under the frozen name rule (the eligible candidates are
-the directory people with exactly that name who are in the meeting, posted in the product Slack within 3 days of it, or are
-@-mentioned in it; scored 3 for a role cue matching the candidate's role in the speaker's own lines, plus 2 for a related post
-within 3 days, plus 1 for being mentioned; ties at the top score are kept): no unsupported extra candidate and no omitted
-tied candidate, using the candidate evidence records in the packet. That the records cannot say which candidate spoke does
-not by itself make the relation incorrect. With a single person, correct if
-that person did say it in the source record and it is about the document. When the claim is judged at document-type level
-(several versions exist), it is correct if the source is about a document of that type OF THIS PRODUCT (the same subject);
-a discussion of another product's document, such as a competitor's, is not. Do not require a specific version. Incorrect if
-the speaker is not among the candidates, the text is not a suggestion or review question, or the source is about another
-document type or another product's document.""",
+about a document. """ + REVIEW_BOUNDARY + """ Judge the cited content proposal independently of adjacent allocation language; a
+message containing both can support a review relation. """ + PRODUCT_IDENTITY + """ When the claim lists several candidate
+speakers (the name resolution kept several candidates and the claim shows ambiguous: True), judge it as a candidate set, not
+as an assertion about one person. It is correct only when the candidates are exactly the complete candidate set under the
+frozen name rule: """ + NAME_RULE + """ No unsupported extra candidate and no omitted tied candidate, using the candidate
+evidence records in the packet. That the records cannot say which candidate spoke does not by itself make the relation
+incorrect. With a single person, correct if that person did say it in the source record and it is about the document. When
+the claim is judged at document-type level (several versions exist), it is correct if the source is about a document of that
+type of this product (the same subject). Do not require a specific version. Incorrect if the speaker is not among the
+candidates, the text is not a suggestion or review question, or the source is about another document type or a document that
+does not belong to this product.""",
     "name_resolution": """Kind name_resolution. The claim maps a speaker name in one meeting to employee ids. The frozen
-rule: the eligible candidates are the directory people with exactly that name who are in the meeting's participants, or
-posted in the product Slack within 3 days of the meeting date, or are @-mentioned in the meeting chat (candidate records
-give these facts). One eligible candidate resolves without scoring. Several are scored: 3 if the speaker's own lines
-state a role cue matching the candidate's directory role (the speaker says their own role, such as "as QA I checked"),
-plus 2 if the candidate has a related post within 3 days (a post in a session that names the meeting's document type or
-document link), plus 1 if the candidate is mentioned in the meeting. A unique top score resolves to that candidate; a tie
-for the top score is ambiguous and the tied candidates are returned. The claim lists the eligible candidates the
-extractor found and what it returned. Correct only if the eligible candidates are right and the returned ids follow from
-the rule applied to the records.""",
+rule: """ + NAME_RULE + """ Candidate records give the facts for every same-name directory person: attendance, posts within 3
+days of the meeting date (with their sessions), mentions in the meeting, and directory role. A role cue is the speaker's own
+lines stating their role, such as "as QA I checked"; a related post is a post in a session that names the meeting's document
+type or document link. The claim lists the candidates the extractor found and what it returned. Correct only if the
+candidates are right and the returned ids follow from the rule applied to the records.""",
     "whatif_unowned": OPEN_WORK + """
 
 Kind whatif_unowned. Correct only if the item is open work, the named person is an owner, no other owner remains, and no
@@ -879,7 +885,7 @@ id>", "document": "<optional: the version id, only when the record names one ver
 one product: list every reviewer contribution about any version of the type, from named feedback, meetings of the type,
 Slack sessions that share any version's link, and same-product Slack discussions of the type that name no version and
 share no exact link. A reviewer is a person who gives a suggestion, a requested change or a review question about the
-document type. """ + REVIEW_BOUNDARY + """ One item per person per source record.""",
+document type. """ + REVIEW_BOUNDARY + """ """ + PRODUCT_IDENTITY + """ One item per person per source record.""",
 }
 
 THIRD_PRECISION = """You are the third and final auditor. Two auditors disagreed, or one gave no usable answer. Read the
@@ -928,14 +934,22 @@ PROMPT_CHANGES_V4 = (
     "is not a reviewer contribution; independent content proposals count regardless of authorship (recall rules, task text "
     "and the review precision rubric)",
 )
-PROMPT_CHANGES_BY_VERSION[PROMPT_VERSION] = PROMPT_CHANGES_V4
+PROMPT_CHANGES_V5 = (
+    "review_relation and recall_reviewer: product identity is defined (records in the product's own file, including the names "
+    "its own channels use for it, belong to it; another company's product does not)",
+    "review_relation and name_resolution: the name-candidate rule text is the implemented rule (same-name attendees first; "
+    "non-attendees only when no attendee exists or when the speaker's role cue matches a non-attendee and no attendee; "
+    "3 x role cue + 2 x related post + 1 x mentioned; unique top score resolves, ties ambiguous)",
+)
+PROMPT_CHANGES_BY_VERSION[PROMPT_VERSION] = PROMPT_CHANGES_V5
+PROMPT_CHANGES_BY_VERSION[audit_prompts_v4.VERSION] = PROMPT_CHANGES_V4
 PROMPT_CHANGES_BY_VERSION[audit_prompts_v3.VERSION] = PROMPT_CHANGES_V3
-PROMPT_CHANGES = PROMPT_CHANGES_V4
+PROMPT_CHANGES = PROMPT_CHANGES_V5
 
 
 def prompt_set(version: str) -> dict:
     """The prompt texts of a version: v1 is frozen in audit_prompts_v1 (round 1), v2 is this module."""
-    frozen = {m.VERSION: m for m in (audit_prompts_v1, audit_prompts_v2, audit_prompts_v3)}
+    frozen = {m.VERSION: m for m in (audit_prompts_v1, audit_prompts_v2, audit_prompts_v3, audit_prompts_v4)}
     if version in frozen:
         m = frozen[version]
         return {"common_precision": m.COMMON_PRECISION, "common_recall": m.COMMON_RECALL, "third_precision": m.THIRD_PRECISION,

@@ -461,7 +461,7 @@ def test_name_packet_publishes_rule_and_candidate_evidence(sources):
     ids = {r["id"] for r in amb["records"]}
     assert {"candidate:eid_b", "candidate:eid_c"} <= ids
     assert "returned" in amb["text"] and "eligible candidates the extractor found" in amb["text"]
-    assert "3 if the speaker" in ae.RUBRICS["name_resolution"] and "tie" in ae.RUBRICS["name_resolution"]
+    assert "3 x role cue" in ae.RUBRICS["name_resolution"] and "ties are ambiguous" in ae.RUBRICS["name_resolution"]
     cand = next(r for r in amb["records"] if r["id"] == "candidate:eid_b")["text"]
     assert "directory role PM" in cand and "In the meeting's participants: yes" in cand
 
@@ -641,10 +641,10 @@ def test_name_candidates_carry_sessions_and_related_evidence():
 
 # ---------------------------------------------------------------- round 2 rubric (audit-prompts/v2)
 def test_v2_version_recorded_and_v1_frozen(tmp_path, sources):
-    assert ae.PROMPT_VERSION == "audit-prompts/v4"
+    assert ae.PROMPT_VERSION == "audit-prompts/v5"
     packets = write_round(tmp_path, sources, rnd=2)
     m = json.loads((tmp_path / "round-2" / "manifest.json").read_text())
-    assert m["prompt_hashes"]["version"] == "audit-prompts/v4" and m["seed"] == ae.BASE_SEED + 2 == 20261017
+    assert m["prompt_hashes"]["version"] == "audit-prompts/v5" and m["seed"] == ae.BASE_SEED + 2 == 20261017
     v1 = ae.prompt_hashes("audit-prompts/v1")
     assert v1["rubric:bug_event"] == "77f9e3f494192ddccaeff7d3a337bf4c13bb0c0da7b05972e511357ee1141c5c"  # as in round 1
     assert v1 != ae.prompt_hashes()
@@ -669,7 +669,7 @@ def test_v2_rubric_texts():
     assert "no linked fix PR" in r["bug_event"] and "no fix needed = at least one DISMISSED event ever" in r["bug_event"]
     assert "not extracted" in r["bug_event"] and "judged separately" in r["bug_event"]
     assert "Placement of ASSIGNED events" in ae.RECALL_RULES["recall_bug"]
-    assert "OF THIS PRODUCT" in r["review_relation"] and "candidate set" in r["review_relation"]
+    assert "of this product (the same subject)" in r["review_relation"] and "candidate set" in r["review_relation"]
     from eval import audit_prompts_v2 as m2  # the v2 dependency wording lives in the frozen module
     assert "Topical association alone" in m2.RUBRICS["whatif_edge"] and "test and documentation PRs" in m2.RUBRICS["whatif_edge"]
     assert "Topical association alone" in r["whatif_edge"]
@@ -732,7 +732,7 @@ def test_review_content_boundary_in_precision_and_recall():
 
 def test_candidate_set_rule_and_evidence_in_ambiguous_review_packets():
     r = " ".join(ae.RUBRICS["review_relation"].split())
-    assert "exactly the complete tied set" in r and "no omitted" in r and "3 for a role cue" in r and "does not by itself" in r
+    assert "complete candidate set" in r and "omitted tied candidate" in r and "3 x role cue" in r and "does not by itself" in r
     src = source("P1")
     for eid in ("eid_b", "eid_c"):
         src.facts["semantic"].append({"kind": "edge", "type": "SUGGESTED", "src_id": f"Person:{eid}",
@@ -775,7 +775,7 @@ def alias_source(P="P1", mutate=None):
 
 
 def test_v2_is_frozen_and_v3_differs():
-    assert ae.PROMPT_VERSION == "audit-prompts/v4"
+    assert ae.PROMPT_VERSION == "audit-prompts/v5"
     h2, h3 = ae.prompt_hashes("audit-prompts/v2"), ae.prompt_hashes()
     assert h2["version"] == "audit-prompts/v2" and h2["rubric:review_relation"] != h3["rubric:review_relation"]
     from eval import audit_prompts_v2 as m2
@@ -984,7 +984,7 @@ def test_positive_pool_with_zero_denominator_still_fails():
 # ---------------------------------------------------------------- round 5: type-level reviewer recall (audit-prompts/v4)
 def test_v3_frozen_and_v4_differs():
     from eval import audit_prompts_v3 as m3
-    assert ae.PROMPT_VERSION == "audit-prompts/v4"
+    assert ae.PROMPT_VERSION == "audit-prompts/v5"
     h3, h4 = ae.prompt_hashes("audit-prompts/v3"), ae.prompt_hashes()
     assert h3["version"] == "audit-prompts/v3" and h3["rubric:review_relation"] == ae.sha256_text(m3.RUBRICS["review_relation"])
     assert h3["recall_rules:recall_reviewer"] != h4["recall_rules:recall_reviewer"]
@@ -1065,3 +1065,51 @@ def test_older_rounds_keep_document_level_keys():
     src = with_edges(type_source())
     old = {"kind": "recall_reviewer", "meta": {"document_id": "design_v1", "document_type": "Design Doc"}}
     assert ae.extracted_keys(old, src) == Counter({("bob ray", "mtg1#5"): 1})
+
+
+# ---------------------------------------------------------------- round 6 (audit-prompts/v5)
+def test_v4_frozen_and_v5_current():
+    from eval import audit_prompts_v4 as m4
+    assert ae.PROMPT_VERSION == "audit-prompts/v5"
+    h4, h5 = ae.prompt_hashes("audit-prompts/v4"), ae.prompt_hashes()
+    assert h4["version"] == "audit-prompts/v4" and h4["rubric:review_relation"] == ae.sha256_text(m4.RUBRICS["review_relation"])
+    assert h4["rubric:review_relation"] != h5["rubric:review_relation"]
+    assert h4["rubric:name_resolution"] != h5["rubric:name_resolution"]
+    assert h4["rubric:bug_event"] == h5["rubric:bug_event"] and h4["rubric:whatif_edge"] == h5["rubric:whatif_edge"]
+    assert "name_resolution" in ae.PROMPT_CHANGES_V5[1] or any("name" in c for c in ae.PROMPT_CHANGES_V5)
+    assert ae.PROMPT_CHANGES_BY_VERSION["audit-prompts/v4"] == ae.PROMPT_CHANGES_V4
+
+
+def test_product_identity_definition_in_review_rubric_and_recall_rules():
+    d = ("Records in this product's own file belong to this product: its channels, meetings and documents, including names the "
+         "product's own channels use for it (internal or code names). A document of another company's product (named as a "
+         "competitor or an external product) does not belong to this product.")
+    assert ae.PRODUCT_IDENTITY == d
+    for t in (ae.RUBRICS["review_relation"], ae.RECALL_RULES["recall_reviewer"]):
+        assert d in " ".join(t.split())
+
+
+def test_name_rule_text_matches_the_implemented_rule_everywhere():
+    rule = ("For a name spoken in a meeting, the candidates are the same-name attendees of that meeting; only if no same-name "
+            "attendee exists are same-name people with a related post within 3 days or a mention considered. A same-name "
+            "non-attendee is added (the name becomes ambiguous) only when the speaker's own words match that person's role and "
+            "no same-name attendee's role matches. Among candidates: 3 x role cue + 2 x related post within 3 days + 1 x "
+            "mentioned in the meeting; a unique top score resolves, ties are ambiguous.")
+    assert ae.NAME_RULE == rule
+    for t in (ae.RUBRICS["review_relation"], ae.RUBRICS["name_resolution"]):
+        assert rule in " ".join(t.split())
+    assert "in the meeting's participants, or posted" not in " ".join(ae.RUBRICS["name_resolution"].split())  # the v4 union wording is gone
+
+
+def test_round_six_seed_and_refusal(tmp_path, sources):
+    write_round(tmp_path, sources, rnd=6)
+    m = json.loads((tmp_path / "round-6" / "manifest.json").read_text())
+    assert m["seed"] == 20261021 and m["prompt_hashes"]["version"] == "audit-prompts/v5"
+    with pytest.raises(FileExistsError):
+        write_round(tmp_path, sources, rnd=6)
+
+
+def test_report_lists_v5_changes(tmp_path, sources):
+    packets, rd = passing_round(tmp_path, sources)
+    rep = (rd / "report.md").read_text()
+    assert all(c in rep for c in ae.PROMPT_CHANGES_V5) and "audit-prompts/v5" in rep
