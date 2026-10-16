@@ -788,3 +788,46 @@ def test_oversized_session_is_split_at_message_boundaries(tmp_path):
     assert len(set(seen)) == 120  # every message reaches the model once
     assert len(nodes(out.facts, "Bug")) == 1
     assert out.report["split_sessions"] == 1
+
+
+def test_split_chunks_fit_when_the_rules_list_is_large(tmp_path):
+    rows = [("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO)]
+    for i in range(55):
+        rows.append((f"20260111-{i + 1}-q{i:04d}", fx.IAN, f"2026-01-11T{9 + (i + 1) // 60:02d}:{(i + 1) % 60:02d}:00",
+                     f"Next, we have 'Generated Bug Number {i} With A Long Descriptive Title'. " + "It slows the export a lot. " * 8
+                     + f"Customer CUST-0047 is affected. @{fx.EMMA}, can you take this one?"))
+    rec = fx.records(slack=rows)
+    from inherit.extract.sessions import sessions
+    cat = build_catalog(rec)
+    sess = sessions(rec.messages)[0]
+    parse = bugs.br.parse_session(sess, cat, rec.customers)
+    assert len(parse.bugs) == 55
+    chunks = bugs.split_session(sess, parse, rec, cat)
+    assert len(chunks) > 1
+    for csess, cparse in chunks:
+        req, _ = bugs.build_session_request(csess, cparse, rec, cat)
+        assert (len(req[0]["content"]) + len(req[1]["content"])) / 3 <= bugs.MAX_INPUT_TOKENS
+        assert csess[0].id == "20260111-0-b0001"
+    sent = [m.id for csess, _ in chunks for m in csess if m.id != "20260111-0-b0001"]
+    assert sorted(sent) == sorted(m.id for m in sess[1:])
+
+
+@pytest.mark.parametrize("bad", [
+    '{"bugs": [], "events": [{"type": "ASSIGNED", "actor_message_id": "m", "citations": 7}], "external": []}',
+    '{"bugs": [], "events": [{"type": "ASSIGNED", "actor_message_id": "m", "assignee_eids": 7}], "external": []}',
+    '{"bugs": [{"title": "t", "message_id": "m", "customer_ids": [1]}], "events": [], "external": []}',
+    '{"bugs": [], "events": [{"type": "ASSIGNED", "citations": [{"record_id": 5, "quote": "x"}]}], "external": []}',
+])
+def test_field_types_are_checked_before_caching(tmp_path, bad):
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": bad, "20260125-1-g0002": fx.session_json(events=[fx.REASSIGN_EVENT])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, tmp=tmp_path)
+    assert [f["reason"] for f in out.report["extraction_failures"]] == ["invalid_shape"]
+    assert len(list((tmp_path / bugs.PROMPT_VERSION).glob("*.json"))) == 2
+
+
+def test_link_with_a_list_for_the_bug_is_a_failure(tmp_path):
+    chat = fx.ScriptedChat(script=dict(fx.standard_chat().script), link='{"links":[{"item":"I1","bug":[]}]}')
+    out, _ = run(chat=chat, tmp=tmp_path)
+    assert [f["reason"] for f in out.report["extraction_failures"]] == ["invalid_shape"]
+    assert out.report["events"]["unmatched"] == 1

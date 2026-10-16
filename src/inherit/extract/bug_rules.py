@@ -190,6 +190,7 @@ class SessionParse:
     residual: list[str] = field(default_factory=list)
     handled: set[str] = field(default_factory=set)
     reopen: bool = False
+    show_ids: set | None = None  # when a long session is split: only rules lines of these messages are shown
     no_area: list[str] = field(default_factory=list)  # local ids of rules bugs whose text names no product area
 
 

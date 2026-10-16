@@ -71,15 +71,22 @@ def build_session_request(session, parse, rec, cat, known_areas=()) -> tuple[lis
     lines += [_msg_line(m, rec.employees) for m in msgs]
     lines += ["", "ALREADY PARSED BY RULES (do not repeat):"]
     hint_refs = hints_of(parse)
+    show = parse.show_ids
     for b in parse.bugs:
+        if show is not None and b["message_id"] not in show:
+            continue
         lines.append(f"- BUG {b['local_id']} '{b['title']}' introduced in {b['message_id']}; "
                      f"customers {', '.join(b['customer_ids']) or 'none'}")
     for e in parse.events:
+        if show is not None and e["message_id"] not in show:
+            continue
         ref = next((r for r, ev in hint_refs.items() if ev is e), e.get("local_bug"))
         what = f"ref {ref}" + (f" = '{e['mention']}'" if e.get("mention") and ref in hint_refs else "")
         lines.append(f"- EVENT {e['type']} in {e['message_id']} about {what}"
                      + (f"; assignees {', '.join(e['assignee_eids'])}" if e["assignee_eids"] else ""))
     for x in parse.externals:
+        if show is not None and x["message_id"] not in show:
+            continue
         lines.append(f"- OPEN-SOURCE look-alike '{x['title']}' in {x['message_id']}")
     if not (parse.bugs or parse.events or parse.externals):
         lines.append("- nothing")
@@ -105,48 +112,90 @@ def build_session_request(session, parse, rec, cat, known_areas=()) -> tuple[lis
 
 
 MAX_INPUT_TOKENS = 6000
-CHUNK_CHARS = 3 * 4000  # message text per chunk when a session is split (characters / 3 estimates tokens)
 
 
 def split_session(session, parse, rec, cat, known_areas=()):
     """[(messages, parse)] to send. A session whose request fits in 6,000 input tokens (characters / 3) goes whole.
-    A longer one is cut at message boundaries; every chunk starts with the session opener as context, keeps the full
-    rules list (so refs m1.. stay stable) and only its own unparsed messages and area gaps."""
-    req, _ = build_session_request(session, parse, rec, cat, known_areas)
-    if len(req[1]["content"]) / 3 <= MAX_INPUT_TOKENS:
+    A longer one is cut at message boundaries so that every assembled chunk request (system prompt, opener, rules
+    lines, messages) fits. Each chunk starts with the session opener as context; refs m1.. stay stable because they
+    come from the full rules list, but only the rules lines that belong to the chunk's messages are shown."""
+    def size(req):
+        return (len(req[0]["content"]) + len(req[1]["content"])) / 3
+
+    if size(build_session_request(session, parse, rec, cat, known_areas)[0]) <= MAX_INPUT_TOKENS:
         return [(session, parse)]
     msgs = [m for m in session if not m.is_bot]
-    chunks, cur, size = [], [], 0
-    for m in msgs:
-        n = len(_msg_line(m, rec.employees)) + 1
-        if cur and size + n > CHUNK_CHARS:
-            chunks.append(cur)
-            cur, size = [], 0
-        cur.append(m)
-        size += n
-    chunks.append(cur)
-    out = []
-    for c in chunks:
+    by_msg = {b["local_id"]: b["message_id"] for b in parse.bugs}
+
+    def chunk_parse(c):
         ids = {m.id for m in c}
-        own = c if c[0].id == msgs[0].id else [msgs[0], *c]
-        by_msg = {b["local_id"]: b["message_id"] for b in parse.bugs}
-        out.append((own, replace(parse, residual=[x for x in parse.residual if x in ids],
-                                 no_area=[x for x in parse.no_area if by_msg[x] in ids])))
-    return out
+        return replace(parse, residual=[x for x in parse.residual if x in ids],
+                       no_area=[x for x in parse.no_area if by_msg[x] in ids], show_ids=ids)
+
+    def with_opener(c):
+        return c if c[0].id == msgs[0].id else [msgs[0], *c]
+
+    chunks, cur = [], []
+    for m in msgs:
+        trial = cur + [m]
+        if cur and size(build_session_request(with_opener(trial), chunk_parse(trial), rec, cat, known_areas)[0]) \
+                > MAX_INPUT_TOKENS:
+            chunks.append(cur)
+            trial = [m]
+        cur = trial
+    chunks.append(cur)
+    return [(with_opener(c), chunk_parse(c)) for c in chunks]
 
 
-def _items(data, key) -> bool:
-    v = data.get(key)
-    return v is None or (isinstance(v, list) and all(isinstance(x, dict) for x in v))
+def _is_str(v):
+    return isinstance(v, str)
+
+
+def _str_list(v):
+    return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+
+def _citations(v):
+    return isinstance(v, list) and all(
+        isinstance(c, dict) and all(c.get(k) is None or isinstance(c.get(k), str) for k in ("record_id", "quote", "field"))
+        and (c.get("position") is None or isinstance(c.get("position"), int)) for c in v)
+
+
+# field -> type check, applied only when the field is present and not null (a missing field is handled by the cleaner)
+_SHAPES = {
+    "bugs": {"local_id": _is_str, "title": _is_str, "message_id": _is_str, "aliases": _str_list,
+             "component": _is_str, "impact_text": _is_str, "customer_ids": _str_list, "citations": _citations},
+    "events": {"type": _is_str, "bug_ref": _is_str, "bug_mention": _is_str, "actor_message_id": _is_str,
+               "assignee_eids": _str_list, "fix_pr_links": _str_list, "citations": _citations},
+    "external": {"title": _is_str, "link": _is_str, "similar_mention": _is_str, "message_id": _is_str,
+                 "citations": _citations},
+    "components": {"bug_ref": _is_str, "component": _is_str, "citations": _citations},
+    "links": {"item": _is_str, "bug": _is_str},
+}
+
+
+def shape_error(data: dict, keys) -> str | None:
+    """First type violation in the fields the code consumes, else None. Arrays must be lists of objects."""
+    for key in keys:
+        rows = data.get(key)
+        if rows is None:
+            continue
+        if not isinstance(rows, list) or not all(isinstance(x, dict) for x in rows):
+            return f"{key} is not a list of objects"
+        for i, row in enumerate(rows):
+            for field, ok in _SHAPES[key].items():
+                v = row.get(field)
+                if v is not None and not ok(v):
+                    return f"{key}[{i}].{field} has the wrong type"
+    return None
 
 
 def session_shape_error(data: dict) -> str | None:
-    bad = [k for k in ("bugs", "events", "external", "components") if not _items(data, k)]
-    return f"not a list of objects: {bad}" if bad else None
+    return shape_error(data, ("bugs", "events", "external", "components"))
 
 
 def link_shape_error(data: dict) -> str | None:
-    return None if _items(data, "links") else "links is not a list of objects"
+    return shape_error(data, ("links",))
 
 
 def hints_of(parse) -> dict[str, dict]:

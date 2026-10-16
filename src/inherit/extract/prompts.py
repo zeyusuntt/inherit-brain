@@ -1,7 +1,7 @@
 """Versioned prompt constants for the model extraction layers. Change a prompt, bump its version: the response cache is
 keyed by version and by the exact request, so an old answer is never reused for a new prompt."""
 
-BUGS_PROMPT_VERSION = "bugs-v3"
+BUGS_PROMPT_VERSION = "bugs-v5"
 
 BUG_SESSION_SYSTEM = """You read one Slack session from a company's customer-bug channel and report bug facts as JSON.
 
@@ -65,8 +65,9 @@ Input lists BUGS (ref, title, aliases, component, customers, when first reported
 the words the message uses for the bug, the message text, the time). Answer with one JSON object:
 {"links":[{"item":"I1","bug":"B3"}, {"item":"I2","bug":null}]}
 
-Rules: choose a bug when the message names the same problem in other words (the same subject and component, a \
-reordered or shortened title, extra words such as the product name); a bug with the same words in a different order \
-or with the opposite direction is a different bug. Answer null when no listed bug is the same problem, never to avoid \
-a decision when one bug clearly fits. A bug cannot be the target of an item that happened before the bug was first reported. Never \
+Rules: choose a bug when the message describes the same problem, even in other words (a paraphrase, a shortened \
+title, extra words such as the product name; a mention that contains a listed title followed by extra words refers to \
+that bug). Do not choose a bug when the meaning or the causal direction differs, \
+for example which side overwrites which, even if the words are the same. Answer null when no listed bug is the same \
+problem, but never to avoid a decision when one bug clearly fits. A bug cannot be the target of an item that happened before the bug was first reported. Never \
 create a bug and never use a ref that is not listed. Several items may point to the same bug. Cover every item."""
