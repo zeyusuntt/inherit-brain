@@ -803,6 +803,12 @@ def test_an_unfinished_final_evidence_list_is_salvaged_without_the_cut_item():
     '{"answer_text": "x", "answer_ids": ["a1"], "outcome": "bogus", "evidence_ids": ["r1", "r',
     V5_HEAD + '["r1"]',                                                             # list closed, object not
     V5_HEAD + '["r1"]} trailing',
+    V5_HEAD + '["r1" "r2"]}',                                                       # missing separator, closed
+    V5_HEAD + '["r1", "r2"] extra',
+    V5_HEAD + '["r1", 5, "r',                                                       # malformed item before the cut
+    V5_HEAD + '["r1", ]}',
+    V5_HEAD + '["r1", "r2"}',                                                       # wrong closer
+    V5_HEAD + '["bad\\q", "r2", "r',
     '{"answer_text": "x", "answer_ids": ["a1" "a2"], "outcome": "path", "evidence_ids": ["r1", "r',  # broken earlier
 ])
 def test_nothing_else_is_salvaged(bad):
@@ -861,3 +867,16 @@ def test_the_depth1_schema_guidance_is_generated_and_identical_for_both_toolsets
             assert src in line and dst in line
     assert "HAS: Product -> " in guide and "PR" in next(l for l in guide.splitlines() if l.startswith("HAS:"))
     assert "PullRequest" not in guide
+
+
+def test_a_decoding_error_in_salvage_is_ordinary_invalid_json_never_an_exception():
+    for t in (V5_HEAD + '["bad\\q", "r2", "r',):
+        f, err = agent._parse(t)
+        assert f is None and err == "not valid JSON"
+
+
+def test_salvage_accepts_complete_items_with_valid_separators_only_when_truncated():
+    f, _ = agent._parse(V5_HEAD + '["r1", "r2", "r3')
+    assert f["evidence_ids"] == ["r1", "r2"]
+    f, _ = agent._parse(V5_HEAD + '["r1",\n "r2",')
+    assert f["evidence_ids"] == ["r1", "r2"] and f["salvaged_evidence"]

@@ -188,6 +188,24 @@ def test_conversion_only_on_parse_failure_and_keeps_both_outputs():
     assert env["model_fields"]["answer_ids"] == ["eid_a1000001"]  # the model's own fields stay in the diagnostics
 
 
+def test_a_salvage_decoding_error_falls_through_to_the_conversion_path():
+    bad = ('{"answer_text": "x", "answer_ids": ["eid_a1000001"], "outcome": "path", "evidence_ids": ["bad\\q", "r')
+    model = FakeModel(good())
+    res = run(StubRag(bad), model)
+    assert len(model.calls) == 1 and res.final.answer_ids == ["eid_a1000001"]
+    env = [e for e in res.envelopes if "a2" in e][0]["a2"]
+    assert env["converted"] is True and env["salvaged_evidence"] is False
+
+
+def test_a_truncated_evidence_list_is_salvaged_without_a_conversion_call():
+    cut = ('{"answer_text": "x", "answer_ids": ["eid_a1000001"], "outcome": "path", "evidence_ids": '
+           '["20260609-0-d019a", "20260609-0-d0')
+    model = FakeModel(good())
+    res = run(StubRag(cut), model)
+    assert model.calls == [] and res.final.answer_ids == ["eid_a1000001"]
+    assert [e for e in res.envelopes if "a2" in e][0]["a2"]["salvaged_evidence"] is True
+
+
 def test_conversion_that_still_fails_is_run_failed():
     res = run(StubRag("prose"), FakeModel("still not json"))
     assert res.final.outcome == "run_failed" and res.failure

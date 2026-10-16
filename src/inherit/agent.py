@@ -272,43 +272,62 @@ class _Depth1:
 
 # ---------------------------------------------------------------- answer parsing
 MAX_EVIDENCE = 10
-_STR_ITEM = re.compile(r'\s*"((?:[^"\\]|\\.)*)"\s*(,|\])?')
+_STR_ITEM = re.compile(r'"((?:[^"\\]|\\.)*)"')
+
+
+def _evidence_prefix(rest: str) -> list[str] | None:
+    """The complete items of a list that was cut off, or None unless `rest` (the text after the opening bracket) is
+    well formed up to its last complete item and ends in an unfinished item or separator: no closing bracket or brace
+    anywhere after the last complete item."""
+    items: list[str] = []
+    pos = 0
+    while True:
+        while pos < len(rest) and rest[pos] in " \t\r\n":
+            pos += 1
+        if pos >= len(rest):
+            return items  # cut at a boundary
+        if rest[pos] != '"':
+            return None  # a closing bracket, a number or any other token: not a truncated string list
+        m = _STR_ITEM.match(rest, pos)
+        if m is None:
+            return items  # an unterminated string runs to the end of the text: the incomplete last item
+        items.append(json.loads('"' + m.group(1) + '"'))
+        pos = m.end()
+        while pos < len(rest) and rest[pos] in " \t\r\n":
+            pos += 1
+        if pos >= len(rest):
+            return items
+        if rest[pos] != ",":
+            return None  # missing separator, or the list or object was closed
+        pos += 1
 
 
 def _salvage(text: str) -> dict | None:
-    """An unfinished final evidence_ids list (the model hit the output cap mid-list): when everything before it is a
-    complete prefix of the object, drop the incomplete last item and close the list and the object. Graded fields are
-    never reconstructed: the prefix must parse on its own."""
-    k = text.rfind('"evidence_ids"')
-    if k < 0:
-        return None
-    head = text[:k].rstrip()
-    rest = text[k + len('"evidence_ids"'):].lstrip()
-    if not head.endswith(",") or not rest.startswith(":"):
-        return None
-    rest = rest[1:].lstrip()
-    if not rest.startswith("["):
-        return None
-    pos, items = 1, []
-    while (m := _STR_ITEM.match(rest, pos)) is not None:
-        items.append(json.loads('"' + m.group(1) + '"'))
-        pos = m.end()
-        if m.group(2) == "]":
-            return None  # the list was finished: the failure is elsewhere, not an unfinished list
-        if m.group(2) is None:
-            break
-    tail = rest[pos:].strip()
-    if tail and not tail.startswith('"'):
-        return None  # only an unterminated last string may be discarded
+    """A reply truncated inside its final evidence_ids list (the model hit the output cap): when everything before
+    the list is a complete prefix of the object that parses on its own, drop the incomplete last item and close the
+    list and the object. Graded fields are never reconstructed. Any problem returns None (ordinary invalid JSON)."""
     try:
+        k = text.rfind('"evidence_ids"')
+        if k < 0:
+            return None
+        head = text[:k].rstrip()
+        rest = text[k + len('"evidence_ids"'):].lstrip()
+        if not head.endswith(",") or not rest.startswith(":"):
+            return None
+        rest = rest[1:].lstrip()
+        if not rest.startswith("["):
+            return None
+        items = _evidence_prefix(rest[1:])
+        if items is None:
+            return None
         d = json.loads(head[:-1] + "}")
-    except ValueError:
+        if not isinstance(d, dict) or "evidence_ids" in d:
+            return None
+        d["evidence_ids"] = items
+        d["salvaged_evidence"] = True
+        return d
+    except Exception:  # noqa: BLE001 - a salvage problem is an invalid reply, handled by repair or conversion
         return None
-    if not isinstance(d, dict) or "evidence_ids" in d:
-        return None
-    d["evidence_ids"] = items
-    d["salvaged_evidence"] = True
-    return d
 
 
 def _parse(content: str) -> tuple[dict | None, str]:
