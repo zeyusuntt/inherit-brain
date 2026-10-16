@@ -632,3 +632,59 @@ def test_round_4_content_proposals_are_read_at_type_level(tmp_path, reply):
 def test_round_4_allocation_and_endorsement_stay_unextracted(tmp_path, reply):
     out, _ = run(None, _brainstorm(OPEN, [(fx.BEN, reply)]), tmp_path)
     assert _suggested_in(out) == set()
+
+
+# ---------------------------------------------------------------- round 5: author acts, summaries and openers
+
+@pytest.mark.parametrize("who,reply", [
+    (fx.ANN, "Good catch, Emma. I'll add a note on our initial target regions for expansion. Thanks for the input, everyone!"),
+    (fx.ANN, "Thanks for the feedback! Let's incorporate these changes into the document."),
+    (fx.ANN, "Great suggestions, Bob. Let's update the 'System Architecture' section to highlight modularity and resource "
+             "allocation for CRM integrations."),
+    (fx.BEN, "Great suggestions, everyone! Here's a quick summary: - Enhance the training data strategy. - Incorporate "
+             "user feedback and UX research for UI improvements. - Expand the modular architecture."),
+    (fx.BEN, "To summarize, we'll add sections on pricing, onboarding and regional expansion."),
+])
+def test_author_acknowledgements_and_summaries_are_not_reviews(tmp_path, who, reply):
+    out, _ = run(None, _brainstorm(OPEN, [(who, reply)]), tmp_path)
+    assert _suggested_in(out) == set()
+
+
+def test_an_authors_independent_content_proposal_is_still_a_review(tmp_path):
+    out, _ = run(None, _brainstorm(OPEN, [(fx.ANN, "We should add a section on pricing tiers.")]), tmp_path)
+    assert {k for k, _ in _suggested_in(out)} == {"20260601-1-q0001"}
+
+
+def test_a_model_reviewed_authors_ack_is_dropped_too(tmp_path):
+    msg = "20260601-1-q0001"
+    chat = fx.standard_chat()
+    chat.script[f"[{msg}]"] = fx.session_json(reviews=[{
+        "message_id": msg, "document_ref": "Market Research Report", "kind": "suggestion", "section": None,
+        "text": "Add a note on regions", "citations": [fx.cite(msg, "I'll add a note on our initial target regions")]}])
+    rec = _brainstorm(OPEN, [(fx.ANN, "Good catch, Emma. I'll add a note on our initial target regions for expansion.")])
+    out, _ = run(chat, rec, tmp_path)
+    assert _suggested_in(out) == set()
+    assert out.report["dropped"]["reviews"]["author_response"] == 1
+
+
+def test_a_session_opener_without_its_own_content_proposal_is_not_a_review(tmp_path):
+    opener = "Hi team, I want to discuss about the Market Research Report for Mini. We need to outline the key sections and assign responsibilities."
+    first = "20260601-0-q0000"
+    chat = fx.standard_chat()
+    chat.script[f"[{first}]"] = fx.session_json(reviews=[{
+        "message_id": first, "document_ref": "Market Research Report", "kind": "suggestion", "section": None,
+        "text": "Outline the key sections", "citations": [fx.cite(first, "We need to outline the key sections and assign responsibilities")]}])
+    out, _ = run(chat, _brainstorm(opener, [(fx.BEN, "We should include a section on pricing.")]), tmp_path)
+    assert {k for k, _ in _suggested_in(out)} == {"20260601-1-q0001"}
+    assert out.report["dropped"]["reviews"]["opener"] == 1
+
+
+def test_an_opener_with_its_own_content_proposal_is_kept(tmp_path):
+    opener = "Hi team, let's review the Market Research Report for Mini. I think we should add a section on competitors' pricing."
+    first = "20260601-0-q0000"
+    chat = fx.standard_chat()
+    chat.script[f"[{first}]"] = fx.session_json(reviews=[{
+        "message_id": first, "document_ref": "Market Research Report", "kind": "suggestion", "section": None,
+        "text": "Add a competitor pricing section", "citations": [fx.cite(first, "we should add a section on competitors' pricing")]}])
+    out, _ = run(chat, _brainstorm(opener, [(fx.BEN, "Agreed.")]), tmp_path)
+    assert first in {k for k, _ in _suggested_in(out)}

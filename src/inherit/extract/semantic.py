@@ -536,6 +536,38 @@ def quarantined_links(dev_links, titles: dict[str, str], prs, sources) -> list[d
     return out
 
 
+# ---- who says what: acknowledgements, restatements, summaries and openers are not reviews (round 5)
+_ACK = re.compile(
+    r"\b(?:thanks|thank you|good (?:point|catch)|great (?:point|catch|suggestions?|idea|feedback|input)|nice (?:catch|point)"
+    r"|agree[ds]?|sounds good|noted|as suggested|these (?:changes|suggestions|points)|those (?:changes|suggestions|points)"
+    r"|your (?:feedback|suggestions|input))\b", re.I)
+_PROMISE = re.compile(
+    r"\bi(?:'ll| will)\b[^.!?]{0,30}\b(?:add|incorporate|update|include|specify|make|revise|address|work on|circulate|share|send)\b"
+    r"|\blet'?s (?:incorporate|update|add|include) (?:these|those|them)\b", re.I)
+_SUMMARY = re.compile(r"\b(?:to summari[sz]e|to sum up|in summary|quick summary|here'?s (?:a )?(?:quick )?(?:summary|recap)"
+                      r"|recap|so we have|summari[sz]ing)\b", re.I)
+# What an opener may propose on its own: structure words (outline, sections, assign, discuss) are not a proposal.
+_OPENER_CUE = re.compile(
+    r"\b(?:consider\w{0,3}|(?:add|adds|added|adding)|highlight\w{0,3}|specif\w{1,4}|emphasi[sz]\w{0,3}|elaborat\w{0,3}"
+    r"|mention\w{0,3}|expand\w{0,3}|replac\w{0,3}|remov\w{0,3}|improv\w{0,3}|incorporat\w{0,3}|clarif\w+|explain\w{0,3})\b"
+    r"(?=\s+\w+\s+\w+|\s+(?:a|an|the|our|some|more)\b)", re.I)
+
+
+def review_act_exclusion(message: str, remark: str, *, user_is_author: bool, first: bool) -> str | None:
+    """Why a remark is not a review relation although it may sound like one, or None. A summary of earlier remarks (by
+    anyone) is not; neither is an author of the document type acknowledging, agreeing with, restating or promising to
+    implement other people's feedback (an author's independent content proposal still counts); and the first message of a
+    session is one only when it holds its own content proposal, not "let's outline the sections and assign tasks"."""
+    if _SUMMARY.search(message):
+        return "summary"
+    if user_is_author and (_ACK.search(message) or _PROMISE.search(remark) or _PROMISE.search(message)):
+        return "author_response"
+    if first and not any(_OPENER_CUE.search(_PURPOSE.sub(" ", x)) and not _task_statement(x)
+                         for x in _SENTENCES.split(remark)):
+        return "opener"
+    return None
+
+
 # ---- whose document a review is about (13f): the subject is read before the type
 _DOC_I = "(?i:" + sr.DOC_WORDS + ")"
 _NAME = r"[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*"
@@ -914,6 +946,11 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             res = lookup(name_rows, mt.id, sp) if sp else None
             if res is None or res.status == "unresolved":
                 unresolved_speakers.append({"meeting": mt.id, "segment": ref, "speaker": sp})
+                continue
+            why_not = review_act_exclusion(seg_text, cited_remark(seg_text, rv["citations"], record_of[ref], _str(rv.get("text"))),
+                                           user_is_author=bool(set(res.ids) & {d_.author for d_ in docs}), first=False)
+            if why_not:
+                drops["document_reviews"][why_not] += 1
                 continue
             rdocs, rwhy = docs, why_doc
             if why_doc == "link_and_later_versions":  # a later revision needs evidence that it carries this remark
@@ -1625,6 +1662,7 @@ def type_level_reviews(data, chunk, cat, doc_prev, reviews, discusses) -> int:
         return 0  # no document of ours (a competitor's, or a type we have none of)
     target = normalise(docs[0].type)
     target_ids = {d_.id for d_ in docs}
+    authors = {d_.author for d_ in cat.documents if d_.type == docs[0].type}
     # a message is left to the model only when a review of it was accepted for this document type; a message the model
     # answered with rejected remarks (or for other purposes) is read here, sentence by sentence, under the same checks
     modelled = {r["record"] for r in reviews if target_ids & set(r["docs"])}
@@ -1637,6 +1675,8 @@ def type_level_reviews(data, chunk, cat, doc_prev, reviews, discusses) -> int:
                     and not _RULE_NOT.search(x)
                     and all(normalise(t.group(0)) == target for t in DOC_TYPE_RE.finditer(x))), None)
         if hit is None:
+            continue
+        if review_act_exclusion(m.text, hit, user_is_author=m.user_id in authors, first=False):
             continue
         good, _ = validate_items([{"citations": [{"record_id": m.id, "quote": hit}]}],
                                  [SourceRecord(m.id, "message", "text", m.text)], SESSION_ALLOWED)
@@ -1684,10 +1724,16 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
             unresolved_reviews.append({"record": mid, "why": why, "text": _str(rv.get("text")),
                                        "document_ref": _str(rv.get("document_ref")) or None})
             continue
+        authors = {d_.author for d_ in cat.documents if d_.type == docs[0].type}
+        why_not = review_act_exclusion(msgs[mid].text, cited_remark(msgs[mid].text, rv["citations"], mid, _str(rv.get("text"))),
+                                       user_is_author=msgs[mid].user_id in authors, first=mid == next(iter(msgs)))
+        if why_not:
+            drops["reviews"][why_not] += 1
+            continue
         reviews.append({"docs": [d_.id for d_ in docs], "eids": [msgs[mid].user_id], "ambiguous": False,
                         "kind": rv["kind"], "section": _str(rv.get("section")) or None,
                         "text": _str(rv.get("text")), "record": mid, "citations": rv["citations"], "speaker": None,
-                        "source_text": msgs[mid].text[:600], "doc_basis": why})
+                        "source_text": msgs[mid].text[:600], "doc_basis": why, "review_origin": "model"})
         for d_ in docs:
             discusses.add((f"Message:{mid}", f"Document:{d_.id}"))
 
