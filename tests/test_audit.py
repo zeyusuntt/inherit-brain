@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 
-from inherit.audit import audit, check_access_log, check_bundle, check_receipts, main
+import shutil
+
+from inherit.audit import audit, check_access_log, check_bundle, check_question_leakage, check_receipts, main
 from inherit.data.bundle import make_bundle
 
 H = "a" * 64
@@ -223,7 +225,7 @@ def test_audit_fails_when_inputs_missing_and_main_exits_nonzero(mini_raw, tmp_pa
     (root / "data").mkdir(parents=True)
     make_bundle(mini_raw, root / "data" / "bundle")
     results = audit(root)
-    assert [r.ok for r in results] == [True, False, False]
+    assert [r.ok for r in results] == [True, False, False, False]
     assert main(["--root", str(root)]) == 1  # default expects 30 products
     assert main(["--root", str(root), "--expect-products", "1"]) == 1
     out = capsys.readouterr().out
@@ -239,7 +241,8 @@ def test_audit_all_pass(mini_raw, tmp_path):
     (acc / "a.jsonl").write_text(good_line(root) + "\n")
     write_prereg(root / "PREREG.md")
     write_receipt(root / "results" / "receipts", "1.json", H)
-    assert all(r.ok for r in audit(root))
+    shutil.copytree(mini_raw, root / "data" / "raw")
+    assert len(audit(root)) == 4 and all(r.ok for r in audit(root))
     assert main(["--root", str(root), "--expect-products", "1"]) == 0
 
 
@@ -263,3 +266,49 @@ def test_check_access_log_write_under_bundle_fails(tmp_path):
         (acc / "a.jsonl").write_text(json.dumps({"path": p, "allowed": True, **e}) + "\n")
         r = check_access_log(acc, repo)
         assert not r.ok and any("outside allowed" in x for x in r.details)
+
+
+# check 4: question strings
+def questions_of(mini_raw):
+    from eval.questions import load_all_questions
+
+    return load_all_questions(mini_raw)
+
+
+def test_leakage_clean_bundle_passes(mini_raw, mini_bundle):
+    r = check_question_leakage(mini_bundle, mini_raw)
+    assert r.ok, r.details
+    assert "questions" in r.details[0]
+
+
+def test_leakage_flags_a_question_in_any_bundle_file_after_normalising(mini_raw, mini_bundle):
+    qs = questions_of(mini_raw)
+    ans = next(q for q in qs if q.key.kind == "ans")
+    unans = next(q for q in qs if q.key.kind == "unans")
+    p = mini_bundle / "products" / "mini.json"
+    d = json.loads(p.read_text())
+    d["slack"][0]["text"] = "Hey team, " + ans.text.upper().replace("?", "") + " -- thanks"
+    p.write_text(json.dumps(d))
+    r = check_question_leakage(mini_bundle, mini_raw)
+    assert not r.ok and any(str(ans.key) in x and "mini.json" in x for x in r.details)
+    d["slack"][0]["text"] = "ok"
+    d["documents"][0]["content"] = unans.text
+    p.write_text(json.dumps(d))
+    r = check_question_leakage(mini_bundle, mini_raw)
+    assert not r.ok and any(str(unans.key) in x for x in r.details)
+    assert all(ans.text not in x and unans.text not in x for x in r.details)  # keys only, never the text
+
+
+def test_leakage_in_a_metadata_file_is_flagged(mini_raw, mini_bundle):
+    q = questions_of(mini_raw)[0]
+    m = mini_bundle / "metadata" / "employee.json"
+    d = json.loads(m.read_text())
+    d["zz"] = {"note": q.text}
+    m.write_text(json.dumps(d))
+    r = check_question_leakage(mini_bundle, mini_raw)
+    assert not r.ok and any("employee.json" in x for x in r.details)
+
+
+def test_leakage_check_fails_when_inputs_are_missing(mini_raw, mini_bundle, tmp_path):
+    assert not check_question_leakage(mini_bundle, tmp_path / "no-raw").ok
+    assert not check_question_leakage(tmp_path / "no-bundle", mini_raw).ok

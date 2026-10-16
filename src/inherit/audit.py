@@ -4,6 +4,8 @@
 2. At least one extraction access log exists, every event was allowed, and every in-repo path
    is under an allowed data dir.
 3. Run receipts all carry the same facts hash, equal to the one in PREREG.md.
+4. No question string (dev or held, answerable or not) appears in any bundle file, after normalising case,
+   punctuation and articles. Questions are read only through eval.questions.
 """
 
 from __future__ import annotations
@@ -172,17 +174,72 @@ def check_receipts(receipt_dirs: list[Path], prereg: Path) -> CheckResult:
     return CheckResult(name, True, [f"{len(receipts)} receipts, one facts hash, matches {prereg.name}"])
 
 
+def _strings(obj):
+    stack = [obj]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, str):
+            yield cur
+        elif isinstance(cur, dict):
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            stack.extend(cur)
+
+
+def check_question_leakage(bundle: Path, raw_dir: Path) -> CheckResult:
+    from eval.grade import normalize
+    from eval.questions import load_all_questions
+
+    name = "4. no question string appears in the bundle"
+    bundle, raw_dir = Path(bundle), Path(raw_dir)
+    if not bundle.is_dir():
+        return CheckResult(name, False, [f"bundle directory {bundle} does not exist; run make bundle"])
+    if not (raw_dir / "products").is_dir():
+        return CheckResult(name, False, [f"no question files under {raw_dir}; run make download"])
+    # Index each normalised question by its first (up to) three words; scan every bundle string word by word.
+    index: dict[int, dict[tuple, list[tuple[list[str], str]]]] = {}
+    n_questions = 0
+    for q in load_all_questions(raw_dir):
+        words = normalize(q.text).split()
+        if not words:
+            continue
+        n_questions += 1
+        k = min(3, len(words))
+        index.setdefault(k, {}).setdefault(tuple(words[:k]), []).append((words, str(q.key)))
+    problems: list[str] = []
+    files = sorted(p for p in bundle.rglob("*.json") if p.is_file() and p.name != "manifest.json")
+    for p in files:
+        rel = p.relative_to(bundle).as_posix()
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            continue  # check 1 reports unreadable files
+        found: set[str] = set()
+        for text in _strings(data):
+            words = normalize(text).split()
+            for i in range(len(words)):
+                for k, table in index.items():
+                    for full, key in table.get(tuple(words[i:i + k]), ()):
+                        if words[i:i + len(full)] == full:
+                            found.add(key)
+        problems += [f"{rel}: contains the text of question {key}" for key in sorted(found)]
+    if problems:
+        return CheckResult(name, False, problems)
+    return CheckResult(name, True, [f"{n_questions} questions checked against {len(files)} bundle files, none found"])
+
+
 def audit(root: Path = ROOT, expected_products: int | None = None) -> list[CheckResult]:
     root = Path(root)
     return [
         check_bundle(root / "data" / "bundle", expected_products),
         check_access_log(root / "runs" / "access", root),
         check_receipts([root / "results" / "receipts", root / "runs" / "receipts"], root / "PREREG.md"),
+        check_question_leakage(root / "data" / "bundle", root / "data" / "raw"),
     ]
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Run the three audit checks.")
+    ap = argparse.ArgumentParser(description="Run the four audit checks.")
     ap.add_argument("--root", default=str(ROOT))
     ap.add_argument("--expect-products", type=int, default=30)
     args = ap.parse_args(argv)
