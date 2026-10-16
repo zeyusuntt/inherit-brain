@@ -952,7 +952,7 @@ def test_slack_substance_must_come_in_the_document_discussion():
 
 
 def _summ(sizes, recall_truth=20):
-    return {"complete": True, "pending_third": 0, "sizes": sizes, "sample_hash": "h",
+    return {"round": 3, "complete": True, "pending_third": 0, "sizes": sizes, "sample_hash": "h",
             "prompt_hashes": {"version": ae.PROMPT_VERSION}, "verdict_hashes": {}, "integrity_problems": [], "shortages": {},
             "verdict_file_stats": {}, "auditors": None,
             "precision": {k: {"n": 50, "correct": 48, "precision": 0.96, "pending": 0, "double_positive": 48, "agree": 48,
