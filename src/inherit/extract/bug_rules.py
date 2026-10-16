@@ -35,6 +35,7 @@ ACK_START = re.compile(r"^\W*(?:got it|sure|absolutely|on it|will do|no problem|
 ACK_BODY = re.compile(r"\b(?:look|dive|tackle|investigat|work|start|take|handle|prioriti[sz]e|fix|address|check|"
                       r"dig)\w*\b", re.I)
 RESOLVED_AUX = re.compile(r"\b(?:has|have|had|is|are|was|now) (?:been |now )?(?:resolved|fixed|closed)\b", re.I)
+BEEN_RESOLVED = re.compile(r"\b(?:has|have|had) been (?:resolved|fixed)\b", re.I)
 REOPEN = re.compile(r"\bre-?opened\b", re.I)
 NOFIX = re.compile(
     r"not an? (?:actual |real )?(?:bug|issue|defect)|does not require (?:a |any )?(?:fix|change)|"
@@ -220,9 +221,9 @@ def parse_session(session, cat, customers) -> SessionParse:
         author, links, cites = msgs[i].user_id, [], []
         for j in range(i, len(msgs)):
             m = msgs[j]
-            if m.user_id != author or (j > i and RESOLVED_AUX.search(m.text)):
+            if m.user_id != author or (j > i and BEEN_RESOLVED.search(m.text)):
                 if j > i and m.user_id == author:
-                    break
+                    break  # the author's next resolution announcement starts another event
                 continue
             found = [x for x in pr_links(m.text) if repo_scope(x, cat.product_repos) == "product"]
             if found:
@@ -255,7 +256,7 @@ def parse_session(session, cat, customers) -> SessionParse:
             continue
         # ------------------------------------------------ resolved
         sres = RESOLVED_AUX.search(text)
-        if sres and re.search(r"\b(?:has|have|had) been (?:resolved|fixed)\b", text, re.I) and not looked_into:
+        if sres and BEEN_RESOLVED.search(text) and not looked_into:
             a, b = sentence_span(text, sres.start())
             sent = text[a:b]
             mention = None

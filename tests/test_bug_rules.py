@@ -239,3 +239,23 @@ def test_same_module_inherits_the_area_of_the_previous_bug_in_the_session():
     )
     assert [b["component"] for b in p.bugs] == ["Data Sync & Integration Module", "Data Sync & Integration Module", None]
     assert p.no_area == ["rb3"]
+
+
+def test_fix_link_after_a_message_that_says_i_have_fixed_it():
+    rec = fx.records(slack=[
+        ("20260115-0-d0001", fx.BOB, "2026-01-15T11:00:00", "Hi team, the bug titled 'Foo Bar Baz' has been resolved. 🎉"),
+        ("20260115-1-d0002", fx.BOB, "2026-01-15T11:01:00", "The issue was a JavaScript error in the front end."),
+        ("20260115-2-d0003", fx.BOB, "2026-01-15T11:02:00", "I have fixed it by updating the rendering logic."),
+        ("20260115-3-d0004", fx.BOB, "2026-01-15T11:03:00", "You can check out the details in the approved PR here: https://github.com/salesforce/Mini/pull/31"),
+    ])
+    [e] = parse_session(sessions(rec.messages)[0], build_catalog(rec), rec.customers).events
+    assert e["fix_pr_links"] == ["https://github.com/salesforce/Mini/pull/31"]
+
+
+def test_fix_link_search_stops_at_the_authors_next_resolution():
+    rec = fx.records(slack=[
+        ("20260115-0-d0001", fx.BOB, "2026-01-15T11:00:00", "Hi team, the bug titled 'Foo Bar Baz' has been resolved."),
+        ("20260115-1-d0002", fx.BOB, "2026-01-15T11:01:00", "Also, the bug titled 'Other Thing Here' has been resolved. PR: https://github.com/salesforce/Mini/pull/32"),
+    ])
+    evs = parse_session(sessions(rec.messages)[0], build_catalog(rec), rec.customers).events
+    assert [e["fix_pr_links"] for e in evs] == [[], ["https://github.com/salesforce/Mini/pull/32"]]
