@@ -28,7 +28,7 @@ from inherit.extract.sessions import sessions
 from inherit.facts import Edge, Facts, Node
 from inherit.ontology import check_edge
 
-EXTRACTOR = "bugs/v1"
+EXTRACTOR = "bugs/v2"
 PROMPT_VERSION = BUGS_PROMPT_VERSION
 ALLOWED = {("message", "text")}
 EVENT_TYPES = ("REPORTED", "ASSIGNED", "RESOLVED", "DISMISSED", "REOPENED")
@@ -357,21 +357,24 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
         externals.append({"link": link[0], "title": str(x["title"]).strip(), "project": "/".join(br.repo_of(link[0])),
                           "similar_mention": sim if isinstance(sim, str) and sim.strip() else None,
                           "message_id": mid, "citations": x["citations"], "source": "model"})
-    areas = {}
-    comp_raw = [c for c in (data.get("components") or []) if isinstance(c, dict)]
+    areas, late = {}, {}
+    by_lid = {b["local_id"]: b for b in parse.bugs}
+    comp_raw = [_repointed(c, msgs, parse, by_lid, sess_src, rep) for c in (data.get("components") or [])
+                if isinstance(c, dict)]
     ok_comp, bad = validate_items(comp_raw, sess_src, ALLOWED)
     for reason, n in bad.items():
         dropped["components"][reason] += n
-    by_lid = {b["local_id"]: b for b in parse.bugs}
     for c in ok_comp:
         lid, comp = c.get("bug_ref"), c.get("component")
         if lid not in parse.no_area or not isinstance(comp, str) or not comp.strip():
             drop("components", "bad_ref_or_empty")
-        elif not area_in(comp, "\n".join(m.text for m in earlier_or_same(msgs, by_lid[lid]["message_id"]))):
-            drop("components", "not_in_message")
-        else:
+        elif area_in(comp, "\n".join(m.text for m in earlier_or_same(msgs, by_lid[lid]["message_id"]))):
             areas[lid] = comp.strip()
-    return bugs, events, externals, areas
+        elif area_in(comp, "\n".join(m.text for m in acceptance_of(msgs, parse, by_lid[lid]["message_id"]))):
+            late[lid] = comp.strip()  # named only in the acceptance: applied after the link calls (see run_bugs)
+        else:
+            drop("components", "not_in_message")
+    return bugs, events, externals, areas, late
 
 
 def canonical_areas(variants) -> dict[str, str]:
@@ -392,6 +395,110 @@ def _answers_help_request(msgs: dict, message_id: str) -> bool:
             return bool(prev and HELP_REQUEST.search(prev.text) and msgs[message_id].user_id in prev.mentions)
         prev = m
     return False
+
+
+def _assignment_sentence(text: str, eid: str) -> str | None:
+    """The sentence of `text` that carries an assignment cue and @mentions `eid` (the evidence of a hand-off)."""
+    start, spans = 0, []
+    for b in br.SENT_BOUNDARY.finditer(text):
+        spans.append((start, b.start()))
+        start = b.end()
+    spans.append((start, len(text)))
+    for a, b in spans:
+        sent = text[a:b]
+        if br.ASSIGN_CUE.search(sent) and f"@{eid}" in sent:
+            return sent.strip()
+    return None
+
+
+def place_assignments(events, msgs, pos, src_all, counts) -> None:
+    """One ASSIGNED event per assignment, on the message that hands the bug over. The model puts the event on the
+    message where the assignee accepts. When that person accepts before the next bug is introduced and an earlier
+    message of the same session hands them the bug (@mentions them in a sentence with an assignment cue), the event
+    moves to that hand-off message and keeps its type and assignee; if the hand-off already has its own ASSIGNED event
+    for that person, the acceptance duplicate is dropped. A bare mention is never a hand-off, a hand-off in another
+    session is never used (a later reassignment is not back-filled onto the first), and when nobody hands the bug over
+    the event stays on the message where the person takes it. Runs after the channel link call so no request changes."""
+    sess_of: dict[str, int] = {}
+    first_pos: dict[int, int] = {}
+    for k, sess in enumerate(sessions(msgs)):
+        for m in sess:
+            sess_of[m.id] = k
+            first_pos[k] = min(first_pos.get(k, pos[m.id]), pos[m.id])
+    intro = {e["bug_id"]: pos[e["message_id"]] for e in events if e["type"] == "REPORTED" and e.get("bug_id")}
+    intro_pos = sorted(set(intro.values()))
+    gone: set[int] = set()
+    for e in sorted((x for x in events if x["type"] == "ASSIGNED" and x.get("bug_id")),
+                    key=lambda x: (pos[x["message_id"]], TYPE_RANK[x["type"]])):
+        who = e["assignee_eids"]
+        am = msgs[pos[e["message_id"]]]
+        if len(who) != 1 or am.is_bot or am.user_id != who[0]:
+            continue  # only a person's own acceptance can be a duplicate of, or sit after, a hand-off
+        x, ai, k = who[0], pos[e["message_id"]], sess_of[e["message_id"]]
+        ri = intro.get(e["bug_id"])
+        if ri is not None and sess_of[msgs[ri].id] == k and ri <= ai:
+            if any(ri < p <= ai for p in intro_pos):
+                continue  # the acceptance answers a later bug introduction
+            lo = ri
+        else:  # the bug was introduced in an earlier session: this is a reassignment inside a session of its own
+            if any(first_pos[k] <= p <= ai for p in intro_pos):
+                continue
+            lo = first_pos[k]
+        same = [o for o in events if o is not e and id(o) not in gone and o["type"] == "ASSIGNED"
+                and o.get("bug_id") == e["bug_id"] and x in o["assignee_eids"] and lo <= pos[o["message_id"]] < ai]
+        if same:
+            gone.add(id(e))
+            counts["duplicate_dropped"] += 1
+            continue
+        hand = next((msgs[p] for p in range(ai - 1, lo - 1, -1)
+                     if not msgs[p].is_bot and msgs[p].user_id != x and x in br.assignees_in(msgs[p].text, msgs[p].user_id)),
+                    None)
+        if hand is None:
+            continue
+        if any(o is not e and o.get("bug_id") == e["bug_id"] and o["type"] not in ("REPORTED", "ASSIGNED")
+               and pos[hand.id] <= pos[o["message_id"]] < ai for o in events):
+            continue  # the bug changed state in between: not a plain hand-off
+        sent = _assignment_sentence(hand.text, x)
+        good, _ = validate_items([{"citations": [{"record_id": hand.id, "quote": sent}]}], [src_all[hand.id]], ALLOWED) \
+            if sent else ([], {})
+        if not good:
+            continue
+        e["message_id"], e["ts"], e["citations"] = hand.id, hand.ts, good[0]["citations"]
+        counts["moved_to_handoff"] += 1
+    events[:] = [e for e in events if id(e) not in gone]
+
+
+def _repointed(c: dict, msgs: dict, parse, by_lid: dict, sess_src, rep) -> dict:
+    """A component whose quote is verbatim in the bug's uniquely linked acceptance message but is cited on another
+    record (the model names the intro message for words the answer wrote) is cited on the acceptance message."""
+    cites, bug = c.get("citations"), by_lid.get(c.get("bug_ref"))
+    if bug is None or not isinstance(cites, list) or not all(isinstance(x, dict) for x in cites):
+        return c
+    if any(validate_citation(x, sess_src, ALLOWED).ok for x in cites):
+        return c
+    acc = acceptance_of(msgs, parse, bug["message_id"])
+    if not acc:
+        return c
+    fixed = [{**x, "record_id": acc[0].id} if normalise(x.get("quote")) and normalise(x["quote"]) in normalise(acc[0].text)
+             else x for x in cites]
+    if fixed != cites:
+        rep["repaired_citations"] += 1
+    return {**c, "citations": fixed}
+
+
+def acceptance_of(msgs: dict, parse, message_id: str) -> list:
+    """The one message that answers the bug introduced in `message_id`: after it, before the next bug introduction of
+    the session, written by someone other than the introducer. [] when there is none or more than one (then it is not
+    uniquely linked and its wording is not evidence for this bug's area)."""
+    order = list(msgs)
+    if message_id not in order:
+        return []
+    start = order.index(message_id)
+    intros = sorted(order.index(b["message_id"]) for b in parse.bugs if b["message_id"] in order)
+    end = next((i for i in intros if i > start), len(order))
+    author = msgs[message_id].user_id
+    window = [msgs[k] for k in order[start + 1:end] if msgs[k].user_id != author]
+    return window if len(window) == 1 else []
 
 
 def earlier_or_same(msgs: dict, message_id: str) -> list:
@@ -449,7 +556,8 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
     by_id = {m.id: m for m in bug_msgs}
     rep = {"dropped": defaultdict(Counter), "ignored_model_events": 0, "extraction_failures": [],
            "unmatched_events": [], "fix_links_not_in_catalogue": [], "sessions": 0, "model_sessions": 0,
-           "residual_messages": 0, "unlinked_external": [], "rules_dropped": Counter(), "repaired_citations": 0, "model_calls_split_sessions": 0}
+           "residual_messages": 0, "unlinked_external": [], "rules_dropped": Counter(), "repaired_citations": 0, "model_calls_split_sessions": 0,
+           "placement": Counter()}
     src_all = {m.id: SourceRecord(m.id, "message", "text", m.text) for m in bug_msgs}
 
     nodes: dict[str, Node] = {}
@@ -480,6 +588,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
         ch_events: list[dict] = []
         ch_externals: list[dict] = []
         pending: list[dict] = []
+        late_components: list[tuple[str, str]] = []
 
         def key_of(text):
             return br.norm_title(text, names)
@@ -515,6 +624,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                     setattr(parse, attr, kept)
                 rep["residual_messages"] += len(parse.residual)
                 m_bugs, m_events, m_ext = [], [], []
+                late_area: dict[str, str] = {}
                 if parse.residual or parse.reopen or parse.no_area:
                     rep["model_sessions"] += 1
                     chunks = split_session(session, parse, rec, cat, known_areas)
@@ -528,7 +638,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                                                                "reason": reason})
                             continue
                         csrc = [src_all[m.id] for m in csess if not m.is_bot]
-                        cb, ce, cx, areas = _clean_session_answer(
+                        cb, ce, cx, areas, late = _clean_session_answer(
                             data, csess, cparse, rec, cat, rep, csrc,
                             areas_only=not (cparse.residual or cparse.reopen),
                             prefix=f"{ci}." if len(chunks) > 1 else "")
@@ -537,12 +647,15 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                         m_ext += cx
                         for b in parse.bugs:
                             b["component"] = b["component"] or areas.get(b["local_id"])
+                        late_area.update(late)
                 local_bug: dict[str, str] = {}
                 # ---- bugs: register, merge with prior bugs by title or alias
                 for b in [*parse.bugs, *m_bugs]:
                     m = by_id[b["message_id"]]
                     bug_id = find_bug(b["title"], m.ts)[0] or f"Bug:{rec.product}:{channel_id}:{br.slug(b['title'])}"
                     local_bug[b["local_id"]] = bug_id
+                    if not b["component"] and late_area.get(b["local_id"]):
+                        late_components.append((bug_id, late_area[b["local_id"]]))
                     if bug_id in ch_bugs:
                         tgt = ch_bugs[bug_id]
                         tgt["customer_ids"] += [c for c in b["customer_ids"] if c not in tgt["customer_ids"]]
@@ -641,6 +754,10 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                 rep["extraction_failures"].append({"kind": "link", "channel_id": channel_id,
                                                    "messages": [q.get("message_id") for q in pending],
                                                    "reason": "exception", "error": f"{type(exc).__name__}: {exc}"})
+        # applied after the link call: the link request lists each bug's component, and these must not change it
+        for bug_id, comp in late_components:
+            ch_bugs[bug_id]["component"] = ch_bugs[bug_id]["component"] or comp
+        place_assignments(ch_events, msgs, pos, src_all, rep["placement"])
         all_bugs.update(ch_bugs)
         all_events += [dict(e, msg_pos=pos[e["message_id"]], channel_id=channel_id) for e in ch_events]
         all_externals += ch_externals
@@ -760,6 +877,8 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
         "rules_dropped": dict(rep["rules_dropped"]), "repaired_citations": rep["repaired_citations"],
         "split_sessions": rep["model_calls_split_sessions"],
         "ignored_model_events": rep["ignored_model_events"],
+        "assignment_placement": {"moved_to_handoff": rep["placement"]["moved_to_handoff"],
+                                 "duplicate_dropped": rep["placement"]["duplicate_dropped"]},
         "estimate": {"prompt_tokens": caller.est_in, "completion_tokens": caller.est_out,
                      "projected_usd": round(caller.projected_usd(), 6)} if dry else None,
     }
