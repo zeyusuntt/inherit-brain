@@ -184,6 +184,29 @@ def _push_cap(arm: str, usd: float) -> None:
     urllib.request.urlopen(req, timeout=10).read()
 
 
+def _launch_check(root: Path) -> None:
+    from eval import prereg
+
+    res = prereg.launch_check(root)
+    if not res["pass"]:
+        raise RunStateError("held-out launch refused:\n  " + "\n  ".join(res["failures"]))
+
+
+def _held_arm_spec(root: Path, arm: str) -> dict:
+    """The arm's entry in results/freeze/arms.json: {"products": list or None (all), "sub_cap_usd": x or None}."""
+    f = root / "results" / "freeze" / "arms.json"
+    try:
+        spec = json.loads(f.read_text(encoding="utf-8"))["arms"].get(arm)
+    except (OSError, ValueError, KeyError, AttributeError) as e:
+        raise RunStateError(f"results/freeze/arms.json is unreadable: {e}") from e
+    if spec is None:
+        raise RunStateError(f"arm {arm} is not listed in results/freeze/arms.json; a held-out run follows that file")
+    prods = spec.get("products", "all")
+    if prods != "all" and not (isinstance(prods, list) and prods and all(isinstance(p, str) for p in prods)):
+        raise RunStateError(f"arms.json: arm {arm} has a bad product list")
+    return {"products": None if prods == "all" else sorted(prods), "sub_cap_usd": spec.get("sub_cap_usd")}
+
+
 def run_arm(
     arm: str,
     split: Literal["dev", "held"],
@@ -199,6 +222,8 @@ def run_arm(
     cap_setter: Callable[[str, float], None] = _push_cap,
     meter_path: Path | None = None,
     clean_check: Callable[[Path], None] = rc.require_clean_tree,
+    launch_check: Callable[[Path], None] = _launch_check,
+    arm_spec: Callable[[Path, str], dict] = _held_arm_spec,
 ) -> Path:
     """Run `arm` over every slot of `split` and return the run directory. Resumes a compatible earlier run."""
     root = Path(root)
@@ -219,10 +244,18 @@ def run_arm(
             clean_check(root)
         except RuntimeError as e:
             raise RunStateError(str(e)) from e
+        launch_check(root)  # before any held question is loaded
+        spec = arm_spec(root, arm)
+    else:
+        spec = {"products": None, "sub_cap_usd": None}
     env = env or rc.current_env(root)
     _check_facts(split, env, expected_facts_hash, root)
 
     qs = list(questions) if questions is not None else load_questions(split)
+    if spec["products"] is not None:
+        qs = [q for q in qs if q.product in spec["products"]]
+        if not qs:
+            raise RunStateError(f"arm {arm}: no held-out question in its arms.json products")
     if limit is not None:
         qs = sample_slots(qs, limit, seed)
     manifest = {
@@ -230,7 +263,8 @@ def run_arm(
         "arm_config_sha": a.config_sha(), "facts_hash": env.facts_hash,
         "split_facts_hash": rc.facts_hash(root / "data" / "facts", sorted({q.product for q in qs})),
         "bundle_sha": env.bundle_sha, "prompt_versions": a.prompt_versions, "model": env.model,
-        "limit": limit, "seed": seed, "question_sha": snapshot_hash(qs), "slots": [str(q.key) for q in qs],
+        "limit": limit, "seed": seed,
+        "products": sorted({q.product for q in qs}) if split == "held" else None, "question_sha": snapshot_hash(qs), "slots": [str(q.key) for q in qs],
     }
     run_dir = root / "runs" / "eval" / run_id
     mpath = run_dir / "manifest.json"
@@ -295,8 +329,9 @@ def run_arm(
         finish(rec, attempt, res)
 
     pending = [q for q in qs if str(q.key) not in done]
-    if pending and a.sub_cap_usd is not None:
-        cap_setter(arm, a.sub_cap_usd)
+    cap = spec["sub_cap_usd"] if spec["sub_cap_usd"] is not None else a.sub_cap_usd  # arms.json wins on held
+    if pending and cap is not None:
+        cap_setter(arm, cap)
     ex = ThreadPoolExecutor(max_workers=workers)
     try:
         for fut in as_completed([ex.submit(work, q) for q in pending]):

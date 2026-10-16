@@ -27,6 +27,8 @@ def go(tmp_path, arm="fake", split="dev", questions=None, limit=None, **kw):
     kw.setdefault("env", env())
     kw.setdefault("cap_setter", lambda a, usd: None)
     kw.setdefault("clean_check", lambda root: None)
+    kw.setdefault("launch_check", lambda root: None)
+    kw.setdefault("arm_spec", lambda root, arm: {"products": None, "sub_cap_usd": None})
     return R.run_arm(arm, split, limit, root=tmp_path, questions=questions or mk_questions(), **kw)
 
 
