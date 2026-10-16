@@ -56,6 +56,9 @@ def _core(graded: list[Graded]) -> dict[str, Any]:
         "primary": _macro(groups, PRIMARY_GROUPS),  # person, company, artifact (pr plus url), equal weight
         "paper_macro": _macro(groups, GROUPS),  # adds content, as the HERB paper does
         "unanswerable_rate": _mean([g.score for g in un]),  # correct refusals
+        # deterministic companion to the judged rate: unanswerable questions the arm explicitly refused
+        "explicit_refusal_rate": (100.0 * sum(g.outcome in REFUSAL_OUTCOMES and not g.failed for g in un) / len(un))
+        if un else None,
         "false_refusal_rate": (100.0 * sum(g.outcome in REFUSAL_OUTCOMES for g in ans) / len(ans)) if ans else None,
         "failure_rate": (100.0 * sum(g.failed for g in graded) / len(graded)) if graded else None,
     }
@@ -302,5 +305,6 @@ def decide(summary_by_arm: dict[str, dict], boot: dict[str, Any]) -> dict[str, d
         "H3": h3,
         "H4": {"pass": a5["unanswerable_rate"] >= a1f["unanswerable_rate"],
                "unanswerable_rate": {"A5": a5["unanswerable_rate"], "A1f": a1f["unanswerable_rate"]},
-               "false_refusal_rate": {"A5": a5["false_refusal_rate"], "A1f": a1f["false_refusal_rate"]}},
+               "false_refusal_rate": {"A5": a5["false_refusal_rate"], "A1f": a1f["false_refusal_rate"]},
+               "explicit_refusal_rate": {"A5": a5.get("explicit_refusal_rate"), "A1f": a1f.get("explicit_refusal_rate")}},
     }

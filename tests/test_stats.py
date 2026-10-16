@@ -65,6 +65,23 @@ def test_unanswerable_rate_false_refusals_and_failures():
     assert s["failed"] == {"answerable": 1, "unanswerable": 1}
 
 
+def test_explicit_refusal_rate_is_deterministic_and_counts_failures_as_non_refusals():
+    gs = [G("P", 0, "unanswerable", 100, outcome="not_in_graph"), G("P", 1, "unanswerable", 100, outcome="unknown_name"),
+          G("P", 2, "unanswerable", 100, outcome="path"),  # judged correct, but a substantive answer
+          G("P", 3, "unanswerable", 0, failed=True, outcome="run_failed")]
+    s = S.summarize(gs, pilot=True)
+    assert s["explicit_refusal_rate"] == 50.0 and s["unanswerable_rate"] == 75.0
+    assert S.summarize([G("P", 0, "person", 1)], pilot=True)["explicit_refusal_rate"] is None
+
+
+def test_decide_reports_explicit_refusal_rate_without_changing_the_h4_rule():
+    sm = summaries()
+    sm["A5"]["explicit_refusal_rate"], sm["A1f"]["explicit_refusal_rate"] = 40.0, 90.0
+    h4 = S.decide(sm, boots())["H4"]
+    assert h4["explicit_refusal_rate"] == {"A5": 40.0, "A1f": 90.0}
+    assert h4["pass"] == S.decide(summaries(), boots())["H4"]["pass"]
+
+
 def test_tables_are_also_split_by_seen_and_unseen():
     gs = [G("P", 0, "person", 100, seen=True), G("P", 1, "person", 0, seen=False), G("P", 2, "person", 50, seen=False),
           G("P", 0, "unanswerable", 100, seen=True), G("P", 1, "unanswerable", 0, seen=False)]
