@@ -386,7 +386,7 @@ def test_routing_sends_planning_always_and_develop_by_cue_and_never_bug_channels
     s = out.report["manifest"]["sessions"]
     assert s["planning"] == {"total": 5, "extracted": 5} and s["other"]["routed"] == 4
     assert s["other"]["excluded"] == {"no_cue": 3}
-    assert len(chat.kind("session")) == 9 and len(chat.kind("meeting")) == 2 and len(chat.kind("membership")) == 1
+    assert len(chat.kind("session")) == 9 and len(chat.kind("meeting")) == 2 and len(chat.kind("membership")) == 1 and len(chat.kind("group")) == 1
 
 
 def test_long_session_is_split_at_message_boundaries(tmp_path, monkeypatch):
@@ -409,10 +409,10 @@ def test_competitor_registry_is_passed_to_later_sessions(res):
 
 def test_rerun_with_cache_makes_no_calls(tmp_path):
     out1, chat1 = run(tmp=tmp_path)
-    assert len(chat1.calls) == 12
+    assert len(chat1.calls) == 13
     out2, chat2 = run(tmp=tmp_path)
     assert chat2.calls == []
-    assert out2.report["calls"]["live"] == 0 and out2.report["calls"]["cached"] == 12
+    assert out2.report["calls"]["live"] == 0 and out2.report["calls"]["cached"] == 13
     assert sorted(out1.facts.nodes, key=lambda n: n.id) == sorted(out2.facts.nodes, key=lambda n: n.id)
 
 
@@ -586,3 +586,41 @@ def test_suggested_edge_keeps_the_source_message_text(res):
     out, _ = res
     e = next(x for x in edges(out.facts, "SUGGESTED") if x.key == "20260305-1-a0002")
     assert e.props["source_text"] == fx.R_BEN
+
+
+def test_a_lone_string_where_the_model_should_give_a_list_is_tolerated(tmp_path):
+    chat = fx.standard_chat()
+    dec = json.loads(fx.session_json(pr_decisions=fx.PR4_HOLD))
+    dec["pr_decisions"][0]["prs"] = "4"  # a string, not a list
+    chat.script["[20260325-1-f0002]"] = json.dumps(dec)
+    m1 = json.loads(fx.M1_ANSWER)
+    m1["features"][0]["details"] = "WebSockets for pushing alerts"
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+    out, _ = run(chat, tmp=tmp_path)
+    assert ("Message:20260325-1-f0002", f"PR:{P}4") in pairs(out.facts, "ABOUT")
+    assert nodes(out.facts, "Feature")[ALERTS].props["details"] == ["WebSockets for pushing alerts"]
+
+
+def test_features_of_one_area_are_grouped_and_every_reference_follows(tmp_path):
+    m1 = json.loads(fx.M1_ANSWER)
+    m1["features"].append({"local_id": "f3", "title": "alert throttling", "details": ["limit repeats"],
+                           "citations": [fx.cite(f"{fx.M1}#5", "pushing alerts")]})
+    m1["contributions"].append({"feature_ref": "f3", "segment_ref": f"{fx.M1}#6", "kind": "support",
+                                "citations": [fx.cite(f"{fx.M1}#6", "I can help with testing")]})
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+
+    def groups(user):
+        ref = {ln.split(": ")[1].split(" |")[0]: ln.split(":")[0] for ln in user.splitlines() if ln.startswith("F")}
+        return json.dumps({"groups": [{"title": ref["real-time alerts"],
+                                       "members": [ref["real-time alerts"], ref["alert throttling"]]},
+                                      {"title": ref["predictive analytics"], "members": [ref["predictive analytics"]]}]})
+
+    chat.groups = groups
+    out, _ = run(chat, tmp=tmp_path)
+    assert set(nodes(out.facts, "Feature")) == {ALERTS, PRED}
+    f = nodes(out.facts, "Feature")[ALERTS].props
+    assert "alert throttling" in f["aliases"] and "limit repeats" in f["details"]
+    assert out.report["features_merged"] == 1
+    assert (f"Person:{fx.CY}", ALERTS) in pairs(out.facts, "CONTRIBUTED")
+    assert out.facts.conflicts == 0

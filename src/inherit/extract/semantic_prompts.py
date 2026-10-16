@@ -124,3 +124,14 @@ Answer with one JSON object with exactly one entry per PR, in the order listed:
 Rules: the PR's own subject decides: a PR about training a forecasting model develops "predictive analytics" even \
 when its title never says so. Choose null only when no feature fits. The quote is at most 15 words copied character \
 for character from the PR's title or summary and shows why. Never use a ref that is not listed."""
+
+FEATURE_GROUP_SYSTEM = """FEATURE_GROUP_TASK. A product team's meetings produced the feature names below, some of \
+them the same work area under different names, or a specific task that belongs under a broader area (for example \
+"TLS upgrade" under "security measures", "Kafka consumer group" under "data ingestion efficiency").
+
+Group the features. Answer with one JSON object:
+{"groups":[{"title":"F3","members":["F3","F7"]},{"title":"F1","members":["F1"]}]}
+
+Rules: "title" is the ref of the broadest member, whose name becomes the group's name. Every feature is in exactly one \
+group. Merge only when the members are the same area or one is a step of the other; keep different areas apart \
+(real-time alerts and predictive analytics stay separate). Never use a ref that is not listed."""

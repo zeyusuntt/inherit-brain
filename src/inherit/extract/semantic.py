@@ -23,7 +23,7 @@ from inherit.extract.cite import SourceRecord, normalise, validate_citation, val
 from inherit.extract.llm_extract import Caller
 from inherit.extract.names import chat_lines, lookup, resolve_meeting_names
 from inherit.extract.rules import named_qa_eids, parse_revert_title, pr_approval, run_rules
-from inherit.extract.semantic_prompts import MEETING_SYSTEM, PR_MEMBERSHIP_SYSTEM, SEMANTIC_PROMPT_VERSION, SESSION_SYSTEM
+from inherit.extract.semantic_prompts import FEATURE_GROUP_SYSTEM, MEETING_SYSTEM, PR_MEMBERSHIP_SYSTEM, SEMANTIC_PROMPT_VERSION, SESSION_SYSTEM
 from inherit.extract import semantic_rules as sr
 from inherit.extract.sessions import sessions
 from inherit.extract.structural import _links
@@ -87,6 +87,11 @@ class SemanticResult:
 
 def _str(x) -> str:
     return x.strip() if isinstance(x, str) else ""
+
+
+def _list(x) -> list:
+    """A model field that should be a list: a lone string or number becomes a one-item list, anything else empty."""
+    return x if isinstance(x, list) else ([x] if isinstance(x, (str, int)) and not isinstance(x, bool) else [])
 
 
 def _items(data, key) -> list[dict]:
@@ -309,7 +314,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             if not title:
                 drops["features"]["no_title"] += 1
                 continue
-            details = [_str(x) for x in (f.get("details") or []) if _str(x)]
+            details = [_str(x) for x in _list(f.get("details")) if _str(x)]
             fid = register_feature(title, details, f["citations"], mt.id)
             if _str(f.get("local_id")):
                 local[_str(f["local_id"])] = fid
@@ -424,6 +429,53 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                                                      "source_competitor": name}))
             edge("ABOUT", f"Url:{link}", cid, [u.id], kind="demo")
             demo_links.append({"link": link, "competitor": cid})
+
+    # ---- 2b. reconcile feature identities (R6): one call per product groups names of the same area
+    merged_features: dict[str, str] = {}
+    if len(feature_info) > 1:
+        fl = list(feature_info)
+        lines = [f"F{i}: {feature_info[f]['title']}" + (" | " + "; ".join(feature_info[f]["details"][:5])
+                                                       if feature_info[f]["details"] else "") for i, f in enumerate(fl, 1)]
+        req = [{"role": "system", "content": FEATURE_GROUP_SYSTEM}, {"role": "user", "content": "\n".join(lines)}]
+        data, reason = caller.json_call("feature_group", req, min(3000, 300 + 60 * len(fl)))
+        if data is None:
+            failures.append({"kind": "feature_group", "id": product, "reason": reason})
+            state["unresolved_feature_refs"] += 1
+        else:
+            for g in _items(data, "groups"):
+                refs = [m_ for m_ in _list(g.get("members")) if isinstance(m_, str) and re.fullmatch(r"F\d+", m_)]
+                head = _str(g.get("title"))
+                if not re.fullmatch(r"F\d+", head) or not refs:
+                    drops["feature_group"]["bad_group"] += 1
+                    continue
+                idx = [int(r[1:]) for r in refs + [head] if 1 <= int(r[1:]) <= len(fl)]
+                canon = fl[int(head[1:]) - 1] if 1 <= int(head[1:]) <= len(fl) else None
+                for i in idx:
+                    if canon and fl[i - 1] != canon and fl[i - 1] not in merged_features and canon not in merged_features:
+                        merged_features[fl[i - 1]] = canon
+        for old, new in merged_features.items():
+            src, dst = feature_info.pop(old), feature_info[new]
+            for dt in src["details"]:
+                if dt not in dst["details"]:
+                    dst["details"].append(dt)
+            dst["records"] += [r_ for r_ in src["records"] if r_ not in dst["records"]]
+            ent = cat.features.entries[new]
+            for a in (src["title"], *cat.features.entries[old]["aliases"]):
+                if a != ent["title"] and a not in ent["aliases"]:
+                    ent["aliases"].append(a)
+            for k, v in list(cat.features._index.items()):
+                if v == old:
+                    cat.features._index[k] = new
+            del cat.features.entries[old]
+        remap = lambda f: merged_features.get(f, f)  # noqa: E731
+        for c in contributions:
+            c["feature"] = remap(c["feature"])
+        for ls in dev_links.values():
+            for l_ in ls:
+                l_["feature"] = remap(l_["feature"])
+        for ev in fevents:
+            ev["feature"] = remap(ev["feature"])
+        discusses = {(a, remap(b)) for a, b in discusses}
 
     # ---- 3. Slack sessions: planning channels always, other channels routed by rules
     by_channel: dict[str, list] = defaultdict(list)
@@ -699,7 +751,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         "extraction_failures": failures,
         "dropped": {k: dict(v) for k, v in drops.items()},
         "manifest": manifest,
-        "calls": {"meeting": caller.calls["meeting"], "session": caller.calls["session"],
+        "features_merged": len(merged_features),
+        "calls": {"meeting": caller.calls["meeting"], "feature_group": caller.calls["feature_group"], "session": caller.calls["session"],
                   "membership": caller.calls["membership"], "live": sum(caller.calls.values()),
                   "cached": sum(caller.cached.values())},
         "usage": {"prompt_tokens": caller.prompt_tokens, "completion_tokens": caller.completion_tokens,
@@ -800,7 +853,7 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
             target, subj = f"Product:{rec.product}", rec.product
         cust = []
         if kind in CUSTOMER_KINDS:
-            cust = [x for x in dict.fromkeys(c.get("customer_ids") or []) if isinstance(x, str)]
+            cust = [x for x in dict.fromkeys(_list(c.get("customer_ids"))) if isinstance(x, str)]
             cited_text = " ".join(msgs[r["record_id"]].text for r in c["citations"] if r["record_id"] in msgs)
             if any(CUST_RE.fullmatch(x) is None or x not in text_all for x in cust):
                 drops["claims"]["customer_not_in_session"] += 1
@@ -852,7 +905,7 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
                 " ".join(m.text for m in msgs.values() if order[m.id] <= order[mid])):
             drops["pr_decisions"]["reason_unsupported"] += 1
             reason = None
-        for idx, ref in enumerate(d.get("prs") or []):
+        for idx, ref in enumerate(_list(d.get("prs"))):
             p, why = sr.resolve_pr(ref, cat)
             if p is None:
                 unresolved.append({"message": mid, "pr": str(ref), "why": why})

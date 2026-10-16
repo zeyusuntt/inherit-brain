@@ -271,9 +271,10 @@ class ScriptedChat:
     """Stands in for inherit.llm.chat. `script` maps a marker substring of the user message to a response text (or a
     list consumed in order). Unmatched calls get an empty answer of the right shape."""
 
-    def __init__(self, script: dict | None = None, membership=None):
+    def __init__(self, script: dict | None = None, membership=None, groups=None):
         self.script = script or {}
         self.membership = membership
+        self.groups = groups
         self.calls: list[dict] = []
 
     def __call__(self, messages, *, arm, max_tokens=800, response_format=None, **kw):
@@ -282,7 +283,9 @@ class ScriptedChat:
                            "response_format": response_format})
         system = messages[0]["content"]
         text, toks = None, 50
-        if "PR_MEMBERSHIP_TASK" in system:
+        if "FEATURE_GROUP_TASK" in system:
+            text = self.groups(user) if callable(self.groups) else json.dumps({"groups": []})
+        elif "PR_MEMBERSHIP_TASK" in system:
             text = self.membership(user) if callable(self.membership) else (self.membership or membership_json())
         else:
             for marker, resp in self.script.items():
@@ -299,7 +302,8 @@ class ScriptedChat:
                                cost_usd=0.0001, latency_s=0.0)
 
     def kind(self, name):
-        key = {"meeting": "five arrays", "session": "three arrays", "membership": "PR_MEMBERSHIP_TASK"}[name]
+        key = {"meeting": "five arrays", "session": "three arrays", "membership": "PR_MEMBERSHIP_TASK",
+               "group": "FEATURE_GROUP_TASK"}[name]
         return [c for c in self.calls if key in c["messages"][0]["content"]]
 
 
