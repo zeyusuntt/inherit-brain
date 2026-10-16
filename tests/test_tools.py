@@ -588,37 +588,31 @@ def test_guard_validates_answers_exactly_and_keeps_evidence_only_ids_as_evidence
 
 def test_guard_accepts_label_qualified_ids_in_text_when_a_row_names_them():
     t1, _, d1 = guard("Person:eid_a1000001 owns Bug:b1. It also owns Bug:b9.", [], [RES])
-    assert t1 == "Person:eid_a1000001 owns Bug:b1." and [d["value"] for d in d1] == ["Bug:b9"]
+    assert t1 == "Person:eid_a1000001 owns Bug:b1. It also owns." and [d["value"] for d in d1] == ["Bug:b9"]
     t2, _, d2 = guard("Customer:CUST-0001 and CUST-0001 are the same.", [], [RES])
     assert t2 == "Customer:CUST-0001 and CUST-0001 are the same." and d2 == []  # a bare suffix of a ref is fine
-
 
 def test_guard_keeps_both_namesakes_of_an_ambiguous_row():
     sam = rows_result([{"answer": SAM1, "name": "Sam Kim", "ambiguous": True, "refs": [], "evidence": []},
                        {"answer": SAM2, "name": "Sam Kim", "ambiguous": True, "refs": [], "evidence": []}])
-    text, ids, dropped = guard(f"Sam Kim is {SAM1} or {SAM2}.", [SAM1, SAM2], [sam], names=["Sam Kim", "Zed Quinn"])
+    text, ids, dropped = guard(f"Sam Kim is {SAM1} or {SAM2}.", [SAM1, SAM2], [sam])
     assert ids == [SAM1, SAM2] and dropped == [] and text == f"Sam Kim is {SAM1} or {SAM2}."
 
-
-def test_guard_rebuilds_a_mixed_sentence_from_the_supported_rows():
+def test_guard_removes_only_the_invented_id_and_keeps_the_rest_of_the_sentence():
     text, ids, dropped = guard(f"{ALICE} and eid_deadbeef fixed the bug. Nothing else happened.",
                                [ALICE, "eid_deadbeef"], [RES])
-    assert text == f"{ALICE} fixed the bug. Nothing else happened."  # supported content is never deleted
+    assert text == f"{ALICE} fixed the bug. Nothing else happened."
     assert ids == [ALICE] and {(d["where"], d["value"]) for d in dropped} == {("ids", "eid_deadbeef"),
                                                                               ("text", "eid_deadbeef")}
-    t2, _, d2 = guard("Alice Ng, Zed Quinn and TechCorp reported it.", [], [RES], names=["Alice Ng", "Zed Quinn", "TechCorp"])
-    assert t2 == "Alice Ng and TechCorp reported it." and [d["value"] for d in d2] == ["Zed Quinn"]  # text only
+    t2, _, d2 = guard("The bug was fixed by eid_deadbeef last week.", [], [RES])
+    assert t2 == "The bug was fixed by last week." and [d["value"] for d in d2] == ["eid_deadbeef"]
 
-
-def test_guard_drops_unknown_names_and_unsupported_links_and_everything_on_empty_results():
-    t, _, d = guard("Zed Quinn did it.", [], [RES], names=["Zed Quinn"])
-    assert t == "" and d[0]["value"] == "Zed Quinn"
+def test_guard_drops_unsupported_links_and_ids_when_results_are_empty():
     pr_row = rows_result([{"answer": pr(1), "refs": [f"PR:{pr(1)}"], "evidence": []}])
     t2, ids2, d2 = guard(f"Fixed in {pr(1)}. Also {pr(99)}.", [pr(1), pr(99)], [pr_row])
     assert ids2 == [pr(1)] and pr(99) not in t2 and pr(1) in t2
     t3, ids3, d3 = guard(f"{ALICE} did it.", [ALICE], [rows_result([])])
-    assert t3 == "" and ids3 == [] and d3
-
+    assert t3 == "did it." and ids3 == [] and d3
 
 # ---------------------------------------------------------------- component matching (extraction leaves partial areas)
 class _Comps:
@@ -689,17 +683,19 @@ def test_derived_fates_are_reported_on_the_row(tg):
     assert row["fates"] == ["delayed_then_added", "held", "implemented"]
 
 
-# ---------------------------------------------------------------- guard: names, whole ids, real row shapes
-def test_guard_checks_names_without_the_optional_argument():
-    t, _, d = guard("Zed Quinn fixed the bug. Alice Ng fixed it too.", [], [RES])
-    assert t == "Alice Ng fixed it too." and [x["value"] for x in d] == ["Zed Quinn"]
-    t2, _, d2 = guard("InventedCorp reported it. TechCorp reported it too.", [], [RES])
-    assert t2 == "TechCorp reported it too." and [x["value"] for x in d2] == ["InventedCorp"]
-    t3, _, _ = guard("Zed Quinn and Alice Ng fixed it.", [], [RES])
-    assert t3 == "Alice Ng fixed it."
-    t4, _, d4 = guard("Zed Quinn asked about it.", [], [RES], context="What did Zed Quinn ask?")
-    assert t4 == "Zed Quinn asked about it." and d4 == []  # a name from the question is allowed
+# ---------------------------------------------------------------- guard: whole ids, real row shapes
+def test_guard_does_not_police_prose_names_and_keeps_supported_sentences_intact():
+    # NB2: a title before a supported name must not delete the sentence; names are not policed at all
+    t, _, d = guard("Software Engineer Alice Ng fixed the bug. Zed Quinn helped.", [], [RES])
+    assert t == "Software Engineer Alice Ng fixed the bug. Zed Quinn helped." and d == []
 
+
+def test_guard_ids_need_exact_membership_not_prefix_or_substring():
+    rows = rows_result([{"answer": "Bug b10", "refs": ["Bug:b10"], "evidence": []}])
+    t, _, d = guard("See Bug:b10, Bug:b1 and Bug:b10:invented.", [], [rows])
+    assert t == "See Bug:b10." and [x["value"] for x in d] == ["Bug:b1", "Bug:b10:invented"]
+    t2, _, d2 = guard(f"Mail {ALICE} or eid_a1000002.", [], [rows_result([{"answer": ALICE}])])
+    assert t2 == f"Mail {ALICE}." and [x["value"] for x in d2] == ["eid_a1000002"]
 
 def test_guard_recognises_complete_returned_ids_with_markdown_and_spaces():
     rows = rows_result([{"answer": "Voice assistant", "refs": ["Feature:mini:voice assistant", "Bug:b1"],
@@ -709,10 +705,9 @@ def test_guard_recognises_complete_returned_ids_with_markdown_and_spaces():
         t, _, d = guard(sent, [], [rows])
         assert t == sent and d == [], sent
     t, _, d = guard("See `Bug:b9` for details.", [], [rows])
-    assert t == "" and d[0]["value"] == "Bug:b9"
+    assert t == "See for details." and d[0]["value"] == "Bug:b9"
     t, _, d = guard("Feature:mini:other thing is open.", [], [rows])
-    assert t == "" and d
-
+    assert d and "Feature:mini:other" not in t
 
 def test_guard_supports_the_fields_the_tools_emit():
     sug = rows_result([{"answer": "Add pricing tiers", "speaker": CARA, "speaker_name": "Cara Diaz",
