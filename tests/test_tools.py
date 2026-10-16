@@ -414,15 +414,18 @@ def test_brandes_on_the_directed_projection_matches_hand_computation():
     edges = [("a", "b"), ("b", "c"), ("c", "d"), ("c", "e")]
     s = catalog.betweenness(["a", "b", "c", "d", "e"], edges)
     assert s == {"a": 0.0, "b": 3.0, "c": 4.0, "d": 0.0, "e": 0.0}
+    diamond = catalog.betweenness(list("abcd"), [("a", "b"), ("a", "c"), ("b", "d"), ("c", "d")])
+    assert diamond == {"a": 0.0, "b": 0.5, "c": 0.5, "d": 0.0}  # two shortest paths a-d share the credit
 
 
 def test_bridges_native_on_6_0_python_on_4_22_same_scores(tg):
-    r = call(tg, "bridges", top_k=3)
-    assert [x["answer"] for x in r.rows[:2]] == [CARA, BOB]
-    assert [x["score"] for x in r.rows[:2]] == [4.0, 3.0]
+    # a1 -> b2 -> c3 -> {d4, e5 -> ghost -> f6}: c 8, e 6, b 5, ghost 4 (paths through the nameless placeholder count)
+    r = call(tg, "bridges", top_k=4)
+    assert [x["answer"] for x in r.rows] == [CARA, EVE, BOB, "eid_e6000010"]
+    assert [x["score"] for x in r.rows] == [8.0, 6.0, 5.0, 4.0]
     want = "native" if tg.server_version == "6.0" else "python"
     assert {x["engine"] for x in r.rows} == {want}
-    assert len(r.rows) == 3 and r.rows[0]["name"] == "Cara Diaz"
+    assert r.rows[0]["name"] == "Cara Diaz" and r.rows[3]["name"] is None
     if want == "native":
         assert "algo.betweenness" in r.ops[0].query and "samplingSeed" in r.ops[0].query
     else:

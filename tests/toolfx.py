@@ -29,6 +29,7 @@ PROD = f"Product:{P}"
 ALICE, BOB, CARA, DAN, EVE, FINN = ("eid_a1000001", "eid_b2000002", "eid_c3000003", "eid_d4000004",
                                     "eid_e5000005", "eid_f6000006")
 SAM1, SAM2, GUS = "eid_5a000007", "eid_5b000008", "eid_a9000009"
+GHOST = "eid_e6000010"  # a placeholder person (no name, not in the directory) on a collaboration path
 
 
 def pr(n: int) -> str:
@@ -246,8 +247,9 @@ def tool_facts() -> Facts:
         edges.append(_e("SPOKE_IN", f"Person:{who}", "Meeting:m1", ["m1#1"], speaker_name=name, ambiguous=amb,
                         n_candidates=n, score=0))
 
-    # ---- collaboration chain a1 -> b2 -> c3 -> {d4, e5} (stored once per pair, src < dst)
-    for a, b in ((ALICE, BOB), (BOB, CARA), (CARA, DAN), (CARA, EVE)):
+    # ---- collaboration a1 -> b2 -> c3 -> {d4, e5 -> ghost -> f6} (stored once per pair, src < dst)
+    nodes.append(N("Person", GHOST, eid=GHOST, in_directory=False))
+    for a, b in ((ALICE, BOB), (BOB, CARA), (CARA, DAN), (CARA, EVE), (EVE, GHOST), (GHOST, FINN)):
         edges.append(_e("COLLABORATED", f"Person:{a}", f"Person:{b}", ["rec-collab"], weight=1,
                         counts={"co_attend": 1, "mention": 0, "pr_review": 0, "session": 0}))
     return Facts(nodes, edges)

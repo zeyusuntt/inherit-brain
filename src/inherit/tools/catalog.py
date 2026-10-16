@@ -877,9 +877,8 @@ def _bridges(ctx: _Ctx, p: dict) -> list[dict]:
         scored = [(eid, name, role, float(score)) for eid, name, role, score in found if eid]
     else:  # 4.22.1: the native directed scores are wrong there (Task 1b); same projection, computed here
         engine = "python"
-        people = ctx.q("MATCH (p:Person) WHERE p.name IS NOT NULL RETURN p.eid, p.name, p.role")
-        edges = ctx.q("MATCH (a:Person)-[:COLLABORATED]->(b:Person) WHERE a.name IS NOT NULL AND b.name IS NOT NULL "
-                      "RETURN a.eid, b.eid")
+        people = ctx.q("MATCH (p:Person) RETURN p.eid, p.name, p.role")
+        edges = ctx.q("MATCH (a:Person)-[:COLLABORATED]->(b:Person) RETURN a.eid, b.eid")
         t0 = time.perf_counter()
         score = betweenness([e for e, *_ in people], [tuple(e) for e in edges])
         ctx.note("python:betweenness", "", {"nodes": len(people), "edges": len(edges), "directed": True}, len(people), t0)
