@@ -1,30 +1,47 @@
 """The only door to the model. Every call is reserved and settled on a Meter.
 
 The Meter keeps an append-only log (runs/meter.jsonl) shared by threads and
-processes. Money is integer pico-USD so sums are exact.
+processes. Money is integer pico-USD (1 USD = 10**12) so sums are exact, and
+prices come from the table in config, never from the caller.
 """
 
 from __future__ import annotations
 
 import fcntl
 import json
+import math
 import os
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Any
 
+from inherit.config import MODEL, PRICES_PICO, load_settings
+
 PICO = 10**12  # pico-USD per USD
+PER_MESSAGE_TOKENS = 16
+FIXED_OVERHEAD_TOKENS = 512  # chat template and tool rendering
 
 
 class BudgetExceeded(RuntimeError):
     pass
 
 
-def _pu(usd: float) -> int:
-    return round(usd * PICO)
+def _pu_ceil(usd: float) -> int:
+    """USD to pico-USD, rounded up. Rejects negative, NaN and infinite input."""
+    if isinstance(usd, bool) or not isinstance(usd, (int, float)) or not math.isfinite(usd) or usd < 0:
+        raise ValueError(f"invalid amount: {usd!r}")
+    return int((Decimal(repr(float(usd))) * PICO).to_integral_value(rounding=ROUND_CEILING))
+
+
+def _count(n: Any, name: str) -> int:
+    if isinstance(n, bool) or not isinstance(n, int) or n < 0:
+        raise ValueError(f"invalid {name}: {n!r}")
+    return n
 
 
 @dataclass(frozen=True)
@@ -32,6 +49,7 @@ class Reservation:
     id: str
     arm: str
     amount: int  # pico-USD
+    model: str = MODEL
 
 
 class Meter:
@@ -39,75 +57,100 @@ class Meter:
         self,
         cap_usd: float,
         path: str | Path,
-        price_in: float,
-        price_out: float,
         arm_caps: dict[str, float] | None = None,
+        prices: dict[str, tuple[int, int]] | None = None,
     ):
-        self.cap = _pu(cap_usd)
+        self.cap = _pu_ceil(cap_usd)
         self.path = Path(path)
         self.lock_path = self.path.with_name(self.path.name + ".lock")
-        self.price_in = price_in
-        self.price_out = price_out
-        self.arm_caps = {a: _pu(v) for a, v in (arm_caps or {}).items()}
+        self.prices = dict(prices or PRICES_PICO)
+        self.arm_caps: dict[str, int] = {}
+        self.corrupt_lines = 0
         self._tlock = threading.Lock()
         self._offset = 0
-        self._open: dict[str, tuple[str, int]] = {}  # id -> (arm, amount)
+        self._open: dict[str, tuple[str, int, str]] = {}  # id -> (arm, amount, model)
         self._settled: dict[str, int] = {}  # arm -> pico-USD
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        for arm, usd in (arm_caps or {}).items():
+            self.set_arm_cap(arm, usd)
 
-    def set_arm_cap(self, arm: str, usd: float) -> None:
-        with self._tlock:
-            self.arm_caps[arm] = _pu(usd)
+    # -- ledger plumbing ---------------------------------------------------
 
-    # State is rebuilt from the log; call only with the locks held (or for reads).
     def _refresh(self) -> None:
+        """Apply events appended since the last read. Call with the locks held."""
         if not self.path.exists():
             return
         with open(self.path, "rb") as f:
             f.seek(self._offset)
             data = f.read()
-        end = data.rfind(b"\n") + 1  # ignore a partial trailing line
+        end = data.rfind(b"\n") + 1  # a partial trailing line waits for its newline
         for line in data[:end].splitlines():
             if not line.strip():
                 continue
-            ev = json.loads(line)
-            if "cost" in ev:
-                self._open.pop(ev["id"], None)
-                self._settled[ev["arm"]] = self._settled.get(ev["arm"], 0) + ev["cost"]
-            else:
-                self._open[ev["id"]] = (ev["arm"], ev["amount"])
+            try:
+                self._apply(json.loads(line))
+            except (ValueError, KeyError, TypeError):
+                self.corrupt_lines += 1
         self._offset += end
 
+    def _apply(self, ev: dict) -> None:
+        kind = ev["type"]
+        if kind == "reserve":
+            self._open[ev["id"]] = (ev["arm"], int(ev["amount"]), ev["model"])
+        elif kind == "settle":
+            cost = int(ev["cost"])
+            self._open.pop(ev["id"], None)
+            self._settled[ev["arm"]] = self._settled.get(ev["arm"], 0) + cost
+        elif kind == "cap":
+            self.arm_caps[ev["arm"]] = int(ev["amount"])
+        else:
+            raise ValueError(kind)
+
     def _append(self, ev: dict[str, Any]) -> None:
+        line = (json.dumps(ev) + "\n").encode()
         with open(self.path, "ab") as f:
-            f.write((json.dumps(ev) + "\n").encode())
+            if f.tell() > 0:
+                with open(self.path, "rb") as r:
+                    r.seek(-1, os.SEEK_END)
+                    if r.read(1) != b"\n":
+                        line = b"\n" + line  # close a torn trailing line first
+            f.write(line)
             f.flush()
             os.fsync(f.fileno())
 
-    class _Locked:
-        def __init__(self, m: "Meter"):
-            self.m = m
-
-        def __enter__(self):
-            self.m._tlock.acquire()
-            self.fh = open(self.m.lock_path, "a")
-            fcntl.flock(self.fh, fcntl.LOCK_EX)
-            self.m._refresh()
-
-        def __exit__(self, *exc):
-            fcntl.flock(self.fh, fcntl.LOCK_UN)
-            self.fh.close()
-            self.m._tlock.release()
+    @contextmanager
+    def _locked(self):
+        with self._tlock:
+            with open(self.lock_path, "a") as fh:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+                try:
+                    self._refresh()
+                    yield
+                finally:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
 
     def _arm_total(self, arm: str) -> int:
-        return self._settled.get(arm, 0) + sum(a for ar, a in self._open.values() if ar == arm)
+        return self._settled.get(arm, 0) + sum(a for ar, a, _ in self._open.values() if ar == arm)
 
     def _total(self) -> int:
-        return sum(self._settled.values()) + sum(a for _, a in self._open.values())
+        return sum(self._settled.values()) + sum(a for _, a, _ in self._open.values())
 
-    def reserve(self, max_cost: float, arm: str) -> Reservation:
-        amount = _pu(max_cost)
-        with self._Locked(self):
+    # -- public API --------------------------------------------------------
+
+    def set_arm_cap(self, arm: str, usd: float) -> None:
+        amount = _pu_ceil(usd)
+        with self._locked():
+            self._append({"type": "cap", "arm": arm, "amount": amount})
+            self._refresh()
+
+    def reserve(self, max_cost: float, arm: str, model: str = MODEL) -> Reservation:
+        return self.reserve_pu(_pu_ceil(max_cost), arm, model)
+
+    def reserve_pu(self, amount: int, arm: str, model: str = MODEL) -> Reservation:
+        _count(amount, "amount")
+        if model not in self.prices:
+            raise ValueError(f"no price for model {model!r}")
+        with self._locked():
             if self._total() + amount > self.cap:
                 raise BudgetExceeded(
                     f"cap {self.cap / PICO} USD: committed {self._total() / PICO} + {amount / PICO}"
@@ -117,44 +160,50 @@ class Meter:
                 raise BudgetExceeded(
                     f"arm {arm!r} cap {sub / PICO} USD: committed {self._arm_total(arm) / PICO} + {amount / PICO}"
                 )
-            r = Reservation(uuid.uuid4().hex, arm, amount)
-            self._append({"id": r.id, "arm": arm, "amount": amount})
+            r = Reservation(uuid.uuid4().hex, arm, amount, model)
+            self._append({"type": "reserve", "id": r.id, "arm": arm, "amount": amount, "model": model})
             self._refresh()
             return r
 
-    def settle(
-        self,
-        r: Reservation,
-        prompt_tokens: int,
-        completion_tokens: int,
-        cost_usd: float | None = None,
-    ) -> float:
-        """Replace a reservation with the real cost. Returns the cost in USD."""
-        if cost_usd is None:
-            cost_usd = prompt_tokens * self.price_in + completion_tokens * self.price_out
-        cost = _pu(cost_usd)
-        with self._Locked(self):
-            if r.id not in self._open:
+    def _settle(self, r: Reservation, cost: int, pt: int, ct: int, **extra: Any) -> float:
+        with self._locked():
+            rec = self._open.get(r.id)
+            if rec is None:
                 raise ValueError(f"reservation {r.id} is not open")
-            self._append(
-                {
-                    "id": r.id,
-                    "arm": r.arm,
-                    "cost": cost,
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                }
-            )
+            if rec != (r.arm, r.amount, r.model):
+                raise ValueError(f"reservation {r.id} does not match the ledger")
+            ev = {
+                "type": "settle",
+                "id": r.id,
+                "arm": rec[0],
+                "cost": cost,
+                "prompt_tokens": pt,
+                "completion_tokens": ct,
+                **extra,
+            }
+            if cost > rec[1]:
+                ev["over_reservation"] = True
+            self._append(ev)
             self._refresh()
         return cost / PICO
 
+    def settle(self, r: Reservation, prompt_tokens: int, completion_tokens: int) -> float:
+        """Replace a reservation with the real cost (table price x real tokens). Returns USD."""
+        pt, ct = _count(prompt_tokens, "prompt_tokens"), _count(completion_tokens, "completion_tokens")
+        price_in, price_out = self.prices[r.model]
+        return self._settle(r, pt * price_in + ct * price_out, pt, ct)
+
     def settle_full(self, r: Reservation) -> float:
-        """Charge the whole reservation (request may have been billed, outcome unknown)."""
-        return self.settle(r, 0, 0, cost_usd=r.amount / PICO)
+        """Charge the whole reservation: the request may have been billed, outcome unknown."""
+        return self._settle(r, r.amount, 0, 0)
+
+    def settle_unbilled(self, r: Reservation, status_code: int) -> float:
+        """The provider rejected the request (HTTP 4xx): nothing was billed."""
+        return self._settle(r, 0, 0, 0, status_code=status_code)
 
     def spent(self, arm: str | None = None) -> float:
         """Settled cost plus open reservations, in USD."""
-        with self._Locked(self):
+        with self._locked():
             return (self._total() if arm is None else self._arm_total(arm)) / PICO
 
 
@@ -176,42 +225,54 @@ class EmbedResult:
 
 _meter: Meter | None = None
 _client: Any = None
-_meter_lock = threading.Lock()
-
-
-def _settings():
-    from inherit.config import load_settings
-
-    return load_settings()
+_lock = threading.Lock()
 
 
 def default_meter() -> Meter:
     global _meter
-    with _meter_lock:
+    with _lock:
         if _meter is None:
-            s = _settings()
-            _meter = Meter(s.budget_usd, s.meter_path, s.price_in, s.price_out)
+            s = load_settings()
+            _meter = Meter(s.budget_usd, s.meter_path)
         return _meter
 
 
 def _default_client():
     global _client
-    with _meter_lock:
+    with _lock:
         if _client is None:
             from openai import OpenAI
 
-            s = _settings()
-            # max_retries=0: the SDK must never resend a request behind the meter's back.
+            s = load_settings()
             _client = OpenAI(api_key=s.nebius_api_key, base_url=s.nebius_base_url, max_retries=0)
         return _client
 
 
-def _retryable(e: Exception) -> bool:
-    try:
-        import openai
-    except ImportError:  # pragma: no cover
-        return False
-    return isinstance(e, (openai.RateLimitError, openai.InternalServerError))
+def _no_retry(client: Any) -> Any:
+    """Whatever client is injected, the SDK must not resend behind the meter's back."""
+    if hasattr(client, "with_options"):
+        return client.with_options(max_retries=0)
+    return client
+
+
+def _status(e: Exception) -> int | None:
+    import openai
+
+    return e.status_code if isinstance(e, openai.APIStatusError) else None
+
+
+def _failed(meter: Meter, r: Reservation, e: Exception) -> bool:
+    """Settle after a failed request. Returns True if the call may be retried."""
+    st = _status(e)
+    if st is not None and 400 <= st < 500:
+        meter.settle_unbilled(r, st)  # rejected, not billed
+    else:
+        meter.settle_full(r)
+    return st is not None and (st == 429 or st >= 500)
+
+
+def _bytes(obj: Any) -> int:
+    return len(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
 
 
 def chat(
@@ -226,32 +287,46 @@ def chat(
     model: str | None = None,
     attempts: int = 3,
 ) -> ChatResult:
+    model = model or load_settings().model
     meter = meter or default_meter()
-    client = client or _default_client()
-    price_in = meter.price_in
-    chars = len(json.dumps(messages)) + (len(json.dumps(tools)) if tools else 0)
-    estimate = chars / 3 * price_in + max_tokens * meter.price_out
-    model = model or _settings().model
+    if model not in meter.prices:
+        raise ValueError(f"no price for model {model!r}")
+    client = _no_retry(client or _default_client())
+    _count(max_tokens, "max_tokens")
+    # Byte-level BPE gives at most one token per byte, so bytes bound billed input.
+    in_bound = _bytes(messages) + PER_MESSAGE_TOKENS * len(messages) + FIXED_OVERHEAD_TOKENS
+    if tools:
+        in_bound += _bytes(tools)
+    if response_format is not None:
+        in_bound += _bytes(response_format)
+    price_in, price_out = meter.prices[model]
+    ceiling = in_bound * price_in + max_tokens * price_out
     kw: dict[str, Any] = dict(model=model, messages=messages, max_tokens=max_tokens, temperature=0)
     if tools:
         kw["tools"] = tools
     if response_format is not None:
         kw["response_format"] = response_format
     for attempt in range(attempts):
-        r = meter.reserve(estimate, arm)  # a fresh reservation per attempt
+        r = meter.reserve_pu(ceiling, arm, model)  # a fresh reservation per attempt
         t0 = time.monotonic()
         try:
             resp = client.chat.completions.create(**kw)
         except Exception as e:
-            meter.settle_full(r)
-            if _retryable(e) and attempt + 1 < attempts:
+            retry = _failed(meter, r, e)
+            if retry and attempt + 1 < attempts:
                 time.sleep(2**attempt)
                 continue
             raise
         latency = time.monotonic() - t0
-        pt, ct = resp.usage.prompt_tokens, resp.usage.completion_tokens
+        try:
+            pt = _count(resp.usage.prompt_tokens, "prompt_tokens")
+            ct = _count(resp.usage.completion_tokens, "completion_tokens")
+            message = resp.choices[0].message
+        except Exception:
+            meter.settle_full(r)
+            raise
         cost = meter.settle(r, pt, ct)
-        return ChatResult(resp.choices[0].message, pt, ct, cost, latency)
+        return ChatResult(message, pt, ct, cost, latency)
     raise AssertionError("unreachable")
 
 
@@ -262,19 +337,25 @@ def embed(
     model: str | None = None,
     meter: Meter | None = None,
     client: Any = None,
-    price_in: float | None = None,
 ) -> EmbedResult:
+    model = model or load_settings().embed_model
     meter = meter or default_meter()
-    client = client or _default_client()
-    model = model or _settings().embed_model
-    price_in = price_in if price_in is not None else _settings().embed_price_in
-    estimate = sum(len(t) for t in texts) / 3 * price_in
-    r = meter.reserve(estimate, arm)
+    if model not in meter.prices:
+        raise ValueError(f"no price for model {model!r}")
+    client = _no_retry(client or _default_client())
+    price_in, _ = meter.prices[model]
+    in_bound = sum(len(t.encode("utf-8")) + PER_MESSAGE_TOKENS for t in texts)
+    r = meter.reserve_pu(in_bound * price_in, arm, model)
     try:
         resp = client.embeddings.create(model=model, input=texts)
+    except Exception as e:
+        _failed(meter, r, e)
+        raise
+    try:
+        pt = _count(resp.usage.prompt_tokens, "prompt_tokens")
+        vectors = [d.embedding for d in resp.data]
     except Exception:
         meter.settle_full(r)
         raise
-    pt = resp.usage.prompt_tokens
-    cost = meter.settle(r, pt, 0, cost_usd=pt * price_in)
-    return EmbedResult([d.embedding for d in resp.data], pt, cost)
+    cost = meter.settle(r, pt, 0)
+    return EmbedResult(vectors, pt, cost)
