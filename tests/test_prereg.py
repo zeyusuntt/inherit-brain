@@ -10,6 +10,7 @@ from eval import run as R
 from eval import stats
 from eval.arms import ARMS
 from eval.questions import template
+from inherit.config import MODEL
 from inherit.contracts import QuestionKey
 
 from evalfx import FACTS, make_arm, mk_questions
@@ -30,13 +31,13 @@ def a5_sha():
 
 
 def mk_manifest(root, **over):
+    from inherit import freeze
+
+    arms = {"A5": {"products": ["P1", "P2", "P3"], "sub_cap_usd": 3.0}, "A2": {"products": ["P3"], "sub_cap_usd": None},
+            "A0": {"products": ["P1", "P2", "P3"], "sub_cap_usd": None}}
     m = {"code_commit": "c" * 40, "upstream_herb_commit": "u" * 40, "split_hash": "s" * 64, "bundle_sha256": BUNDLE,
          "facts_hash": FACTS, "config_hash": "h" * 64, "products": ["P1", "P2", "P3"], "held_products": ["P3"],
-         "arms": {"A5": {"products": ["P1", "P2", "P3"], "sub_cap_usd": 3.0}, "A2": {"products": ["P3"], "sub_cap_usd": None}},
-         "config": {"versions": {"card": "v1", "rules": {"x": "1"}, "agent_prompt": "a1"},
-                    "arms": {"A5": {"config_sha": "5" * 64}, "A2": {"config_sha": "2" * 64}}}}
-    m["arms"]["A5"]["prompt_versions"] = {"agent": "a1"}
-    m["arms"]["A2"]["prompt_versions"] = {}
+         "arms": arms, "config": freeze.effective_config(arms)}  # the freeze's own schema
     m.update(over)
     jdump(P.manifest_path(root), m)
     return m
@@ -60,11 +61,14 @@ def gates_stub(ok=True, complete=True):
     return f
 
 
-def mk_dev_run(root, monkeypatch, *, facts=FACTS, bundle=BUNDLE, cfg=None, arm="A5", score=90.0, products=("P1", "P2")):
+def mk_dev_run(root, monkeypatch, *, facts=FACTS, bundle=BUNDLE, cfg=None, arm="A5", score=90.0, products=("P1", "P2"),
+               model=None, pv=None, commit="c" * 40):
     qs = mk_questions(products)
     d = root / "runs" / "eval" / "A5-dev"
     jdump(d / "manifest.json", {"run_id": "A5-dev", "arm": arm, "split": "dev", "limit": None, "facts_hash": facts,
-                                 "bundle_sha": bundle, "arm_config_sha": cfg or a5_sha(), "slots": [str(q.key) for q in qs]})
+                                 "bundle_sha": bundle, "arm_config_sha": cfg or a5_sha(),
+                                 "model": model or MODEL, "prompt_versions": pv or ARMS["A5"].prompt_versions,
+                                 "code_commit": commit, "slots": [str(q.key) for q in qs]})
     (d / "records.jsonl").write_text("x\n")
     graded = [G.Graded(q.key, arm, q.type, score if q.type in ("person", "company") else 10.0, False) for q in qs]
     monkeypatch.setattr(G, "load_graded", lambda run_dir: graded)
@@ -83,6 +87,7 @@ def world(tmp_path, monkeypatch):
 def accept(root, d, qs, **kw):
     kw.setdefault("freeze_check", OK)
     kw.setdefault("gates_report", gates_stub())
+    kw.setdefault("code_same", lambda root, a, b: True)
     return P.write_acceptance(root, 1, d, questions=qs, dev_products=("P1", "P2"), **kw)
 
 
@@ -125,12 +130,44 @@ def test_dev_score_below_threshold_fails(world, monkeypatch):
     assert not doc["pass"] and not gate(doc, "dev score")["pass"] and gate(doc, "dev score")["numerator"] == 60.0
 
 
-@pytest.mark.parametrize("over", [{"facts": "0" * 64}, {"bundle": "0" * 64}, {"cfg": "0" * 64}, {"arm": "A4"}])
+@pytest.mark.parametrize("over", [{"facts": "0" * 64}, {"bundle": "0" * 64}, {"cfg": "0" * 64}, {"arm": "A4"},
+                                  {"model": "other/model"}, {"pv": {"agent": "old"}}])
 def test_dev_run_not_on_the_frozen_system_fails(world, monkeypatch, over):
     root, _, _ = world
     d, qs = mk_dev_run(root, monkeypatch, **over)
     doc = accept(root, d, qs)
     assert not doc["pass"] and "not on the frozen system" in doc["dev_run"]["why"]
+
+
+def test_dev_run_from_different_code_or_unknown_commit_fails(world, monkeypatch):
+    root, _, _ = world
+    d, qs = mk_dev_run(root, monkeypatch)
+    doc = accept(root, d, qs, code_same=lambda r, run, frozen: False)
+    assert not doc["pass"] and "behaviour code differs" in doc["dev_run"]["why"]
+    seen = []
+    accept(root, d, qs, code_same=lambda r, run, frozen: seen.append((run, frozen)) or True)
+    assert seen == [("c" * 40, "c" * 40)]
+
+
+def test_code_unchanged_uses_git_diff_and_rejects_dirty_or_unknown(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("x = 1\n")
+    git(tmp_path, "init", "-q")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-q", "-m", "1")
+    c1 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
+    (tmp_path / "notes.txt").write_text("n\n")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "-q", "-m", "2")
+    c2 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
+    (tmp_path / "src" / "a.py").write_text("x = 2\n")
+    git(tmp_path, "commit", "-q", "-am", "3")
+    c3 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
+    assert P.code_unchanged(tmp_path, c1, c2) is True  # only a non-code file changed
+    assert P.code_unchanged(tmp_path, c1, c3) is False
+    assert P.code_unchanged(tmp_path, c1 + "-dirty-abc", c2) is False
+    assert P.code_unchanged(tmp_path, "unknown", c2) is False
+    assert P.code_unchanged(tmp_path, "0" * 40, c2) is False
 
 
 def test_dev_run_must_cover_every_dev_question_and_product(world, monkeypatch):
@@ -196,6 +233,7 @@ def test_write_renders_everything_once(world):
     assert R.PREREG_FACTS_RE.findall(text) == [FACTS] and len(R.PREREG_FACTS_RE.findall(text)) == 1
     assert f"| Acceptance report sha256 | {P._sha(P.acceptance_path(root))} |" in text
     assert "| A2 | P3 | default |" in text and "| A5 | all 24 | 3.0 |" in text
+    assert "arm A2 baseline" not in text and "| arm A5 agent |" in text and "| arm A0 baseline |" in text
     assert "codex-x" in text and "precision:bug" in text and "1 products: P3" in text
     assert "- unclear one (Codex: multi, Claude: single, result: uncertain)" in text
     assert stats.read_multihop_families(text) == {"how many bugs"}
@@ -321,7 +359,10 @@ def test_preflight_prereg_checks(ready):
 @pytest.mark.parametrize("field,value,msg", [
     ("approved_by", "someone", "approved_by"), ("approved_utc", "yesterday", "approved_utc"),
     ("approved_utc", "2026-10-20T10:00:00+02:00", "approved_utc"), ("post_url", "http://x.org", "post_url"),
-    ("post_url", "", "post_url"), ("wayback_url", "https://web.archive.org/web/latest/x", "wayback_url"),
+    ("post_url", "", "post_url"), ("post_url", "https:///post", "post_url"), ("post_url", "https://", "post_url"),
+    ("wayback_url", "https://web.archive.org.evil.com/web/123/x", "wayback_url"),
+    ("wayback_url", "https://web.archive.org/web/123", "wayback_url"),
+    ("wayback_url", "http://web.archive.org/web/123/x", "wayback_url"), ("wayback_url", "https://web.archive.org/web/latest/x", "wayback_url"),
     ("wayback_url", "https://example.org/web/123/x", "wayback_url")])
 def test_preflight_release_record_fields(ready, field, value, msg):
     rel = json.loads(P.release_path(ready).read_text())
@@ -357,6 +398,7 @@ def held_kw(tmp_path, **kw):
     kw.setdefault("env", env())
     kw.setdefault("cap_setter", lambda a, usd: None)
     kw.setdefault("clean_check", lambda root: None)
+    kw.setdefault("spend_reader", lambda arm: 0.0)
     kw.setdefault("expected_facts_hash", FACTS)
     return dict(root=tmp_path, **kw)
 
@@ -421,3 +463,37 @@ def test_dev_run_unchanged_by_arms_json(tmp_path, monkeypatch):
     d = R.run_arm("fake", "dev", questions=mk_questions(), root=tmp_path, env=held_kw(tmp_path)["env"],
                   cap_setter=lambda a, u: caps.append(u), clean_check=lambda r: None)
     assert R.read_manifest(d)["products"] is None and caps == [1.0]
+
+
+def test_cap_is_the_committed_spend_plus_the_sub_cap_and_resume_keeps_the_base(tmp_path, monkeypatch):
+    caps, reads = [], []
+
+    def reader(arm):
+        reads.append(arm)
+        return 1.96
+
+    d = held_run(tmp_path, monkeypatch, {"fake": {"products": "all", "sub_cap_usd": 3.0}}, caps, spend_reader=reader)
+    assert R.read_manifest(d)["cap_base_usd"] == 1.96 and caps == [("fake", pytest.approx(4.96))] and reads == ["fake"]
+    # resume: the recorded base is reused, the proxy is not asked again (and its answer would be ignored)
+    (d / "records.jsonl").write_text("")
+    (d / "receipt.json").unlink()
+    caps2 = []
+    d2 = held_run(tmp_path, monkeypatch, {"fake": {"products": "all", "sub_cap_usd": 3.0}}, caps2,
+                  spend_reader=lambda arm: pytest.fail("must not re-read the spend"))
+    assert d2 == d and R.read_manifest(d)["cap_base_usd"] == 1.96
+
+
+def test_arm_absent_from_spend_has_a_zero_base(tmp_path, monkeypatch):
+    import io
+    import urllib.request
+
+    body = json.dumps({"per_arm": {"other": {"committed_usd": 2.0}}}).encode()
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=10: io.BytesIO(body))
+    monkeypatch.setattr("inherit.llm.proxy_url", lambda: "http://127.0.0.1:1/v1")
+    assert R._read_arm_spend("fake") == 0.0
+    body2 = json.dumps({"per_arm": {"fake": {"committed_usd": 1.5}}}).encode()
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=10: io.BytesIO(body2))
+    assert R._read_arm_spend("fake") == 1.5
+    caps = []
+    d = held_run(tmp_path, monkeypatch, {"fake": {"products": "all", "sub_cap_usd": 3.0}}, caps, spend_reader=lambda a: 0.0)
+    assert R.read_manifest(d)["cap_base_usd"] == 0.0 and caps == [("fake", 3.0)]

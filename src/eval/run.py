@@ -192,6 +192,15 @@ def _launch_check(root: Path) -> None:
         raise RunStateError("held-out launch refused:\n  " + "\n  ".join(res["failures"]))
 
 
+def _read_arm_spend(arm: str) -> float:
+    """The arm's committed spend in USD from the proxy's /spend (0 if the proxy has not seen the arm)."""
+    from inherit.llm import proxy_url
+
+    with urllib.request.urlopen(proxy_url().removesuffix("/v1") + "/spend", timeout=10) as r:
+        per = json.loads(r.read()).get("per_arm", {})
+    return float(per.get(arm, {}).get("committed_usd", 0.0))
+
+
 def _held_arm_spec(root: Path, arm: str) -> dict:
     """The arm's entry in results/freeze/arms.json: {"products": list or None (all), "sub_cap_usd": x or None}."""
     f = root / "results" / "freeze" / "arms.json"
@@ -224,6 +233,7 @@ def run_arm(
     clean_check: Callable[[Path], None] = rc.require_clean_tree,
     launch_check: Callable[[Path], None] = _launch_check,
     arm_spec: Callable[[Path, str], dict] = _held_arm_spec,
+    spend_reader: Callable[[str], float] = _read_arm_spend,
 ) -> Path:
     """Run `arm` over every slot of `split` and return the run directory. Resumes a compatible earlier run."""
     root = Path(root)
@@ -251,6 +261,11 @@ def run_arm(
     env = env or rc.current_env(root)
     _check_facts(split, env, expected_facts_hash, root)
 
+    run_dir = root / "runs" / "eval" / run_id
+    mpath = run_dir / "manifest.json"
+    cap_base = None
+    if split == "held":  # the proxy's arm cap is cumulative; a held run's budget starts at the spend so far
+        cap_base = read_manifest(run_dir).get("cap_base_usd") if mpath.exists() else spend_reader(arm)
     qs = list(questions) if questions is not None else load_questions(split)
     if spec["products"] is not None:
         qs = [q for q in qs if q.product in spec["products"]]
@@ -263,11 +278,9 @@ def run_arm(
         "arm_config_sha": a.config_sha(), "facts_hash": env.facts_hash,
         "split_facts_hash": rc.facts_hash(root / "data" / "facts", sorted({q.product for q in qs})),
         "bundle_sha": env.bundle_sha, "prompt_versions": a.prompt_versions, "model": env.model,
-        "limit": limit, "seed": seed,
+        "limit": limit, "seed": seed, "cap_base_usd": cap_base,
         "products": sorted({q.product for q in qs}) if split == "held" else None, "question_sha": snapshot_hash(qs), "slots": [str(q.key) for q in qs],
     }
-    run_dir = root / "runs" / "eval" / run_id
-    mpath = run_dir / "manifest.json"
     if mpath.exists():
         old = read_manifest(run_dir)
         diff = sorted(k for k in set(old) | set(manifest) if old.get(k) != manifest.get(k))
@@ -331,7 +344,7 @@ def run_arm(
     pending = [q for q in qs if str(q.key) not in done]
     cap = spec["sub_cap_usd"] if spec["sub_cap_usd"] is not None else a.sub_cap_usd  # arms.json wins on held
     if pending and cap is not None:
-        cap_setter(arm, cap)
+        cap_setter(arm, cap + (cap_base or 0.0))
     ex = ThreadPoolExecutor(max_workers=workers)
     try:
         for fut in as_completed([ex.submit(work, q) for q in pending]):

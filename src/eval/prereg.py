@@ -25,6 +25,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 
 from inherit.config import ROOT
 from inherit.freeze import sha256_file
@@ -33,7 +34,7 @@ TEMPLATE = Path(__file__).with_name("prereg_template.md")
 DEV_SCORE_THRESHOLD = 75.0
 RELEASE_FIELDS = ("approved_by", "approved_utc", "prereg_sha256", "post_url", "wayback_url")
 UTC_RE = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|\+00:00)")
-WAYBACK_RE = re.compile(r"https://web\.archive\.org/web/\d+/\S+")
+WAYBACK_PATH_RE = re.compile(r"/web/\d+/\S+")
 ACCEPT_SHA_RE = re.compile(r"Acceptance report sha256 \| ([0-9a-f]{64}) \|")
 PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
 
@@ -104,7 +105,17 @@ def audit_gates(root: Path, audit_round: int, gates_report: Callable | None = No
     return gates, info
 
 
-def dev_score_gate(dev_run: Path, manifest: dict | None, questions=None, dev_products=None) -> tuple[dict, dict]:
+def code_unchanged(root: Path, run_commit: str, freeze_commit: str) -> bool:
+    """True when src, pyproject.toml and uv.lock are identical at the two commits (False if either is unknown)."""
+    if not re.fullmatch(r"[0-9a-f]{40}", str(run_commit or "")):
+        return False  # a dirty or unknown commit cannot be compared
+    r = subprocess.run(["git", "diff", "--quiet", run_commit, freeze_commit, "--", "src", "pyproject.toml", "uv.lock"],
+                       cwd=root, capture_output=True)
+    return r.returncode == 0
+
+
+def dev_score_gate(dev_run: Path, manifest: dict | None, questions=None, dev_products=None, *,
+                   root: Path = ROOT, code_same: Callable | None = None) -> tuple[dict, dict]:
     """A5 person and company macro on the dev products, graded with the Task 10 grader and stats, from a complete
     A5 dev run made on the frozen system. The score is pooled over the dev products; each product's own macro is
     recorded next to it."""
@@ -130,6 +141,13 @@ def dev_score_gate(dev_run: Path, manifest: dict | None, questions=None, dev_pro
                     ("arm_config_sha", ARMS["A5"].config_sha())):
         if rm.get(k) != want:
             wrong.append(f"{k} differs")
+    cfg = manifest.get("config", {})
+    if rm.get("model") != cfg.get("models", {}).get("chat"):
+        wrong.append("model differs")
+    if rm.get("prompt_versions") != cfg.get("arms", {}).get("A5", {}).get("prompt_versions"):
+        wrong.append("prompt versions differ")
+    if not (code_same or code_unchanged)(root, rm.get("code_commit"), manifest.get("code_commit")):
+        wrong.append("behaviour code differs between the run's commit and the freeze commit, or the commit is unknown")
     if wrong:
         return fail("not on the frozen system: " + "; ".join(wrong))
     try:
@@ -171,12 +189,13 @@ def freeze_gates(root: Path, manifest: dict | None, freeze_check: Callable) -> l
 
 
 def build_acceptance(root: Path, audit_round: int, dev_run: Path, *, freeze_check: Callable | None = None,
-                     gates_report: Callable | None = None, questions=None, dev_products=None) -> dict:
+                     gates_report: Callable | None = None, questions=None, dev_products=None,
+                     code_same: Callable | None = None) -> dict:
     root = Path(root)
     freeze_check = freeze_check or default_freeze_check
     manifest = _json(manifest_path(root))
     gates, audit = audit_gates(root, audit_round, gates_report)
-    dev_gate, dev_info = dev_score_gate(dev_run, manifest, questions, dev_products)
+    dev_gate, dev_info = dev_score_gate(dev_run, manifest, questions, dev_products, root=root, code_same=code_same)
     gates.append(dev_gate)
     gates += freeze_gates(root, manifest, freeze_check)
     gates.append(_gate("families.json present", int(families_path(root).is_file()), 1, 1, families_path(root).is_file()))
@@ -233,9 +252,9 @@ def _flat(prefix: str, v) -> list[tuple[str, str]]:
 
 def versions_table(manifest: dict) -> str:
     rows = _flat("", manifest["config"]["versions"])
-    for arm, a in sorted((manifest.get("arms") or {}).items()):
+    for arm, a in sorted(manifest["config"]["arms"].items()):
         rows += [(f"arm {arm} {k}", v) for k, v in sorted((a.get("prompt_versions") or {}).items())]
-        rows.append((f"arm {arm} config sha256", manifest["config"]["arms"][arm]["config_sha"]))
+        rows.append((f"arm {arm} config sha256", a["config_sha"]))
     return "| Item | Version |\n|---|---|\n" + "\n".join(f"| {k} | {v} |" for k, v in rows)
 
 
@@ -378,6 +397,18 @@ def _committed(root: Path, rel: str) -> str | None:
     return None
 
 
+def _https_host(url) -> tuple[str, str] | None:
+    """(hostname, path) of a well-formed https URL with a host, else None. Never fetched."""
+    if not isinstance(url, str) or re.search(r"\s", url):
+        return None
+    try:
+        u = urlparse(url)
+        host = u.hostname
+    except ValueError:
+        return None
+    return (host, u.path) if u.scheme == "https" and host else None
+
+
 def _release_problems(rel: dict | None) -> list[str]:
     if rel is None:
         return ["results/freeze/release.json is missing"]
@@ -392,9 +423,10 @@ def _release_problems(rel: dict | None) -> list[str]:
         ok = False
     if not ok:
         out.append("release.json: approved_utc is not an ISO UTC timestamp")
-    if not str(rel.get("post_url", "")).startswith("https://") or len(str(rel["post_url"])) <= len("https://"):
-        out.append("release.json: post_url is not an https URL")
-    if not WAYBACK_RE.fullmatch(str(rel.get("wayback_url", ""))):
+    if not _https_host(rel.get("post_url")):
+        out.append("release.json: post_url is not an https URL with a host")
+    w = _https_host(rel.get("wayback_url"))
+    if not (w and w[0] == "web.archive.org" and WAYBACK_PATH_RE.fullmatch(w[1])):
         out.append("release.json: wayback_url is not https://web.archive.org/web/<digits>/...")
     return out
 
