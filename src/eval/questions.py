@@ -104,7 +104,8 @@ def load_questions(split_name: Literal["dev", "held"], raw_dir: Path = RAW_DIR) 
         raise ValueError(f"split must be 'dev' or 'held', got {split_name!r}")
     names = _names(raw_dir)
     dev, held = split(names)
-    data = {n: _read(raw_dir, n) for n in names}
+    need = dev if split_name == "dev" else dev + held  # held needs the dev templates; dev never opens a held file
+    data = {n: _read(raw_dir, n) for n in need}
     out: list[Question] = []
     if split_name == "dev":
         for n in dev:

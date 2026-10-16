@@ -105,3 +105,31 @@ def test_snapshot_hash_covers_text_gold_citations_and_order(mini_raw):
     assert h != Q.snapshot_hash([replace(qs[0], text="x")] + qs[1:])
     assert h != Q.snapshot_hash([replace(qs[0], gold=["x"])] + qs[1:])
     assert h != Q.snapshot_hash([replace(qs[0], citations=["x"])] + qs[1:])
+
+
+@needs_data
+def test_dev_load_never_opens_a_held_out_question_file(monkeypatch):
+    opened = []
+    real = Q._read
+
+    def spy(raw_dir, product):
+        opened.append(product)
+        return real(raw_dir, product)
+
+    monkeypatch.setattr(Q, "_read", spy)
+    Q.load_questions("dev")
+    assert sorted(opened) == sorted(Q.DEV_PRODUCTS)
+
+
+@needs_data
+def test_dev_load_works_when_the_held_out_files_are_absent(tmp_path):
+    import shutil
+    (tmp_path / "products").mkdir()
+    names = sorted(p.stem for p in (RAW / "products").glob("*.json"))
+    dev, _ = split(names)
+    for n in names:  # held-out products exist only as empty names, never as readable question files
+        if n in dev:
+            shutil.copy(RAW / "products" / f"{n}.json", tmp_path / "products" / f"{n}.json")
+        else:
+            (tmp_path / "products" / f"{n}.json").write_text("not json")
+    assert len(Q.load_questions("dev", tmp_path)) == 156 + 155
