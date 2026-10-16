@@ -16,6 +16,9 @@ P = "FamFixForce"
 PROD = f"Product:{P}"
 PR1, PR2 = "https://github.com/famfix/pull/1", "https://github.com/famfix/pull/2"
 SAM1, SAM2 = "eid_5a0000a1", "eid_5b0000a2"
+PR10 = "https://github.com/famfix/pull/30"
+PR3 = "https://github.com/famfix/pull/3"
+URLD = "https://x.example/demonstration"
 
 
 def fam_facts() -> Facts:
@@ -35,6 +38,17 @@ def fam_facts() -> Facts:
              E("HAS", PROD, f"PR:{PR2}"),
              E("REPORTED_BY", "Bug:b1", "Customer:CUST-0001"), E("REPORTED_BY", "Bug:b2", "Customer:CUST-0002"),
              E("FIXES", f"PR:{PR1}", "Bug:b1"), E("FIXES", f"PR:{PR2}", "Bug:b2")]
+    nodes += [
+        N("Customer", "CUST-0003", id="CUST-0003", company="AcmeSystems", name="Zed", role="CEO"),
+        N("Bug", "b3", id="b3", title="Odd glitch", status="active"),
+        N("PR", PR10, title="Fix glitch", number=30, link=PR10),
+        N("Document", "spec1", id="spec1", type="Spec Sheet", content=f"ping {SAM1} today, Initech asked for it"),
+        N("Url", URLD, link=URLD, kind="docs"),
+        N("Message", "m1", id="m1", ts="1", kind="message", user_id=SAM1, text="uniquemessage words here"),
+    ]
+    edges += [E("HAS", PROD, "Bug:b3"), E("HAS", PROD, "Document:spec1"), E("HAS", PROD, f"PR:{PR10}"),
+              E("REPORTED_BY", "Bug:b3", "Customer:CUST-0003"), E("FIXES", f"PR:{PR10}", "Bug:b3"),
+              E("SHARED", f"Person:{SAM1}", f"Url:{URLD}"), E("POSTED", f"Person:{SAM1}", "Message:m1")]
     return Facts(nodes, edges)
 
 
@@ -106,6 +120,33 @@ def test_empty_gold_is_no_gold(g):
 def test_paging_diagnostic_is_false_for_small_groups(g):
     q = mk(0, f"Which bugs does {P} have?", ["Login crash"])
     assert run(g, [q])["questions"][str(q.key)]["values"][0]["paging_only"] is False
+
+
+def verdict(g, text, gold):
+    q = mk(0, text, gold)
+    return run(g, [q])["questions"][str(q.key)]
+
+
+def test_messages_reached_by_any_edge_are_visible(g):
+    # the Person card omits Message neighbours, but the neighbors tool returns them
+    r = verdict(g, "What did eid_5a0000a1 write?", ["uniquemessage words here"])
+    assert r["verdict"] == "visible" and r["values"][0]["witness"] == ["Message:m1"]
+
+
+def test_bounded_matching_rejects_longer_identifiers(g):
+    # Odd glitch -> customer AcmeSystems, PR .../pull/30; Sam Kim -> Url .../demonstration
+    assert verdict(g, "Which company reported Odd glitch?", ["Acme"])["verdict"] == "needs_more"
+    assert verdict(g, "Which company reported Odd glitch?", ["AcmeSystems"])["verdict"] == "visible"
+    assert verdict(g, "Which PR fixed Odd glitch?", [PR3])["verdict"] == "needs_more"
+    assert verdict(g, "Which PR fixed Odd glitch?", [PR10])["verdict"] == "visible"
+    assert verdict(g, "Which link did Sam Kim share?", ["https://x.example/demo"])["verdict"] == "needs_more"
+    assert verdict(g, "Which link did Sam Kim share?", [URLD])["verdict"] == "visible"
+
+
+def test_values_inside_free_text_match_as_whole_tokens(g):
+    assert verdict(g, "Who is named in Spec Sheet?", [SAM1])["verdict"] == "visible"
+    assert verdict(g, "Who asked in Spec Sheet?", ["Initech"])["verdict"] == "visible"
+    assert verdict(g, "Who asked in Spec Sheet?", ["Init"])["verdict"] == "needs_more"
 
 
 # ---------------------------------------------------------------- family verdicts
@@ -181,6 +222,27 @@ def test_malformed_files_and_duplicate_ids_count_as_missing(tmp_path):
     assert F.read_verdicts(dup) == {"u002": "single"}
     m = F.merge_unseen(ROWS[:1], {}, {})
     assert m["t1"]["verdict"] == F.EXCLUDED
+
+
+def test_merge_command_with_a_missing_verdict_file_and_content_inventory(tmp_path):
+    out = tmp_path / "o"
+    (out).mkdir()
+    F._write(out, "dev_visibility.json", {"families": {"dev fam": {"source": "dev", "type": "person", "verdict": "multi"}}})
+    pairs = [("a content one", "content"), ("who reviewed <p>", "person"), ("leaks alphagenie <p>", "pr")]
+    info = F.cmd_packet(out, pairs, ["AlphaGenie"])
+    assert info["templates"] == 2 and info["content"] == 1 and info["residual_product_names"] == 1
+    c = write_v(tmp_path, "c.json", [("u001", "multi"), ("u002", "single")])
+    doc = F.cmd_merge(out, c, tmp_path / "absent.json")
+    assert doc["hashes"]["codex_verdicts"] and doc["hashes"]["claude_verdicts"] is None
+    assert doc["hashes"]["residual_product_names"] == 1
+    fams = doc["families"]
+    assert fams["who reviewed <p>"]["verdict"] == F.EXCLUDED and fams["a content one"]["verdict"] == F.CONTENT
+    assert doc["agreement"]["total"] == 2 and doc["multi_hop_set"] == ["dev fam"]
+
+
+def test_packet_states_the_root_contract():
+    text, _ = F.build_packet([("who reviewed <p>", "person")])
+    assert "Product is always an authorised root" in text and "including messages" in text and "up to 5 per span" in text
 
 
 # ---------------------------------------------------------------- PREREG block and R11

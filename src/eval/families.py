@@ -10,13 +10,15 @@ packet.md, packet_ids.json, prereg_block.txt, verdicts_codex.json, verdicts_clau
 A family is `questions.template(text, product)` of an answerable question. Only person, company, pr and url
 families are classified; content families are listed and never enter the multi-hop set.
 
-`dev` computes, per dev question, what strict A4 can ever read: the cards of its authorised roots plus the full card
-of every one-hop neighbour listed in those cards (structural only: no 200-row page, token or call limit). Roots are
+`dev` computes, per dev question, what strict A4 can ever read: the card of each authorised root plus the full card
+of every node one edge away from it, over every edge type and both directions, exactly the nodes the `neighbors`
+tool can return, messages included (structural only: no 200-row page, token or call limit). Roots are
 the Product, every exact hit (each folded name key of the RootSet that is a substring of the question, namesakes
 included) and every fallback hit over every contiguous span of two or more WORDS. Spans that start mid-word are not
 enumerated. More roots only make more content visible, which moves a family toward single-hop (the conservative
-direction). An answer value is visible when its `grade.normalize` form occurs in the normalised JSON of a visible
-card. A family is `multi` only if every voting dev instance needs content outside the visible set.
+direction). An answer value is visible when its `grade.normalize` form equals a string leaf of a visible card or
+occurs in one as a whole-token run. Leaves are the card's string values, list items, neighbour ids and names and
+src entries; a typed id prefix such as `Person:` is also stripped. A family is `multi` only if every voting dev instance needs content outside the visible set.
 
 `packet` writes the text the two classifiers get for the held-out templates not seen in dev. `merge` combines the two
 verdict files: `multi` only when both say multi, `single` when both say single, anything else is excluded.
@@ -53,10 +55,6 @@ RULE_EN = ("The multi-hop families are fixed before any held-out result, by what
            "multi-hop family.")
 
 
-def _ser(c: dict) -> str:
-    return json.dumps(c, ensure_ascii=False, separators=(",", ":"))
-
-
 def sha(b: bytes | str) -> str:
     return hashlib.sha256(b.encode() if isinstance(b, str) else b).hexdigest()
 
@@ -77,29 +75,56 @@ def authorised_roots(graph, text: str, product: str) -> list[str]:
     return sorted(roots)
 
 
+_ID_PREFIX = re.compile(r"^(?:" + "|".join(cards.ALLOWLIST) + r"):")
+
+
+def _leaves(obj):
+    if isinstance(obj, str):
+        yield obj
+        if _ID_PREFIX.match(obj):
+            yield _ID_PREFIX.sub("", obj, count=1)
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            yield from _leaves(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _leaves(v)
+
+
 class Viewer:
     """Cards of one product graph, built once."""
 
     def __init__(self, graph):
-        self.graph, self._cards, self._norm = graph, {}, {}
+        self.graph, self._cards, self._text = graph, {}, {}
 
     def card(self, node_id: str) -> dict:
         if node_id not in self._cards:
-            self._cards[node_id] = cards.card(self.graph, node_id)
-            self._norm[node_id] = normalize(_ser(self._cards[node_id]))
+            c = self._cards[node_id] = cards.card(self.graph, node_id)
+            leaves = {n for n in (normalize(x) for x in _leaves(c) if x != cards.ELLIPSIS) if n}
+            self._text[node_id] = "|".join(f" {n} " for n in sorted(leaves))  # normalised leaves hold no "|"
         return self._cards[node_id]
 
-    def norm(self, node_id: str) -> str:
+    def contains(self, node_id: str, norm_value: str) -> bool:
+        """The normalised value equals a leaf of the card or is a whole-token run inside one."""
         self.card(node_id)
-        return self._norm[node_id]
+        return bool(norm_value) and f" {norm_value} " in self._text[node_id]
+
+    def neighbours(self, root: str) -> dict[tuple, list[str]]:
+        """(edge type, direction) -> distinct neighbour ids, as the `neighbors` tool matches them (no paging)."""
+        label, skip = cards._label(root), sorted(cards.EXCLUDED_EDGES)  # noqa: SLF001
+        out: dict[tuple, set] = defaultdict(set)
+        for d, pat in (("out", "-[e]->(m)"), ("in", "<-[e]-(m)")):
+            q = (f"MATCH (r:{label} {{id: $id}}){pat} WHERE NOT type(e) IN $skip RETURN type(e), m.id")
+            for typ, mid in self.graph.ro_query(q, {"id": root, "skip": skip}).result_set:
+                out[(typ, d)].add(mid)
+        return {k: sorted(v) for k, v in out.items()}
 
     def view(self, roots: list[str]):
-        """(ids of the visible cards, groups): groups maps (root, edge, dir) to the neighbour ids it lists."""
-        groups: dict[tuple, list[str]] = defaultdict(list)
+        """(ids of the visible cards, groups): groups maps (root, edge, dir) to the neighbour ids it holds."""
+        groups: dict[tuple, list[str]] = {}
         for r in roots:
-            for e in self.card(r)["neighbours"]:
-                if e["id"] not in groups[(r, e["edge"], e["dir"])]:
-                    groups[(r, e["edge"], e["dir"])].append(e["id"])
+            for (typ, d), ids in self.neighbours(r).items():
+                groups[(r, typ, d)] = ids
         visible = set(roots) | {i for ids in groups.values() for i in ids}
         for i in visible:
             self.card(i)
@@ -121,7 +146,7 @@ def classify_question(q: Q.Question, viewer: Viewer) -> dict:
     values = []
     for v in q.gold or []:
         n = normalize(v)
-        hits = [i for i in visible if n and n in viewer.norm(i)]
+        hits = [i for i in visible if viewer.contains(i, n)]
         paged = bool(hits) and all(_paged_only(i, roots, groups, viewer) for i in hits)
         values.append({"value": v, "visible": bool(hits), "witness": hits[:3] if hits else "missing",
                        "n_witness": len(hits), "paging_only": paged if hits else None})
@@ -168,12 +193,19 @@ def classify_dev(questions: list[Q.Question], graph_for) -> dict:
 
 # ---------------------------------------------------------------- held-out strings
 def build_packet(pairs: list[tuple[str, str]]) -> tuple[str, list[dict]]:
-    """(packet text, id table). Only ID-type templates are sent; content templates are not."""
+    """(packet text, id table). Only ID-type templates are sent; content templates are not (see `content_rows`)."""
     sent = [(t, ty) for t, ty in pairs if any(x in ID_TYPES for x in ty.split("/"))]
     rows = [{"id": f"u{i:03d}", "template": t, "type": ty} for i, (t, ty) in enumerate(sent, 1)]
     text = "\n".join([
         "# Classify question templates as multi-hop or single-hop", "",
         "## Rule (SPEC 6.1, quoted)", "", RULE_ZH, "", RULE_EN, "",
+        "## Roots and visible content", "",
+        "- The Product is always an authorised root.",
+        "- Exact roots are entities whose name or id appears in the question text.",
+        "- Fallback roots come from full-text search over multi-word spans of the question, for bugs, features, "
+        "documents and competitors (up to 5 per span, ties kept).",
+        "- A4 sees each root's card and the full cards of all its one-hop neighbours, over every edge type, "
+        "including messages.", "",
         "You see only the question template and the card field list. You do not see any graph or any answer. "
         "Decide from the question text whether the answer needs a field that the visible cards do not hold: "
         "`multi` if it does, `single` if the answer is on the root card or on a one-hop neighbour card, "
@@ -185,6 +217,20 @@ def build_packet(pairs: list[tuple[str, str]]) -> tuple[str, list[dict]]:
         'Reply with JSON only: `{"verdicts": [{"id": "u001", "verdict": "multi" | "single" | "uncertain", '
         '"reason": "..."}]}` with one entry per id above.', ""])
     return text, rows
+
+
+def content_rows(pairs: list[tuple[str, str]]) -> list[dict]:
+    return [{"template": t, "type": ty} for t, ty in pairs if not any(x in ID_TYPES for x in ty.split("/"))]
+
+
+def product_names() -> list[str]:
+    return sorted(p.stem for p in (ROOT / "data" / "bundle" / "products").glob("*.json"))
+
+
+def residual_product_names(pairs: list[tuple[str, str]], names: list[str]) -> int:
+    """How many exported templates still contain a product name, case-insensitively (the strings are not reported)."""
+    low = [n.casefold() for n in names]
+    return sum(any(n in t.casefold() for n in low) for t, _ in pairs)
 
 
 def read_verdicts(path: Path) -> dict[str, str]:
@@ -264,23 +310,30 @@ def cmd_dev(out: Path, graph_for=depth1.agent_graph, questions=None) -> dict:
     return res
 
 
-def cmd_packet(out: Path) -> dict:
-    text, rows = build_packet(Q.unseen_held_templates())
+def cmd_packet(out: Path, pairs=None, names=None) -> dict:
+    pairs = Q.unseen_held_templates() if pairs is None else pairs
+    text, rows = build_packet(pairs)
+    resid = residual_product_names(pairs, product_names() if names is None else names)
     _write(out, "packet.md", text)
-    _write(out, "packet_ids.json", rows)
-    return {"templates": len(rows), "sha256": sha(text)}
+    _write(out, "packet_ids.json", {"rows": rows, "content": content_rows(pairs), "residual_product_names": resid})
+    return {"templates": len(rows), "content": len(pairs) - len(rows), "residual_product_names": resid,
+            "sha256": sha(text)}
 
 
 def cmd_merge(out: Path, codex: Path, claude: Path) -> dict:
     dev = _load_json(out / "dev_visibility.json")["families"]
-    rows = _load_json(out / "packet_ids.json")
-    unseen = merge_unseen(rows, read_verdicts(codex), read_verdicts(claude))
+    ids = _load_json(out / "packet_ids.json")
+    unseen = merge_unseen(ids["rows"], read_verdicts(codex), read_verdicts(claude))
+    unseen.update({c["template"]: {"source": "held-unseen", "type": c["type"], "verdict": CONTENT}
+                   for c in ids["content"]})
     hashes = {**_input_hashes(), "packet": sha((out / "packet.md").read_bytes()),
-              "codex_verdicts": sha(Path(codex).read_bytes()), "claude_verdicts": sha(Path(claude).read_bytes())}
+              "codex_verdicts": sha(Path(codex).read_bytes()) if Path(codex).is_file() else None,
+              "claude_verdicts": sha(Path(claude).read_bytes()) if Path(claude).is_file() else None,
+              "residual_product_names": ids["residual_product_names"]}
     doc = build_families_doc({**dev, **unseen}, hashes)
-    pairs = Counter((u["codex"] or "missing", u["claude"] or "missing") for u in unseen.values())
+    pairs = Counter((u["codex"] or "missing", u["claude"] or "missing") for u in unseen.values() if "codex" in u)
     doc["agreement"] = {"agree": sum(n for (a, b), n in pairs.items() if a == b and a != "missing"),
-                        "total": len(unseen), "pairs": {f"{a}/{b}": n for (a, b), n in sorted(pairs.items())}}
+                        "total": len(ids["rows"]), "pairs": {f"{a}/{b}": n for (a, b), n in sorted(pairs.items())}}
     _write(out, "families.json", doc)
     _write(out, "prereg_block.txt", render_block(multi_set(doc["families"])) + "\n")
     return doc
