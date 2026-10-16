@@ -57,7 +57,7 @@ QA_LINES = [("Ian Miller", "As QA I checked the export path.")]
 
 def test_weights_and_version_frozen():
     assert WEIGHTS == {"role_cue": 3, "related_post": 2, "mentioned": 1}
-    assert ROLE_CUES_VERSION == "v1"
+    assert ROLE_CUES_VERSION == "v2"
 
 
 def test_role_cue_picks_qa_over_pm():
@@ -213,6 +213,12 @@ def test_role_cues_hit(text, role):
 
 @pytest.mark.parametrize("text", [
     "Coordinate with the QA team for testing.",
+    "We should ship it, as the product manager suggested.",
+    "As the product manager said, the date is fixed.",
+    "That is the QA lead's call, as QA noted yesterday.",
+    "As QA mentioned, the build is flaky.",
+    "Looks fine from the QA perspective of Ian.",
+    "I think Ian is the QA's pick.",
     "The architecture needs work.",
     "Thanks for the engineering team update.",
     "Alice, do you have any architectural insights?",
@@ -221,6 +227,17 @@ def test_role_cues_hit(text, role):
 ])
 def test_topic_words_are_not_role_cues(text):
     assert role_cue_hits(text) == {}
+
+
+def test_third_person_role_reference_does_not_pick_a_namesake():
+    r = resolve(records([meeting([("Ian Miller", "We should ship it, as the product manager suggested.")])]))
+    assert r.ambiguous and r.scores == {"eid_qa": 0, "eid_pm": 0}
+
+
+def test_speaking_as_and_comma_forms_are_cues():
+    assert "QA Specialist" in role_cue_hits("Speaking as QA, we need a retest.")
+    assert "Product Manager" in role_cue_hits("As the product manager, I own the date.")
+    assert "QA Specialist" in role_cue_hits("From my QA perspective this is risky.")
 
 
 def test_resolution_is_a_plain_value():
@@ -352,3 +369,18 @@ def test_runner_names_layer_writes_rows_and_facts(tmp_path, mini_bundle):
     assert rows and {"meeting_id", "name", "status", "ids", "scores", "evidence"} <= set(rows[0])
     assert (d / "names_facts.jsonl").read_text().count("SPOKE_IN") > 0
     assert "resolved" in r.stdout and "ambiguous" in r.stdout
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)])
+def test_chat_shared_edges_stay_per_chat(order):
+    # chat a: Ian Miller says "As QA" -> resolved to eid_qa. chat b: no cue -> ambiguous (qa and pm).
+    a = MeetingChat("a_chat", f"2026-06-13T10:00:00\nIan Miller: As QA I posted {DOC_LINK}", "2026-06-13T10:00:00",
+                    (), "m1", "id")
+    b = MeetingChat("b_chat", f"2026-06-13T10:00:00\nIan Miller: {DOC_LINK}", "2026-06-13T10:00:00", (), "m2", "id")
+    chats = [a, b]
+    rec = records([meeting([("Dana Wu", "Hi.")]), meeting([("Dana Wu", "Hi.")], mid="m2")],
+                  chats=[chats[i] for i in order])
+    facts, _ = run_names(rec)
+    qa = {e.src: e.props["ambiguous"] for e in facts.edges
+          if e.type == "SHARED" and e.src_id == "Person:eid_qa" and e.dst_id == "Document:spec1"}
+    assert qa == {("a_chat",): False, ("b_chat",): True}

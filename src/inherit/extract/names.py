@@ -23,12 +23,14 @@ from inherit.ontology import check_edge
 EXTRACTOR = "names/v1"
 WEIGHTS = {"role_cue": 3, "related_post": 2, "mentioned": 1}
 WINDOW = timedelta(days=3)
-ROLE_CUES_VERSION = "v1"
+ROLE_CUES_VERSION = "v2"
 
 # Role cue table. A cue must say the speaker's OWN role, not a topic that every role talks about
 # ("the QA team", "engineering team", "testing" alone are not cues). Three shapes:
-#   "as [a|an|the|our] <role>", "I am [a|an|the] <role>" and "in my role as <role>" use ROLE_NOUNS;
-#   "from [a|the] <x> perspective|standpoint|angle|viewpoint" uses ROLE_NOUNS plus PERSPECTIVE_EXTRA;
+#   "as|speaking as [a|an|the|our] <role>" followed by a first-person word ("as QA I checked", "as the product
+#   manager, we ..."), "I am [a|an|the] <role>" and "in my role as <role>" use ROLE_NOUNS. "As the product
+#   manager suggested" is a reference to someone else and is not a cue;
+#   "from [a|an|my|our] <x> perspective|standpoint|angle|viewpoint" uses ROLE_NOUNS plus PERSPECTIVE_EXTRA;
 #   ARCHITECT_OFFER is the one fixed phrase taken from the dev transcripts.
 ROLE_NOUNS: dict[str, tuple[str, ...]] = {
     "Software Engineer": ("software engineer", "developer", "engineer"),
@@ -64,10 +66,10 @@ def _compile() -> list[tuple[str, re.Pattern]]:
         own = _alt(nouns)
         persp = _alt(nouns + PERSPECTIVE_EXTRA.get(role, ()))
         parts = [
-            rf"\bas (?:a |an |the |our |your )?(?:{own})\b(?! team)",
+            rf"\b(?:as|speaking as) (?:a |an |the |our )?(?:{own})\b,? (?:i|i'm|i'll|i've|i'd|my|me|we|we're|we'll|let me)\b",
             rf"\bin my (?:role|capacity) as (?:a |an |the )?(?:{own})\b",
-            rf"\bi(?:'m| am) (?:a |an |the |our )(?:{own})\b(?! team)",
-            rf"\bfrom (?:a |an |the |my |our )?(?:{persp})(?: team's)? (?:perspective|standpoint|angle|viewpoint|point of view)\b",
+            rf"\bi(?:'m| am) (?:a |an |the |our )(?:{own})\b(?! team)(?!'s)",
+            rf"\bfrom (?:a |an |my |our )(?:{persp})(?: team's)? (?:perspective|standpoint|angle|viewpoint|point of view)\b",
         ]
         if role == "Technical Architect":
             parts.append(ARCHITECT_OFFER)
@@ -251,8 +253,8 @@ def resolve_meeting_names(rec: ProductRecords) -> tuple[Facts, list[dict]]:
             "eid": eid, "name": e["name"], "role": e["role"], "in_directory": True})
         return f"Person:{eid}"
 
-    def edge(type_, src, dst, ids, **props):
-        e = Edge(type_, src, dst, props, tuple(ids), EXTRACTOR)
+    def edge(type_, src, dst, ids, key="", **props):
+        e = Edge(type_, src, dst, props, tuple(ids), EXTRACTOR, key)
         check_edge(e)
         edges.append(e)
 
@@ -282,7 +284,7 @@ def resolve_meeting_names(rec: ProductRecords) -> tuple[Facts, list[dict]]:
                         targets.append(f"Url:{link}")
                     for dst in targets:
                         for eid in r.ids:
-                            edge("SHARED", person(eid), dst, [c.id], speaker_name=norm(sp), ambiguous=r.ambiguous)
+                            edge("SHARED", person(eid), dst, [c.id], c.id, speaker_name=norm(sp), ambiguous=r.ambiguous)
 
     return Facts([], []).merge(Facts(list(nodes.values()), edges)), rows
 
