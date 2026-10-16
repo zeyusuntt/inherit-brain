@@ -69,6 +69,28 @@ def completed(text: str) -> bool:
     return any(_COMPLETE.search(x) and not _NOT_DONE.search(x) for x in _SENTENCES.split(text or ""))
 
 
+_ROLLED_BACK = re.compile(r"\b(?:reverted|rolled back|backed out|was undone|were undone)\b", re.I)
+_REVIEW_CUE = re.compile(
+    r"\b(?:should|could|would|add|include|consider|suggest|might|recommend|needs?|perhaps|maybe|expand|clarify|"
+    r"elaborate|mention|highlight|detail|specify|emphasi[sz]e|improve|update|replace|remove|worth|how about|"
+    r"what about)\b", re.I)
+
+
+def quote_sentences(text: str, quote: str) -> str:
+    """The sentence(s) of `text` that hold the cited quote; the whole quote when it is not found (C1)."""
+    q = normalise(quote)
+    hit = [x for x in _SENTENCES.split(text or "") if q and q in normalise(x)]
+    if not hit and q:
+        head = " ".join(q.split()[:4])
+        hit = [x for x in _SENTENCES.split(text or "") if head in normalise(x)]
+    return " ".join(hit) or quote
+
+
+def rolled_back(text: str) -> bool:
+    """A sentence states a finished rollback: a reverted/rolled back word and no promise, plan, condition or negation."""
+    return any(_ROLLED_BACK.search(x) and not _NOT_DONE.search(x) for x in _SENTENCES.split(text or ""))
+
+
 def _is_question(sentence: str) -> bool:
     x = sentence.strip()
     return False if _POLITE.match(x) else (x.endswith("?") or bool(_Q_START.match(x)))
@@ -84,9 +106,15 @@ def sentence_mood(text: str, cue) -> str:
     return "plain" if "plain" in moods or not moods else ("question" if "question" in moods else "conditional")
 
 
-def _shape(arrays):
-    """A response check (I1): each named field is a list of objects whose citations are lists of objects."""
+def _shape(arrays, required=()):
+    """A response check (I1): each named field is a list of objects whose citations are lists of objects; a required
+    field must be present, and a response with none of its fields at all is not an answer."""
     def check(data):
+        for key in required:
+            if key not in data:
+                return f"{key} is missing"
+        if arrays and not any(k in data for k in arrays):
+            return "none of the expected fields is present"
         for key in arrays:
             v = data.get(key)
             if v is None:
@@ -104,8 +132,8 @@ def _shape(arrays):
 MEETING_SHAPE = _shape(("document_reviews", "features", "contributions", "development_links", "feature_events"))
 SESSION_SHAPE = _shape(("reviews", "claims", "pr_decisions"))
 DOCUMENT_SHAPE = _shape(("features", "claims"))
-MEMBERSHIP_SHAPE = _shape(("assignments",))
-GROUP_SHAPE = _shape(("groups",))
+MEMBERSHIP_SHAPE = _shape(("assignments",), required=("assignments",))
+GROUP_SHAPE = _shape(("groups",), required=("groups",))
 # Wording a cited record must contain for a model feature event of that kind (the model over-reads plans as results).
 EVENT_CUES = {
     "held": re.compile(r"\bhold\b|on hold|delay|postpon|paus|put off|defer|\bdrop|shelve|halt|cancel|scrap|\bstop"
@@ -229,8 +257,9 @@ def _item_text(item: dict, supplied) -> str:
     return own + " " + quotes
 
 
-def _validated(kind, items, supplied, allowed, drops, note_loss) -> list[dict]:
-    """validate_items item by item: valid items are returned, each lost item is counted and noted (R8)."""
+def _validated(kind, items, supplied, allowed, drops, note_loss, ref_text=None) -> list[dict]:
+    """validate_items item by item: valid items are returned, each lost item is counted and noted (R8). `ref_text`
+    names the feature an item refers to, so the loss counts against that feature."""
     ok = []
     for it in items:
         good, bad = validate_items([it], supplied, allowed)
@@ -239,7 +268,7 @@ def _validated(kind, items, supplied, allowed, drops, note_loss) -> list[dict]:
         else:
             for reason, n in bad.items():
                 drops[kind][reason] += n
-            note_loss(_item_text(it, supplied))
+            note_loss(_item_text(it, supplied) + " " + (ref_text(it) if ref_text else ""))
     return ok
 
 
@@ -263,20 +292,29 @@ def _names_in(text: str, names) -> set[str]:
     return {n for n in names if re.search(r"(?<![a-z0-9])" + re.escape(normalise(n)) + r"(?![a-z0-9])", t)}
 
 
-def resolve_review_doc(cat, texts_upto: list[str], ref: str, prev=frozenset()):
-    """(DocEntry or None, why) for a review (I2). A document link in the session wins; then a document the model's
-    reference names that the text also supports; then the only document of the type the text names, or the only one of
-    that type whose product stem the text names. Several versions that fit and none identified stay unresolved."""
+def is_review(kind: str, text: str) -> bool:
+    """A review question is asked (a question mark); a suggestion carries suggesting wording. An opener or thanks is neither."""
+    return ("?" in text) if kind == "review_question" else bool(_REVIEW_CUE.search(text))
+
+
+_CURRENT_CUE = re.compile(r"\b(?:new|current|updated|next|upcoming) (?:release|version|draft)\b", re.I)
+
+
+def resolve_review_docs(cat, texts_upto: list[str], ref: str, prev=frozenset()):
+    """(documents, why) for a review (I2). A document link in the session, or a model reference the text supports,
+    identifies one document. Otherwise the type the text names gives every document of that type the text could mean:
+    narrowed by an explicit previous or current release cue and by a product stem the text names, never by guessing
+    one version. The caller marks a result of several documents `version_ambiguous`."""
     doc = None
     for t in texts_upto:
         for link in sorted(_links(t)):
             doc = cat.doc_by_link(link) or doc
     if doc is not None:
-        return doc, "link"
+        return [doc], "link"
     text = " ".join(texts_upto)
     cand = cat.doc(ref) if ref else None
     if cand is not None and (cand.id in text or cand.link in text):
-        return cand, "reference"
+        return [cand], "reference"
     dtype = None
     for t in reversed(texts_upto):
         hit = list(DOC_TYPE_RE.finditer(t))
@@ -284,18 +322,16 @@ def resolve_review_doc(cat, texts_upto: list[str], ref: str, prev=frozenset()):
             dtype = hit[-1].group(0)
             break
     if dtype is None:
-        return None, "no_document_named"
+        return [], "no_document_named"
     cands = [d for d in cat.documents if normalise(d.type) == normalise(dtype)]
-    if not sr.PREV_CUE.search(text):  # documents shared as the last release are not the ones being updated
+    if sr.PREV_CUE.search(text):
+        cands = [d for d in cands if d.id in prev] or cands
+    elif _CURRENT_CUE.search(text):
         cands = [d for d in cands if d.id not in prev] or cands
-    if len(cands) == 1:
-        return cands[0], "only_document_of_type"
     low = " " + normalise(text) + " "
     named = {d.stem for d in cands if d.stem and re.search(r"(?<![a-z0-9])" + re.escape(d.stem) + r"(?![a-z0-9])", low)}
-    narrowed = [d for d in cands if d.stem in named]
-    if len(narrowed) == 1:
-        return narrowed[0], "type_and_product"
-    return None, "several_documents_fit"
+    cands = [d for d in cands if d.stem in named] or cands
+    return cands, ("only_document_of_type" if len(cands) == 1 else "version_ambiguous")
 
 
 # ---------------------------------------------------------------- the run
@@ -432,6 +468,12 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         text_norm = normalise(" ".join(r.text for r in supplied))
         local: dict[str, str] = {}
 
+        def ref_text(item):
+            fid_ = local.get(_str(item.get("feature_ref"))) or cat.resolve_feature(_str(item.get("feature_ref")))
+            if fid_ and fid_ in cat.features.entries:
+                return " ".join([cat.features.entries[fid_]["title"], *cat.features.entries[fid_]["aliases"]])
+            return _str(item.get("feature_ref"))
+
         def feature_ref(ref, item=None):
             fid = local.get(_str(ref)) or (cat.resolve_feature(_str(ref)) if _str(ref) else None)
             if fid is None:
@@ -463,7 +505,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 local[_str(f["local_id"])] = fid
             discusses.add((f"Meeting:{mt.id}", fid))
 
-        ok = _validated("contributions", _items(data, "contributions"), supplied, MEETING_ALLOWED, drops, note_loss)
+        ok = _validated("contributions", _items(data, "contributions"), supplied, MEETING_ALLOWED, drops, note_loss, ref_text)
         for c in ok:
             fid = feature_ref(c.get("feature_ref"), c)
             ref = _str(c.get("segment_ref"))
@@ -485,7 +527,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                                   "ref": ref, "record": record_of[ref], "speaker": sp, "citations": c["citations"],
                                   "meeting": mt.id})
 
-        ok = _validated("development_links", _items(data, "development_links"), supplied, MEETING_ALLOWED, drops, note_loss)
+        ok = _validated("development_links", _items(data, "development_links"), supplied, MEETING_ALLOWED, drops, note_loss, ref_text)
         for lk in ok:
             fid = feature_ref(lk.get("feature_ref"), lk)
             if fid is None:
@@ -500,7 +542,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 dev_links[p.link].append({"feature": fid, "basis": "meeting_title", "citations": lk["citations"],
                                           "record": mt.id, "context": ctx, "date": mt.date})
 
-        ok = _validated("feature_events", _items(data, "feature_events"), supplied, MEETING_ALLOWED, drops, note_loss)
+        ok = _validated("feature_events", _items(data, "feature_events"), supplied, MEETING_ALLOWED, drops, note_loss, ref_text)
         for ev in ok:
             fid = feature_ref(ev.get("feature_ref"), ev)
             ref = _str(ev.get("segment_ref"))
@@ -511,11 +553,20 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 drops["feature_events"]["feature_unresolved"] += 1
                 continue
             cited = " ".join(r.text for r in supplied if r.id in {c["record_id"] for c in ev["citations"]} | {record_of.get(ref)})
-            if ev["kind"] == "implemented" and not completed(cited):
+            # the span that mentions the feature decides, not the rest of the record (C1)
+            spans = " ".join(quote_sentences(next((r_.text for r_ in supplied if r_.id == c["record_id"]), ""), c["quote"])
+                             for c in ev["citations"])
+            if ev["kind"] == "implemented" and not completed(spans):
                 drops["feature_events"]["not_completed_work"] += 1  # a promise, plan, condition or negation (C1)
+                note_loss(ref_text(ev) + " " + spans)
+                continue
+            if ev["kind"] == "reverted" and not rolled_back(spans):
+                drops["feature_events"]["not_completed_rollback"] += 1
+                note_loss(ref_text(ev) + " " + spans)
                 continue
             if ev["kind"] in EVENT_CUES and not EVENT_CUES[ev["kind"]].search(cited):
                 drops["feature_events"]["no_evidence_for_kind"] += 1
+                note_loss(ref_text(ev) + " " + spans)
                 continue
             reason_ = ev.get("reason") if ev.get("reason") in REASONS else None
             if reason_ is None and ev["kind"] in ("held", "reverted"):
@@ -532,17 +583,21 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                     implemented_pr.setdefault((fid, p.link), "meeting_event")
 
         ok = _validated("document_reviews", _items(data, "document_reviews"), supplied, MEETING_ALLOWED, drops, note_loss)
-        doc, why_doc = None, "no_document"
+        docs, why_doc = [], "no_document"
         if mt.document_type and mt.document_type != PRODUCT_PLANNING:
-            doc, why_doc = resolve_review_doc(cat, [c.text for c in mchats] + [mt.document_type], "", doc_prev)
-        if doc is not None:
-            discusses.add((f"Meeting:{mt.id}", f"Document:{doc.id}"))
+            docs, why_doc = resolve_review_docs(cat, [c.text for c in mchats] + [mt.document_type], "", doc_prev)
+        for d_ in docs:
+            discusses.add((f"Meeting:{mt.id}", f"Document:{d_.id}"))
         for rv in ok:
             ref = _str(rv.get("segment_ref"))
             if rv.get("kind") not in REVIEW_KINDS or ref not in speaker_of:
                 drops["document_reviews"]["bad_kind_or_segment"] += 1
                 continue
-            if doc is None:
+            seg_text = next((r_.text for r_ in supplied if r_.id == record_of[ref]), "")
+            if not is_review(rv["kind"], seg_text):
+                drops["document_reviews"]["not_a_review"] += 1  # an opener or thanks suggests nothing
+                continue
+            if not docs:
                 drops["document_reviews"]["document_unresolved"] += 1
                 unresolved_reviews.append({"record": record_of.get(ref), "why": why_doc, "text": _str(rv.get("text"))})
                 continue
@@ -551,10 +606,10 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             if res is None or res.status == "unresolved":
                 unresolved_speakers.append({"meeting": mt.id, "segment": ref, "speaker": sp})
                 continue
-            reviews.append({"doc": doc.id, "eids": res.ids, "ambiguous": res.ambiguous, "kind": rv["kind"],
-                            "section": _str(rv.get("section")) or None, "text": _str(rv.get("text")),
-                            "record": record_of[ref], "citations": rv["citations"], "speaker": sp,
-                            "source_text": next((r_.text for r_ in supplied if r_.id == record_of[ref]), "")[:600]})
+            reviews.append({"docs": [d_.id for d_ in docs], "eids": res.ids, "ambiguous": res.ambiguous,
+                            "kind": rv["kind"], "section": _str(rv.get("section")) or None,
+                            "text": _str(rv.get("text")), "record": record_of[ref], "citations": rv["citations"],
+                            "speaker": sp, "source_text": seg_text[:600], "doc_basis": why_doc})
 
     # ---- competitors named by demo links (rule, no model): known before any session is read
     demo_links = []
@@ -678,13 +733,6 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         keep["also_cited"] = [c for x in others for c in x["citations"]]
         dev_links[link] = [keep]
         winner_of[link] = best["feature"]
-    for key_, basis in list(implemented_pr.items()):
-        if key_[1] in winner_of and key_[0] != winner_of[key_[1]]:
-            del implemented_pr[key_]
-            implemented_pr.setdefault((winner_of[key_[1]], key_[1]), basis)
-    for ev in fevents:
-        if ev["source"] == "meeting" and len(ev["prs"]) == 1 and ev["prs"][0] in winner_of:
-            ev["feature"] = winner_of[ev["prs"][0]]
 
     # ---- 3. Slack sessions: planning channels always, other channels routed by rules
     by_channel: dict[str, list] = defaultdict(list)
@@ -792,6 +840,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             r = validate_citation(cite, pr_src, PR_ALLOWED)
             if not r.ok:
                 drops["pr_membership"][r.reason] += 1
+                note_loss(feats[int(fm.group(1)) - 1]["title"] + " " + prs_raw[p.link].title + " " + p.link)
                 continue
             dev_links[p.link].append({"feature": feats[int(fm.group(1)) - 1]["id"], "basis": "batch",
                                       "citations": [{**cite, "field": r.record.field, "span": list(r.span)}],
@@ -804,6 +853,24 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         for l_ in ls:
             if l_["feature"] not in feat_of_pr[link]:
                 feat_of_pr[link].append(l_["feature"])
+    # C4: an event that names PRs follows the corrected feature of those PRs; PRs that disagree leave it unattached
+    events_unattached = 0
+    for ev in fevents:
+        if ev["source"] != "meeting" or not ev["prs"] or ev["kind"] == "discussed":
+            continue
+        fs = {f for l_ in ev["prs"] for f in feat_of_pr.get(l_, [])}
+        if len(fs) == 1:
+            ev["feature"] = next(iter(fs))
+        elif len(fs) > 1:
+            ev["feature"] = None
+            events_unattached += 1
+            note_loss(" ".join(ev["prs"]), kind="loss")
+    implemented_pr = {k_: v_ for k_, v_ in implemented_pr.items() if v_ != "meeting_event"}
+    for ev in fevents:
+        if ev["kind"] == "implemented" and ev["feature"] and ev["source"] == "meeting":
+            for l_ in ev["prs"]:
+                if not feat_of_pr.get(l_) or ev["feature"] in feat_of_pr[l_]:
+                    implemented_pr.setdefault((ev["feature"], l_), "meeting_event")
     for link, fl in feat_of_pr.items():
         entry = cat.pr(link)
         if entry and prs_raw[link].merged is True:
@@ -848,6 +915,13 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                             "date": d["ts"], "record": d["message"], "citations": d["citations"], "prs": [d["pr"]],
                             "source": "slack"})
             discusses.add((f"Message:{d['message']}", fid))
+    # a completed rollback stated in Slack ("we reverted the rollout")
+    for d in decisions:
+        if d["action"] == "revert" and not d["conditional"] and rolled_back(d["text"]):
+            for fid in feat_of_pr.get(d["pr"], []):
+                fevents.append({"feature": fid, "kind": "reverted", "reason": d["reason"] or "other",
+                                "date": d["ts"], "record": d["message"], "citations": d["citations"],
+                                "prs": [d["pr"]], "source": "slack"})
     # applied reverts of a feature's PR
     for rv in rules_rep["reverts"]:
         if not rv["applied"] or not rv["original"] or rv["repo_scope"] != "product":
@@ -941,7 +1015,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         kinds = Counter(e["kind"] for e in evs)
         implemented = kinds["implemented"] > 0 or any(f == fid for (f, _) in implemented_pr)
         # reverted: an applied revert of a PR that implemented this feature (those are the only revert events kept)
-        reverted = any(e["kind"] == "reverted" and e["source"] == "revert" for e in evs)
+        reverted = any(e["kind"] == "reverted" for e in evs)  # rule reverts, meeting rollbacks, Slack rollbacks
         held_dates = sorted(e["date"] for e in evs if e["kind"] == "held")
         positive_after = [e for e in evs if held_dates and e["kind"] == "implemented" and e["date"] > held_dates[0]]
         merged_after_hold = any(prs_raw[l_].merged is True and l_ in held_prs
@@ -977,12 +1051,14 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                  ambiguous=c["ambiguous"], speaker_name=c["speaker"], n_candidates=len(c["eids"]))
     remark_n: Counter = Counter()
     for r in reviews:
-        n = remark_n[(r["record"], r["doc"])]  # several remarks of one message get their own edge
-        remark_n[(r["record"], r["doc"])] += 1
-        for eid in r["eids"]:
-            edge("SUGGESTED", person(eid), f"Document:{r['doc']}", [r["record"]],
-                 r["record"] if n == 0 else f"{r['record']}#{n + 1}", section=r["section"], text=r["text"],
-                 kind=r["kind"], ambiguous=r["ambiguous"], source_text=r["source_text"], doc_basis=r.get("doc_basis"))
+        for doc_id in r["docs"]:
+            n = remark_n[(r["record"], doc_id)]  # several remarks of one message get their own edge
+            remark_n[(r["record"], doc_id)] += 1
+            for eid in r["eids"]:
+                edge("SUGGESTED", person(eid), f"Document:{doc_id}", [r["record"]],
+                     r["record"] if n == 0 else f"{r['record']}#{n + 1}", section=r["section"], text=r["text"],
+                     kind=r["kind"], ambiguous=r["ambiguous"], source_text=r["source_text"],
+                     doc_basis=r.get("doc_basis"), version_ambiguous=len(r["docs"]) > 1)
     for link, fl in feat_of_pr.items():
         for fid in fl:
             first = next(x for x in dev_links[link] if x["feature"] == fid)
@@ -993,9 +1069,10 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         nodes.append(Node("FeatureEvent", ev["id"], {
             "id": ev["id"], "kind": ev["kind"], "reason": ev["reason"], "reason_text": ev.get("reason_text")
             or (ev["citations"][0]["quote"] if ev["citations"] else None), "date": ev["date"],
-            "record_id": ev["record"], "feature": ev["feature"], "product": product, "pr_links": ev["prs"],
+            "record_id": ev["record"], "feature": ev["feature"], "attached": bool(ev["feature"]), "product": product, "pr_links": ev["prs"],
             "source": ev["source"], "citations": ev["citations"]}))
-        edge("HAS_EVENT", ev["feature"], ev["id"], [ev["record"]])
+        if ev["feature"]:
+            edge("HAS_EVENT", ev["feature"], ev["id"], [ev["record"]])
     obs_counts: dict[str, Counter] = defaultdict(Counter)
     for o in observations:
         oid = o["id"]
@@ -1046,7 +1123,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         "feature_events": dict(Counter(e["kind"] for e in fevents)),
         "contributions": dict(Counter(c["kind"] for c in contributions)),
         "contributors": len({e for c in contributions for e in c["eids"]}),
-        "pr_conflicts": conflicts, "unresolved_reviews": unresolved_reviews,
+        "pr_conflicts": conflicts, "events_unattached": events_unattached, "unresolved_reviews": unresolved_reviews,
         "pr_membership": {"bugfix_prs_excluded": len(bugfix), "by_basis": dict(Counter(l_["basis"] for ls in dev_links.values() for l_ in ls[:1])),
                           "unassigned": unassigned, "features_with_prs": len({f for fl in feat_of_pr.values() for f in fl})},
         "pr_decisions": {"by_action": dict(decision_prs), "unresolved_prs": state.get("unresolved_prs", [])},
@@ -1108,18 +1185,22 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
         if mid not in msgs or rv.get("kind") not in REVIEW_KINDS:
             drops["reviews"]["bad_message_or_kind"] += 1
             continue
+        if not is_review(rv["kind"], msgs[mid].text):
+            drops["reviews"]["not_a_review"] += 1  # an opener, thanks or plan suggests nothing about the document
+            continue
         upto = [m.text for m in msgs.values() if order[m.id] <= order[mid]]
-        doc, why = resolve_review_doc(cat, upto, _str(rv.get("document_ref")), doc_prev)
-        if doc is None:
+        docs, why = resolve_review_docs(cat, upto, _str(rv.get("document_ref")), doc_prev)
+        if not docs:
             drops["reviews"]["document_unresolved"] += 1
             unresolved_reviews.append({"record": mid, "why": why, "text": _str(rv.get("text")),
                                        "document_ref": _str(rv.get("document_ref")) or None})
             continue
-        reviews.append({"doc": doc.id, "eids": [msgs[mid].user_id], "ambiguous": False, "kind": rv["kind"],
-                        "section": _str(rv.get("section")) or None, "text": _str(rv.get("text")), "record": mid,
-                        "citations": rv["citations"], "speaker": None, "source_text": msgs[mid].text[:600],
-                        "doc_basis": why})
-        discusses.add((f"Message:{mid}", f"Document:{doc.id}"))
+        reviews.append({"docs": [d_.id for d_ in docs], "eids": [msgs[mid].user_id], "ambiguous": False,
+                        "kind": rv["kind"], "section": _str(rv.get("section")) or None,
+                        "text": _str(rv.get("text")), "record": mid, "citations": rv["citations"], "speaker": None,
+                        "source_text": msgs[mid].text[:600], "doc_basis": why})
+        for d_ in docs:
+            discusses.add((f"Message:{mid}", f"Document:{d_.id}"))
 
     # claims
     raw_claims, pos = [], Counter()
@@ -1202,6 +1283,7 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
     # PR decisions
     ok = _validated("pr_decisions", _items(data, "pr_decisions"), supplied, SESSION_ALLOWED, drops, note_loss)
     unresolved = state.setdefault("unresolved_prs", [])
+    ok.sort(key=lambda d: order.get(_str(d.get("message_id")), 0))
     for d in ok:
         mid = _str(d.get("message_id"))
         if mid not in msgs or d.get("action") not in ACTIONS:
@@ -1232,6 +1314,17 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
             if not num_ok:
                 drops["pr_decisions"]["pr_not_in_session"] += 1
                 continue
+            if act in ("merge", "resume"):
+                # a decision to merge answers a pending question or hold; an author's routine "let's get this
+                # merged" after review does not (the extraction contract)
+                num = re.compile(r"(?<!\d)" + re.escape(p.number) + r"(?!\d)")
+                asked = any("?" in m.text and re.search(r"merg|hold|revert|direction|close", m.text, re.I)
+                            and (p.link in m.text or num.search(m.text))
+                            for m in msgs.values() if order[m.id] < order[mid])
+                pending = any(x["pr"] == p.link and x["action"] in ("question", "withhold") for x in decisions)
+                if not (asked or pending):
+                    drops["pr_decisions"]["routine_request"] += 1
+                    continue
             decisions.append({"message": mid, "pr": p.link, "action": act, "reason": reason,
                               "conditional": conditional, "ts": msgs[mid].ts, "idx": idx,
-                              "citations": d["citations"]})
+                              "citations": d["citations"], "text": msgs[mid].text})

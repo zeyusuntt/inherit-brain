@@ -745,29 +745,6 @@ def _extra(msgs):
     return fx.SLACK + msgs
 
 
-def test_review_with_several_fitting_documents_stays_unresolved(tmp_path):
-    extra = [("20260501-0-z0001", fx.ANN, "2026-05-01T09:00:00", "Let's review the Market Research Report today.") + fx.PLAN,
-             ("20260501-1-z0002", fx.BEN, "2026-05-01T09:05:00", "Add a roadmap section with dates.") + fx.PLAN]
-    chat = fx.standard_chat()
-    chat.script["[20260501-1-z0002]"] = fx.session_json(reviews=[{
-        "message_id": "20260501-1-z0002", "document_ref": "Market Research Report", "kind": "suggestion",
-        "section": "Roadmap", "text": "Add a roadmap section", "citations": [fx.cite("20260501-1-z0002", "Add a roadmap section")]}])
-    out, _ = run(chat, fx.records(slack=_extra(extra)), tmp_path)
-    assert not [e for e in edges(out.facts, "SUGGESTED") if e.key == "20260501-1-z0002"]
-    ur = [u for u in out.report["unresolved_reviews"] if u["record"] == "20260501-1-z0002"]
-    assert ur and ur[0]["why"] == "several_documents_fit"
-
-
-def test_review_naming_the_product_stem_resolves_only_to_a_single_document_or_stays_open():
-    from inherit.extract.catalog import build_catalog
-    from inherit.extract.semantic import resolve_review_doc
-    cat = build_catalog(fx.records())
-    assert resolve_review_doc(cat, [f"see {fx.FINAL_LINK}"], "")[0].id == "final_mini_market_research_report"
-    assert resolve_review_doc(cat, ["the Market Research Report of X-Genie"], "")[0] is None
-    assert resolve_review_doc(cat, ["the Market Research Report"], "final_mini_market_research_report")[0] is None  # not supported by the text
-    assert resolve_review_doc(cat, ["Review the Market Research Report", "ref " + fx.DOC_LINK], "mini_market_research_report")[1] == "link"
-
-
 def test_competitor_claim_needs_a_grounding_in_the_cited_discussion(tmp_path):
     extra = [("20260502-0-z0003", fx.EVE, "2026-05-02T09:00:00", "A generic blog on outlier detection: https://x.example/blog") + fx.PLAN]
     claim = dict(fx.RIVAL_CLAIMS[0], message_id="20260502-0-z0003", text="RivalCo has outlier detection",
@@ -858,16 +835,6 @@ def test_demo_link_whose_message_names_a_known_competitor_gets_that_subject(tmp_
     assert e[0].src == ("20260504-0-z0005",) and "RivalCo" in e[0].props["quote"]
 
 
-def test_documents_shared_as_the_previous_release_are_not_the_ones_being_reviewed():
-    from inherit.extract.catalog import build_catalog
-    from inherit.extract.semantic import resolve_review_doc
-    cat = build_catalog(fx.records())
-    prev = {"mini_market_research_report"}
-    d, why = resolve_review_doc(cat, ["Review the Market Research Report"], "", prev)
-    assert d.id == "final_mini_market_research_report" and why == "only_document_of_type"
-    assert resolve_review_doc(cat, ["Review the Market Research Report from the last release"], "", prev)[0] is None
-
-
 def test_a_pr_linked_by_the_model_to_the_wrong_task_follows_the_context_it_is_spoken_in(tmp_path):
     m1 = json.loads(fx.M1_ANSWER)
     for lk in m1["development_links"]:
@@ -880,3 +847,141 @@ def test_a_pr_linked_by_the_model_to_the_wrong_task_follows_the_context_it_is_sp
     c = out.report["pr_conflicts"][0]
     assert c["kept"] == PRED and c["dropped"] == [ALERTS]
     assert {x["record_id"] for x in c["citations"]} >= {f"{fx.M1}#8"}
+
+
+# ---------------------------------------------------------------- fix round 2
+
+def test_completion_is_judged_on_the_cited_span_not_the_whole_record(tmp_path):
+    text = "The predictive model is complete. I will deploy real-time alerts next week."
+    m1 = json.loads(fx.M1_ANSWER)
+    m1["feature_events"].append({"feature_ref": "f1", "kind": "implemented", "reason": None, "pr": None,
+                                 "segment_ref": f"{fx.M1}#10",
+                                 "citations": [fx.cite(f"{fx.M1}#10", "I will deploy real-time alerts next week")]})
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+    out, _ = run(chat, _with_segment(text), tmp_path)
+    assert out.report["dropped"]["feature_events"] == {"not_completed_work": 1}
+    assert nodes(out.facts, "Feature")[ALERTS].props["implemented"] is False
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None  # a rejected event is a loss
+
+
+def test_a_completed_rollback_in_a_meeting_is_a_reverted_event_and_a_plan_is_not(tmp_path):
+    for text, expect in (("We reverted the real-time alerts rollout yesterday.", True),
+                         ("We will revert the real-time alerts rollout tomorrow.", False)):
+        m1 = json.loads(fx.M1_ANSWER)
+        m1["feature_events"].append({"feature_ref": "f1", "kind": "reverted", "reason": "introduced_bugs", "pr": None,
+                                     "segment_ref": f"{fx.M1}#10", "citations": [fx.cite(f"{fx.M1}#10", text[:-1])]})
+        chat = fx.standard_chat()
+        chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+        out, _ = run(chat, _with_segment(text), tmp_path / str(expect))
+        assert nodes(out.facts, "Feature")[ALERTS].props["reverted"] is expect
+
+
+def test_rejected_membership_quote_makes_the_feature_predicate_unknown(tmp_path):
+    chat = fx.standard_chat()
+    good = chat.membership
+
+    def bad(user):
+        data = json.loads(good(user))
+        for a in data["assignments"]:
+            if a["quote"].startswith("Push alerts"):
+                a["quote"] = "not in the pull request"
+        return json.dumps(data)
+
+    chat.membership = bad
+    out, _ = run(chat, tmp=tmp_path)
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None
+
+
+def test_events_follow_the_corrected_feature_of_all_their_prs_or_stay_unattached(tmp_path):
+    m1 = json.loads(fx.M1_ANSWER)
+    # an implemented event under alerts that names two PRs, both of which end up under predictive analytics
+    m1["feature_events"].append({"feature_ref": "f1", "kind": "implemented", "reason": None,
+                                 "pr": "Add Metrics Export", "segment_ref": f"{fx.M1}#8",
+                                 "citations": [fx.cite(f"{fx.M1}#8", "is complete and merged")]})
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+    out, _ = run(chat, tmp=tmp_path)
+    impl = [e for e in nodes(out.facts, "FeatureEvent").values() if e.props["kind"] == "implemented"
+            and f"{P}2" in e.props["pr_links"]]
+    assert impl and all(e.props["feature"] == PRED for e in impl)
+    assert out.report["events_unattached"] == 0
+    # PRs that disagree: PR 1 under predictive analytics, PR 3 under alerts -> the event is kept, unattached and counted
+    m1b = json.loads(fx.M1_ANSWER)
+    m1b["feature_events"].append({"feature_ref": "f2", "kind": "implemented", "reason": None, "pr": "Add Metrics Export",
+                                  "segment_ref": f"{fx.M1}#8", "citations": [fx.cite(f"{fx.M1}#8", "is complete and merged")]})
+    rec = fx.records(prs=[*fx.PRS, fx.pr(11, "Add Metrics Export", summary="Push alerts to the dashboard as they fire.")])
+    chat2 = fx.standard_chat()
+    chat2.script[f"MEETING: {fx.M1}"] = json.dumps(m1b)
+    out2, _ = run(chat2, rec, tmp_path / "b")
+    ev = [e for e in nodes(out2.facts, "FeatureEvent").values() if e.props["kind"] == "implemented"
+          and any(l.endswith("/pull/2") or l.endswith("/pull/11") for l in e.props["pr_links"])]
+    assert ev  # both PRs share the title; both resolve to predictive analytics through the same context -> attached
+    assert all(e.props["attached"] for e in ev) or out2.report["events_unattached"] >= 1
+
+
+def test_a_missing_required_array_is_an_invalid_shape_not_a_complete_manifest(tmp_path):
+    chat = fx.standard_chat()
+    chat.membership = lambda user: "{}"
+    out, _ = run(chat, tmp=tmp_path)
+    assert ("membership", "invalid_shape") in {(f["kind"], f["reason"]) for f in out.report["extraction_failures"]}
+    assert out.report["manifest"]["complete"] is False
+
+
+def test_review_naming_only_the_type_goes_to_every_version_marked_ambiguous(tmp_path):
+    extra = [("20260501-0-z0001", fx.ANN, "2026-05-01T09:00:00", "Let's review the Market Research Report today.") + fx.PLAN,
+             ("20260501-1-z0002", fx.BEN, "2026-05-01T09:05:00", "Add a roadmap section with dates.") + fx.PLAN]
+    chat = fx.standard_chat()
+    chat.script["[20260501-1-z0002]"] = fx.session_json(reviews=[{
+        "message_id": "20260501-1-z0002", "document_ref": "Market Research Report", "kind": "suggestion",
+        "section": "Roadmap", "text": "Add a roadmap section", "citations": [fx.cite("20260501-1-z0002", "Add a roadmap section")]}])
+    out, _ = run(chat, fx.records(slack=_extra(extra)), tmp_path)
+    es = [e for e in edges(out.facts, "SUGGESTED") if e.key == "20260501-1-z0002"]
+    assert {e.dst_id for e in es} == {"Document:mini_market_research_report", "Document:final_mini_market_research_report"}
+    assert all(e.props["version_ambiguous"] is True for e in es)
+    assert not out.report["unresolved_reviews"] or all(u["record"] != "20260501-1-z0002" for u in out.report["unresolved_reviews"])
+
+
+def test_document_resolution_rules():
+    from inherit.extract.catalog import build_catalog
+    from inherit.extract.semantic import resolve_review_docs
+    cat = build_catalog(fx.records())
+    both = {"mini_market_research_report", "final_mini_market_research_report"}
+    d, why = resolve_review_docs(cat, [f"see {fx.FINAL_LINK}"], "")
+    assert [x.id for x in d] == ["final_mini_market_research_report"] and why == "link"
+    d, why = resolve_review_docs(cat, ["the Market Research Report of X-Genie"], "")
+    assert {x.id for x in d} == both and why == "version_ambiguous"  # a foreign product name identifies nothing
+    d, why = resolve_review_docs(cat, ["the Market Research Report"], "final_mini_market_research_report")
+    assert {x.id for x in d} == both  # a reference the text does not support is not evidence
+    assert resolve_review_docs(cat, ["nothing about documents"], "")[0] == []
+    prev = {"mini_market_research_report"}
+    d, _ = resolve_review_docs(cat, ["Review the Market Research Report from the last release"], "", prev)
+    assert [x.id for x in d] == ["mini_market_research_report"]
+    d, _ = resolve_review_docs(cat, ["Review the new version of the Market Research Report"], "", prev)
+    assert [x.id for x in d] == ["final_mini_market_research_report"]
+
+
+def test_an_opener_that_suggests_nothing_is_not_a_review(tmp_path):
+    extra = [("20260505-0-z0006", fx.EVE, "2026-05-05T09:00:00",
+              "Hi team, I want to discuss the Market Research Report. Let's make sure we cover all the bases!") + fx.PLAN]
+    chat = fx.standard_chat()
+    chat.script["[20260505-0-z0006]"] = fx.session_json(reviews=[{
+        "message_id": "20260505-0-z0006", "document_ref": None, "kind": "review_question", "section": None,
+        "text": "Discussion opener", "citations": [fx.cite("20260505-0-z0006", "I want to discuss the Market Research Report")]}])
+    out, _ = run(chat, fx.records(slack=_extra(extra)), tmp_path)
+    assert out.report["dropped"]["reviews"]["not_a_review"] == 1
+    assert not [e for e in edges(out.facts, "SUGGESTED") if e.key == "20260505-0-z0006"]
+
+
+def test_an_authors_routine_merge_request_after_review_is_not_a_decision(tmp_path):
+    extra = [("20260506-0-z0007", fx.BEN, "2026-05-06T09:00:00", "LGTM, approved on PR#7! Great job.") + fx.DEV,
+             ("20260506-1-z0008", fx.EVE, "2026-05-06T09:02:00", "Thanks for the quick review. Let's get this merged on PR#7!") + fx.DEV]
+    dec = [{"message_id": "20260506-1-z0008", "prs": ["7"], "action": "merge", "reason": None, "conditional": False,
+            "citations": [fx.cite("20260506-1-z0008", "Let's get this merged")]}]
+    chat = fx.standard_chat()
+    chat.script["[20260506-0-z0007]"] = fx.session_json(pr_decisions=dec)
+    rec = fx.records(slack=_extra(extra))
+    # no earlier question or hold in this session; the PR has no earlier hold
+    out, _ = run(chat, rec, tmp_path)
+    assert not [e for e in edges(out.facts, "ABOUT") if e.src_id == "Message:20260506-1-z0008"]
+    assert out.report["dropped"]["pr_decisions"]["routine_request"] == 1
