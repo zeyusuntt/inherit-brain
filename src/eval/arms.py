@@ -77,3 +77,16 @@ def _register_paper_arms() -> None:
 
 
 _register_paper_arms()
+
+
+def _register_long_context_arms() -> None:
+    """A1f and A1 (dev only; A1 refuses any other product), and their dev twins."""
+    from baselines import long_context
+
+    for name in ("A1f", "A1"):
+        for arm_name in (name, f"dev-{name.lower()}"):
+            register(Arm(arm_name, lambda inp, _n=arm_name: long_context.run(inp, arm=_n),
+                         config=long_context.config(name), prompt_versions={"baseline": long_context.PROMPT_VERSION}))
+
+
+_register_long_context_arms()
