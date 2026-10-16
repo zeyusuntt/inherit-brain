@@ -99,3 +99,40 @@ def build_receipt(
         "output_sha256": output_sha, "counts": counts,
         "cost_usd": cost_usd, "ledger_cost_usd": ledger_cost_usd,
     }
+
+
+def export_run(run_dir: Path, graded: list, out_root: Path, judge_model: str) -> tuple[Path, Path]:
+    """Write the tracked per-slot table and the receipt for a finished, fully graded run.
+
+    results/tables/<run id>.jsonl holds, per slot, the arm's answer, failure, usage, latency and the judge
+    decision and score: enough to recompute every published number. It holds no gold answer and no citation.
+    results/receipts/<run id>.json is the run receipt plus the table hash and the judge identity.
+    """
+    from eval import grade as G
+    from eval import run as R
+
+    run_dir, out_root = Path(run_dir), Path(out_root)
+    manifest = R.read_manifest(run_dir)
+    receipt = json.loads((run_dir / "receipt.json").read_text(encoding="utf-8"))
+    if receipt["status"] != "complete":
+        raise ValueError(f"run {manifest['run_id']} is {receipt['status']}, not complete; finish it before exporting")
+    if [str(g.key) for g in graded] != manifest["slots"]:
+        raise ValueError("graded must cover every slot of the manifest, in manifest order")
+    records = R.read_records(run_dir)
+    rows = []
+    for g in graded:
+        r = records[str(g.key)]
+        rows.append({
+            "key": str(g.key), "arm": g.arm, "type": g.type, "seen": g.seen, "outcome": g.outcome,
+            "answer_ids": r.final.answer_ids, "evidence_ids": r.final.evidence_ids, "answer_text": r.final.answer_text,
+            "failure": r.failure, "usage": r.final.usage.to_dict(), "latency_s": r.latency_s,
+            "decision": g.decision, "score": g.score, "failed": g.failed,
+        })
+    table = out_root / "tables" / f"{manifest['run_id']}.jsonl"
+    table.parent.mkdir(parents=True, exist_ok=True)
+    table.write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in rows), encoding="utf-8")
+    receipt.update(table_sha256=sha256_file(table), judge={"model": judge_model, "prompt_version": G.PROMPT_VERSION})
+    path = out_root / "receipts" / f"{manifest['run_id']}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(receipt, indent=1), encoding="utf-8")
+    return table, path
