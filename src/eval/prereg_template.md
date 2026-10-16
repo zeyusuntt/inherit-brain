@@ -37,7 +37,8 @@ Versions of every prompt and protocol:
 
 - Every arm uses model M, `Qwen/Qwen3-30B-A3B-Instruct-2507` on Nebius, at the settings in the configuration hash. Embeddings: `Qwen3-Embedding-8B`, 1,024 dimensions.
 - Every model call goes through one local metering proxy with a 50 USD hard cap for the whole project and a sub-cap per arm (section 7). A call that would cross a cap is refused.
-- Agent arms share one loop with the same limits: at most 12 tool calls, 24 model calls, 40,000 cumulative input tokens of policy and 300 seconds per question; 1,024 output tokens per model call.
+- Agent arms (A5, A4, A4c, A0, A0f) share one loop with the same limits: at most 12 tool calls, 24 model calls, 60,000 cumulative input tokens and 300 seconds per question; 1,024 output tokens per model call. The input budget was raised from 40,000 after a dev pilot in which A4 stopped on it in 22 of 48 questions (pre-registered rule: above a quarter, raise it for every loop arm and pilot again).
+- A1f, A0v and A2 answer with one model call over their own context. A1f's call holds the whole product (about 110,000 to 140,000 tokens), so the loop's cumulative budget does not bind it; its limit is the model's 262,144-token context.
 
 ## 5. The four frozen protocols
 
@@ -56,7 +57,7 @@ Choices that bound what a card shows: Message neighbours are omitted from every 
 
 ## 7. Arms
 
-Every arm answers in the same JSON shape with the same answer instructions (prompt versions above). Only the answer fields are scored.
+Every arm answers in the same JSON shape with the same answer instructions (prompt versions above): answer_text, answer_ids, outcome, then at most 10 distinct evidence ids. Only the answer fields are scored. A reply cut off inside the final evidence list is accepted when every graded field before it is complete; graded fields are never repaired.
 
 {{arms_table}}
 
@@ -67,6 +68,7 @@ How the differences are read:
 - A4 minus A0f: the same cards, typed access and exact aggregation against retrieval.
 - A5 minus A4: the full multi-hop toolkit (multi-hop queries, aggregation across cards, algorithms) against the restricted card view; not attributed to multi-hop alone.
 - A5 against A4c: multi-hop inside fixed tools against the model assembling it step by step (accuracy, calls, tokens, latency).
+- Every difference is measured under the registered resource limits. An arm that stops on its budget more often is not given more; budget-stop rates are reported per arm.
 - None of these differences shows that another database could not do the same. A3 (SQLite over the same cards and tool semantics) checks that row for row.
 
 ## 8. Endpoints and hypotheses (24 held-out products)
@@ -76,7 +78,7 @@ How the differences are read:
 - H1: A5 minus A0 on the primary endpoint, 95% interval lower bound above 0. Prior expectation: at least 15 points.
 - H2: A5 minus A1f, 95% interval lower bound above -3 (non-inferiority), and A5's median input tokens per answerable question at most 10% of A1f's. Both parts must hold.
 - H3: on the multi-hop families (section 11), A5 minus A4, 95% interval lower bound above 0. Prior expectation: at least 10 points. The difference over all questions is reported next to it.
-- H4: A5's correct refusal rate on unanswerable questions is at least A1f's. The false refusal rate on answerable questions is reported for every arm.
+- H4: A5's correct refusal rate on unanswerable questions (HERB's judge) is at least A1f's. Reported next to it for every arm: the explicit refusal rate (the answer's outcome is a refusal, decided without a model, because the judge can score an unrelated answer as a refusal) and the false refusal rate on answerable questions.
 - A5 against A4c, A0f against A0 and A0v against A0 have no pre-set direction and are reported as they come.
 
 ## 9. Scoring
