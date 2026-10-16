@@ -424,3 +424,27 @@ def test_settle_and_fallback_both_fail_keeps_reservation(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         chat([{"role": "user", "content": "x"}], arm="t", meter=m, client=FakeChat(), model=MODEL)
     assert m.spent("t") > 0
+
+
+# ---- fix round 3 ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("arm", ["", None, 5])
+def test_invalid_arm_writes_nothing(tmp_path, arm):
+    m = make_meter(tmp_path)
+    with pytest.raises(ValueError):
+        m.reserve(0.01, arm)
+    with pytest.raises(ValueError):
+        m.set_arm_cap(arm, 0.01)
+    assert not (tmp_path / "meter.jsonl").exists() or (tmp_path / "meter.jsonl").read_text() == ""
+    assert m.spent() == 0 and m.corrupt_lines == 0
+
+
+def test_chat_empty_arm_raises_before_client_call(tmp_path):
+    m = make_meter(tmp_path)
+    c = FakeChat()
+    with pytest.raises(ValueError):
+        chat([{"role": "user", "content": "x"}], arm="", meter=m, client=c, model=MODEL)
+    assert c.calls == []
+    with pytest.raises(ValueError):
+        embed(["x"], arm="", meter=m, client=FakeEmbed(), model=EMBED_MODEL)

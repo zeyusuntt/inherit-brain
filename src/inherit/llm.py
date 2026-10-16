@@ -132,6 +132,7 @@ class Meter:
             self.arm_caps[ev[1]] = ev[2]
 
     def _append(self, ev: dict[str, Any]) -> None:
+        self._parse(ev)  # write only what replay can read; raises ValueError otherwise
         line = (json.dumps(ev) + "\n").encode()
         with open(self.path, "ab") as f:
             if f.tell() > 0:
