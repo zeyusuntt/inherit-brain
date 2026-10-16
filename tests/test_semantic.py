@@ -856,3 +856,13 @@ def test_demo_link_whose_message_names_a_known_competitor_gets_that_subject(tmp_
     e = [x for x in edges(out.facts, "ABOUT") if x.src_id == "Url:https://clips.example/gamma/demo"]
     assert e and e[0].dst_id == "Competitor:RivalCo" and e[0].props["basis"] == "message"
     assert e[0].src == ("20260504-0-z0005",) and "RivalCo" in e[0].props["quote"]
+
+
+def test_documents_shared_as_the_previous_release_are_not_the_ones_being_reviewed():
+    from inherit.extract.catalog import build_catalog
+    from inherit.extract.semantic import resolve_review_doc
+    cat = build_catalog(fx.records())
+    prev = {"mini_market_research_report"}
+    d, why = resolve_review_doc(cat, ["Review the Market Research Report"], "", prev)
+    assert d.id == "final_mini_market_research_report" and why == "only_document_of_type"
+    assert resolve_review_doc(cat, ["Review the Market Research Report from the last release"], "", prev)[0] is None

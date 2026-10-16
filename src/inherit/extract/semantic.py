@@ -257,7 +257,7 @@ def _names_in(text: str, names) -> set[str]:
     return {n for n in names if re.search(r"(?<![a-z0-9])" + re.escape(normalise(n)) + r"(?![a-z0-9])", t)}
 
 
-def resolve_review_doc(cat, texts_upto: list[str], ref: str):
+def resolve_review_doc(cat, texts_upto: list[str], ref: str, prev=frozenset()):
     """(DocEntry or None, why) for a review (I2). A document link in the session wins; then a document the model's
     reference names that the text also supports; then the only document of the type the text names, or the only one of
     that type whose product stem the text names. Several versions that fit and none identified stay unresolved."""
@@ -280,6 +280,8 @@ def resolve_review_doc(cat, texts_upto: list[str], ref: str):
     if dtype is None:
         return None, "no_document_named"
     cands = [d for d in cat.documents if normalise(d.type) == normalise(dtype)]
+    if not sr.PREV_CUE.search(text):  # documents shared as the last release are not the ones being updated
+        cands = [d for d in cands if d.id not in prev] or cands
     if len(cands) == 1:
         return cands[0], "only_document_of_type"
     low = " " + normalise(text) + " "
@@ -526,7 +528,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         ok = _validated("document_reviews", _items(data, "document_reviews"), supplied, MEETING_ALLOWED, drops, note_loss)
         doc, why_doc = None, "no_document"
         if mt.document_type and mt.document_type != PRODUCT_PLANNING:
-            doc, why_doc = resolve_review_doc(cat, [c.text for c in mchats] + [mt.document_type], "")
+            doc, why_doc = resolve_review_doc(cat, [c.text for c in mchats] + [mt.document_type], "", doc_prev)
         if doc is not None:
             discusses.add((f"Meeting:{mt.id}", f"Document:{doc.id}"))
         for rv in ok:
@@ -692,7 +694,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 continue
             session_sums[group]["extracted"] += 1
             _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, reviews, observations,
-                             decisions, discusses, competitor_alias, note_loss, unresolved_reviews)
+                             decisions, discusses, competitor_alias, note_loss, unresolved_reviews, doc_prev)
 
     # ---- demo links whose cited message names a known competitor (rule, after competitor discovery)
     done_links = {d_["link"] for d_ in demo_links}
@@ -1054,7 +1056,7 @@ def estimate_semantic(rec, *, cache_root=None) -> dict:
 # ---------------------------------------------------------------- one Slack session chunk
 
 def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, reviews, observations, decisions,
-                     discusses, competitor_alias, note_loss, unresolved_reviews) -> None:
+                     discusses, competitor_alias, note_loss, unresolved_reviews, doc_prev) -> None:
     msgs = {m.id: m for m in chunk if not m.is_bot}
     supplied = [SourceRecord(m.id, "message", "text", m.text) for m in msgs.values()]
     text_all = "\n".join(m.text for m in msgs.values())
@@ -1075,7 +1077,7 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
             drops["reviews"]["bad_message_or_kind"] += 1
             continue
         upto = [m.text for m in msgs.values() if order[m.id] <= order[mid]]
-        doc, why = resolve_review_doc(cat, upto, _str(rv.get("document_ref")))
+        doc, why = resolve_review_doc(cat, upto, _str(rv.get("document_ref")), doc_prev)
         if doc is None:
             drops["reviews"]["document_unresolved"] += 1
             unresolved_reviews.append({"record": mid, "why": why, "text": _str(rv.get("text")),

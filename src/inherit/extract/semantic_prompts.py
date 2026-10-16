@@ -142,7 +142,8 @@ specification or system design) and report facts as JSON.
 Return one JSON object with two arrays (use [] when nothing applies):
 
 "features": a product feature or capability the document proposes to build or offer. Fields: title (a short noun \
-phrase), details (specific capabilities named for it, short phrases; [] if none), citations. Market segments, \
+phrase), details (specific capabilities named for it, short phrases; [] if none), citations. At most eight, the main \
+ones. Market segments, \
 competitors, risks and general goals are not features.
 
 "claims": a statement about a named competitor product. Fields: kind ("competitor_feature" for a capability, \
