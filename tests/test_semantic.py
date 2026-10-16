@@ -866,3 +866,17 @@ def test_documents_shared_as_the_previous_release_are_not_the_ones_being_reviewe
     d, why = resolve_review_doc(cat, ["Review the Market Research Report"], "", prev)
     assert d.id == "final_mini_market_research_report" and why == "only_document_of_type"
     assert resolve_review_doc(cat, ["Review the Market Research Report from the last release"], "", prev)[0] is None
+
+
+def test_a_pr_linked_by_the_model_to_the_wrong_task_follows_the_context_it_is_spoken_in(tmp_path):
+    m1 = json.loads(fx.M1_ANSWER)
+    for lk in m1["development_links"]:
+        if lk["pr"] == "Add Metrics Export":
+            lk["feature_ref"] = "f1"  # the model files it under real-time alerts; segment 7 before it is predictive analytics
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+    out, _ = run(chat, tmp=tmp_path)
+    assert {(e.src_id, e.dst_id) for e in edges(out.facts, "ABOUT") if e.src_id == f"PR:{P}2"} == {(f"PR:{P}2", PRED)}
+    c = out.report["pr_conflicts"][0]
+    assert c["kept"] == PRED and c["dropped"] == [ALERTS]
+    assert {x["record_id"] for x in c["citations"]} >= {f"{fx.M1}#8"}

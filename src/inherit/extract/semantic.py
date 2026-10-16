@@ -243,13 +243,19 @@ def _validated(kind, items, supplied, allowed, drops, note_loss) -> list[dict]:
     return ok
 
 
-def _title_context(mt, title: str) -> str:
-    """The segment where a PR title is spoken plus the two before it: the task the title is discussed under (C4)."""
+def _title_context(mt, title: str) -> tuple[str, str]:
+    """(the segment where a PR title is spoken, the segment before it): the task it is discussed under (C4)."""
     t = normalise(title)
     for i, sg in enumerate(mt.segments):
         if t and t in normalise(sg.text):
-            return " ".join(x.text for x in mt.segments[max(0, i - 2):i + 1])
-    return ""
+            return sg.text, mt.segments[i - 1].text if i else ""
+    return "", ""
+
+
+def _context_score(ctx: tuple[str, str], tokens: set[str]) -> int:
+    """Feature-name words in the title's own segment count double against the segment before it."""
+    words = lambda x: set(re.findall(r"[a-z0-9]{4,}", x.casefold()))  # noqa: E731
+    return 2 * len(words(ctx[0]) & tokens) + len(words(ctx[1]) & tokens)
 
 
 def _names_in(text: str, names) -> set[str]:
@@ -630,21 +636,47 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
     implemented_pr = {k_: v_ for k_, v_ in implemented_pr.items() if k_[0] in live}
     discusses = {(a, b) for a, b in discusses if not b.startswith("Feature:") or b in live}
 
-    # C4: a PR named under several features keeps the one whose task context fits its title best; both are cited
+    # C4: a PR title keeps the task it is discussed under. Every spoken occurrence of the title in any meeting is read
+    # with the two segments before it; the feature whose name fits that context best wins, and both are cited.
+    ftoks = lambda fid: set(re.findall(r"[a-z0-9]{4,}", " ".join(  # noqa: E731
+        [feature_info[fid]["title"], *cat.features.entries[fid]["aliases"]]).casefold()))
+    tokens = {fid: ftoks(fid) for fid in feature_info}
     conflicts = []
     winner_of: dict[str, str] = {}
-    for link, ls_ in dev_links.items():
-        if len({x["feature"] for x in ls_}) < 2:
+    for link in list(dev_links):
+        ls_ = dev_links[link]
+        if not ls_ or any(x["basis"] != "meeting_title" for x in ls_):
             continue
-        ctx_words = lambda x: set(re.findall(r"[a-z0-9]{4,}", x["context"].casefold()))  # noqa: E731
-        ftoks = lambda fid: set(re.findall(r"[a-z0-9]{4,}", " ".join(  # noqa: E731
-            [feature_info[fid]["title"], *cat.features.entries[fid]["aliases"]]).casefold()))
-        best = max(ls_, key=lambda x: (len(ctx_words(x) & ftoks(x["feature"])), x["date"]))
-        others = [x for x in ls_ if x["feature"] != best["feature"]]
-        conflicts.append({"pr": link, "kept": best["feature"], "dropped": sorted({x["feature"] for x in others}),
-                          "citations": [c for x in ls_ for c in x["citations"]]})
-        best["also_cited"] = [c for x in others for c in x["citations"]]
-        dev_links[link] = [best]
+        title = normalise(prs_raw[link].title)
+        cands: dict[str, dict] = {}
+
+        def offer(fid, score, date, cites, rec_id, ctx):
+            if fid not in cands or (score, date) > (cands[fid]["score"], cands[fid]["date"]):
+                cands[fid] = {"feature": fid, "score": score, "date": date, "citations": cites, "record": rec_id,
+                              "context": ctx}
+
+        for x in ls_:
+            offer(x["feature"], _context_score(x["context"], tokens[x["feature"]]), x["date"], x["citations"],
+                  x["record"], x["context"])
+        for mt_ in rec.meetings:
+            for k, sg in enumerate(mt_.segments):
+                if title and title in normalise(sg.text):
+                    ctx = (sg.text, mt_.segments[k - 1].text if k else "")
+                    sc = sorted(((_context_score(ctx, t_), f_) for f_, t_ in tokens.items()), reverse=True)
+                    if sc and sc[0][0] > 0 and (len(sc) == 1 or sc[0][0] > sc[1][0]):
+                        offer(sc[0][1], sc[0][0], mt_.date, [{"record_id": sg.id, "quote": prs_raw[link].title,
+                                                              "field": "text"}], mt_.id, ctx)
+        if len(cands) < 2:
+            continue
+        best = max(cands.values(), key=lambda x: (x["score"], x["date"]))
+        others = [x for x in cands.values() if x["feature"] != best["feature"]]
+        conflicts.append({"pr": link, "kept": best["feature"], "dropped": sorted(x["feature"] for x in others),
+                          "citations": [c for x in cands.values() for c in x["citations"]]})
+        keep = next((x for x in ls_ if x["feature"] == best["feature"]), None) or {
+            "feature": best["feature"], "basis": "meeting_title", "citations": best["citations"],
+            "record": best["record"], "context": best["context"], "date": best["date"]}
+        keep["also_cited"] = [c for x in others for c in x["citations"]]
+        dev_links[link] = [keep]
         winner_of[link] = best["feature"]
     for key_, basis in list(implemented_pr.items()):
         if key_[1] in winner_of and key_[0] != winner_of[key_[1]]:
