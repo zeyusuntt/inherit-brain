@@ -665,7 +665,7 @@ def test_v2_version_recorded_and_v1_frozen(tmp_path, sources):
 def test_v2_rubric_texts():
     r = ae.RUBRICS
     assert "carries no assignees by definition" in r["bug_event"]
-    assert "separate ASSIGNED event, placed on the message" in r["bug_event"]
+    assert ae.ASSIGNED_PLACEMENT in r["bug_event"] and ae.ASSIGNED_PLACEMENT in ae.RECALL_RULES["recall_bug"]
     assert "no linked fix PR" in r["bug_event"] and "no fix needed = at least one DISMISSED event ever" in r["bug_event"]
     assert "not extracted" in r["bug_event"] and "judged separately" in r["bug_event"]
     assert "Placement of ASSIGNED events" in ae.RECALL_RULES["recall_bug"]
@@ -713,3 +713,46 @@ def test_report_lists_prompt_changes(tmp_path, sources):
     rep = (rd / "report.md").read_text()
     assert "audit-prompts/v2" in rep and "round 1 used audit-prompts/v1" in rep and "Placement" not in rep.split("Prompt changes")[0]
     assert all(c in rep for c in ae.PROMPT_CHANGES)
+
+
+def test_assigned_placement_is_the_extraction_contract_in_both_rubrics():
+    for text in (ae.RUBRICS["bug_event"], ae.RECALL_RULES["recall_bug"]):
+        assert "exactly one ASSIGNED event per assignment" in text and "before the next bug introduction" in text
+        assert "no second event at the acceptance" in text and "where they take it" in text
+    assert ae.ASSIGNED_PLACEMENT in ae.BUG_TASK
+
+
+def test_review_content_boundary_in_precision_and_recall():
+    for text in (ae.RUBRICS["review_relation"], ae.RECALL_RULES["recall_reviewer"], ae.REVIEW_TASK):
+        assert "proposal about the document's content or a review question" in text
+        assert "Pure work allocation" in text and "I'll add ..." in text
+    assert ae.REVIEW_BOUNDARY in ae.REVIEW_TASK.format(doc="d", type="t", product="p")
+
+
+def test_candidate_set_rule_and_evidence_in_ambiguous_review_packets():
+    r = " ".join(ae.RUBRICS["review_relation"].split())
+    assert "exactly the complete tied set" in r and "no omitted" in r and "3 for a role cue" in r and "does not by itself" in r
+    src = source("P1")
+    for eid in ("eid_b", "eid_c"):
+        src.facts["semantic"].append({"kind": "edge", "type": "SUGGESTED", "src_id": f"Person:{eid}",
+                                      "dst_id": "Document:design_v1", "src": ["mtg1#5"], "key": "amb",
+                                      "props": {"kind": "suggestion", "section": "s", "text": "t", "ambiguous": True,
+                                                "version_ambiguous": False}})
+    pk, _ = ae.review_packets({"P1": src}, 100, random.Random(1))
+    amb = next(p for p in pk if p["claim"].get("ambiguous"))
+    ids = {x["id"] for x in amb["records"]}
+    assert {"candidate:eid_b", "candidate:eid_c"} <= ids  # the name-rule evidence is reused (speaker taken from the line)
+    assert "Bob Ray" in amb["text"]
+
+
+def test_version_ambiguous_remark_is_one_sampling_unit_per_document_type():
+    src = source("P1")  # fixture: one remark linked to design_v1 and design_v2 (same type)
+    units = ae.review_units(src)
+    assert len(units) == 1 and units[0]["versions"] == ["design_v1", "design_v2"]
+    pk, info = ae.review_packets({"P1": src}, 10, random.Random(1))
+    assert info == {"requested": 10, "available": 1} and len(pk) == 1  # distinct units, not edges
+    assert "versions the extraction linked: design_v1, design_v2" in pk[0]["text"]
+    # a second remark on another document type counts separately; a non-ambiguous remark is per document
+    src.facts["semantic"].append({"kind": "edge", "type": "SUGGESTED", "src_id": "Person:eid_a", "dst_id": "Document:other",
+                                  "src": ["mtg1#4"], "key": "k2", "props": {"version_ambiguous": False, "kind": "suggestion"}})
+    assert len(ae.review_units(src)) == 2

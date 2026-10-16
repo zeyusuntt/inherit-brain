@@ -327,24 +327,46 @@ def _source_type(src: Source, rid: str) -> str:
             else "chat" if rid in src.chat else "other")
 
 
+def review_units(src: Source) -> list[dict]:
+    """Sampling units of the SUGGESTED edges: one per (remark, person), where a version-ambiguous remark counts once per
+    product document type (it carries its candidate versions) and a remark whose name resolution kept several candidates
+    is one unit carrying the candidate set."""
+    docs_type = lambda dst: getattr(src.doc.get(dst.split(":", 1)[1]), "type", dst)  # noqa: E731
+    groups = defaultdict(list)
+    for e in src.rows("semantic", type="SUGGESTED"):
+        unit_doc = docs_type(e["dst_id"]) if e["props"].get("version_ambiguous") else e["dst_id"]
+        groups[(tuple(e["src"]), e["key"], unit_doc)].append(e)
+    units = []
+    for (srcs, key, unit_doc), edges in sorted(groups.items()):
+        persons = sorted({x["src_id"].split(":", 1)[1] for x in edges})
+        versions = sorted({x["dst_id"].split(":", 1)[1] for x in edges})
+        if any(x["props"].get("ambiguous") for x in edges):
+            people = [persons]
+        else:
+            people = [[x] for x in persons]
+        for ppl in people:
+            who = "+".join(ppl)
+            units.append({"ident": f"{src.product}|{who}|{'+'.join(srcs)}|{key}|{unit_doc}", "edge": edges[0],
+                          "persons": ppl, "versions": versions,
+                          "ambiguous": len(ppl) > 1 or bool(edges[0]["props"].get("ambiguous"))})
+    return units
+
+
 def review_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tuple[list[dict], dict]:
     pool = []
     for p, src in sorted(sources.items()):
-        groups = defaultdict(list)  # one claim per remark: ambiguous name resolutions give one edge per candidate
-        for e in src.rows("semantic", type="SUGGESTED"):
-            groups[(tuple(e["src"]), e["dst_id"], e["key"])].append(e)
-        for (srcs, dst, key), edges in sorted(groups.items()):
-            rid = (srcs or [""])[0]
-            for e in (edges[:1] if edges[0]["props"].get("ambiguous") else edges):
-                ident = (f"{p}|{'+'.join(sorted(x['src_id'] for x in edges))}|{dst}|{key}" if e["props"].get("ambiguous")
-                         else f"{p}|{e['src_id']}|{dst}|{key}")
-                cands = sorted(x["src_id"].split(":", 1)[1] for x in edges) if e["props"].get("ambiguous") else None
-                pool.append((ident, f"{p}|{_source_type(src, rid)}|{e['props'].get('version_ambiguous')}", (src, e, cands)))
-    picked, info = sample_strata(pool, n, rng)
+        for u in review_units(src):
+            e = u["edge"]
+            rid = (e["src"] or [""])[0]
+            pool.append((u["ident"], f"{p}|{_source_type(src, rid)}|{e['props'].get('version_ambiguous')}", (src, u)))
+    picked, info = sample_strata(pool, n, rng)  # info.available counts distinct units
     out = []
-    for ident, _, (src, e, cands) in picked:
+    for ident, _, (src, u) in picked:
+        e = u["edge"]
         ep, rid = e["props"], (e["src"] or [""])[0]
-        eid = (cands or [e["src_id"].split(":", 1)[1]])[0]
+        cands = u["persons"] if u["ambiguous"] else None
+        speaker = ep.get("speaker_name") or (src.seg[rid].speaker if rid in src.seg else None)
+        eid = u["persons"][0]
         doc = src.doc.get(e["dst_id"].split(":", 1)[1])
         siblings = [d for d in src.records.documents if doc and d.type == doc.type]
         st = _source_type(src, rid)
@@ -353,19 +375,26 @@ def review_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tu
                 else [doc_record(src, src.doc[rid])] if st == "document"
                 else [r for r in [record_text(src, rid)] if r])
         recs += [doc_record(src, d, feedback=False) for d in siblings]
+        if cands and st == "segment":  # the name-rule evidence for every same-name directory person
+            mid = src.seg[rid].meeting_id
+            row = next((r for r in src.names if r["meeting_id"] == mid
+                        and r["name"].casefold() == (speaker or "").casefold()), None)
+            recs += candidate_records(src, row) if row else []
         level = ("document TYPE (several versions exist; the relation is correct if the source is about this type of "
-                 f"document: {doc.type if doc else '?'}; candidate versions: {', '.join(d.id for d in siblings)})"
+                 f"document: {doc.type if doc else '?'}; versions the extraction linked: {', '.join(u['versions'])}; "
+                 f"all versions: {', '.join(d.id for d in siblings)})"
                  if ep.get("version_ambiguous") else f"the single document {doc.id if doc else e['dst_id']} "
                  f"(type {doc.type if doc else '?'})")
         who = (f"one of the candidate speakers ({', '.join(src.person(c) for c in cands)}); the name resolution kept several "
-               f"candidates for the speaker name '{ep.get('speaker_name') or '?'}'" if cands else src.person(eid))
+               f"candidates for the speaker name '{speaker or '?'}'" if cands else src.person(eid))
         claim = {"relation": f"{who} SUGGESTED a change/question about {level}",
                  "kind": ep.get("kind"), "section": ep.get("section"), "text": ep.get("text"),
-                 **({"ambiguous": True, "judged as": "a candidate set, not one asserted person"} if cands else {}),
+                 **({"ambiguous": True, "judged as": "a candidate set (the complete tied set), not one asserted person"}
+                    if cands else {}),
                  "source record": f"{rid} ({st})", "judged at": "document type" if ep.get("version_ambiguous") else "document"}
         out.append(make_packet("review_relation", ident, src, claim=claim, records=recs,
                                meta={"source_type": st, "version_ambiguous": bool(ep.get("version_ambiguous")),
-                                     "candidates": cands or [eid]},
+                                     "candidates": cands or [eid], "versions": u["versions"]},
                                names=[src.records.employees[c]["name"] for c in (cands or [eid]) if c in src.records.employees]))
     return out, info
 
@@ -577,15 +606,26 @@ def _spread_products(cands: dict[str, list], n: int, rng: random.Random) -> list
     return chosen
 
 
+ASSIGNED_PLACEMENT = (
+    "Placement of ASSIGNED events (frozen convention): exactly one ASSIGNED event per assignment, on the message that hands the "
+    "bug to the assignee (it names or @-mentions them with an assignment cue) when that person accepts before the next bug "
+    "introduction, and no second event at the acceptance; if nobody hands it over and a person takes it, the one event is on "
+    "the message where they take it.")
+
+REVIEW_BOUNDARY = (
+    "A review relation needs a proposal about the document's content or a review question about it. Pure work allocation "
+    "(taking a section, gathering input, proposing to collaborate) is not a review relation; a concrete content suggestion "
+    "phrased \"I'll add ...\" is one.")
+
 BUG_TASK = ("List every bug event in channel {name} (product {product}). Use only the records below. Event types: "
             "REPORTED (a bug is introduced or reported), ASSIGNED (someone is asked to take it or takes it), RESOLVED "
             "(reported fixed or closed), DISMISSED (looked at and judged not a bug or no fix needed), REOPENED (comes "
             "back after resolution). One item per bug per event; a message can hold several events. Give the bug "
             "(the id of the message where that bug was first reported), the type, the actor (who performed the event), "
-            "the time (the message timestamp) and the message id of the event.")
+            "the time (the message timestamp) and the message id of the event. " + ASSIGNED_PLACEMENT)
 REVIEW_TASK = ("List every reviewer of document {doc} (type {type}, product {product}): each person who gives a "
                "suggestion, a requested change or a review question about this document, or about a document of this "
-               "type when the source names no version. Sources are the document feedback, the meetings of this "
+               "type when the source names no version. " + REVIEW_BOUNDARY + " Sources are the document feedback, the meetings of this "
                "document type and the Slack sessions that share the document link. One item per person per source "
                "record. Give the reviewer as the name written in the record (or the eid when the record uses one) and "
                "the id of the source record (a meeting line id like meeting#12, a message id, or the document id).")
@@ -647,9 +687,7 @@ earlier assignment is replaced); a PR's owner is its author."""
 RUBRICS = {
     "bug_event": """Kind bug_event. The claim is one bug event and the bug it belongs to. Event model (frozen): an event's
 assignees are the people that event assigns. A REPORTED event carries no assignees by definition (the claim shows
-"not applicable for REPORTED"). An assignment is a separate ASSIGNED event, placed on the message that hands the bug to the
-assignee (it names or @-mentions them with an assignment cue) when that person then accepts; if nobody hands it over and a
-person takes it, on the message where they take it. The bug's current assignee is judged separately, as the bug's current
+"not applicable for REPORTED"). An assignment is a separate ASSIGNED event. """ + ASSIGNED_PLACEMENT + """ The bug's current assignee is judged separately, as the bug's current
 ownership after the latest assignment and any later reassignment. Status uses the frozen historical definitions, not
 "status now" in a looser sense: unresolved = the bug has no linked fix PR; active = the last event in time order is REPORTED,
 ASSIGNED or REOPENED; reopened = at least one REOPENED event ever; no fix needed = at least one DISMISSED event ever (even
@@ -665,9 +703,14 @@ none; identity, status and time are never "na". A missing required field in your
 "correct" only if every field is "correct" (or such an "na"); otherwise "incorrect" (or "uncertain" under the general
 boundary).""",
     "review_relation": """Kind review_relation. The claim says a person suggested a change, or asked a review question,
-about a document. When the claim lists several candidate speakers (the name resolution kept several candidates and the
-claim shows ambiguous: True), judge it as a candidate set: it is correct when the true speaker is among the candidates and
-the records cannot tell the candidates apart; it is not an assertion about one person. With a single person, correct if
+about a document. """ + REVIEW_BOUNDARY + """ When the claim lists several candidate speakers (the name resolution kept several
+candidates and the claim shows ambiguous: True), judge it as a candidate set, not as an assertion about one person. It is
+correct only when the candidates are exactly the complete tied set under the frozen name rule (the eligible candidates are
+the directory people with exactly that name who are in the meeting, posted in the product Slack within 3 days of it, or are
+@-mentioned in it; scored 3 for a role cue matching the candidate's role in the speaker's own lines, plus 2 for a related post
+within 3 days, plus 1 for being mentioned; ties at the top score are kept): no unsupported extra candidate and no omitted
+tied candidate, using the candidate evidence records in the packet. That the records cannot say which candidate spoke does
+not by itself make the relation incorrect. With a single person, correct if
 that person did say it in the source record and it is about the document. When the claim is judged at document-type level
 (several versions exist), it is correct if the source is about a document of that type OF THIS PRODUCT (the same subject);
 a discussion of another product's document, such as a competitor's, is not. Do not require a specific version. Incorrect if
@@ -715,12 +758,10 @@ event. The "bug" field is always the id of the message where the bug was first r
 Example item: {"bug": "20261117-1-a77c3", "bug_title": "Duplicate Log Entries", "type": "ASSIGNED", "actor": "eid_0ac476e4", "time": "2026-11-17T07:06:00", "message_id": "20261117-1-a77c3"}
 A bug is reported once when it is introduced; it is assigned when someone is asked to take it or takes it; resolved
 when reported fixed or closed; dismissed when judged not a bug; reopened when it returns after resolution.
-Placement of ASSIGNED events (frozen convention): put the event on the message that hands the bug to the assignee (it names
-or @-mentions them with an assignment cue) when that person then accepts; if nobody hands it over and a person takes it,
-put it on the message where they take it. A REPORTED event has no assignees.""",
+""" + ASSIGNED_PLACEMENT + """ A REPORTED event has no assignees.""",
     "recall_reviewer": """Each item: {"reviewer": "<name as written in the record, or the eid>", "source": "<source record
 id>"}. A reviewer is a person who gives a suggestion, a requested change or a review question about the document (or its
-document type when no version is named). One item per person per source record.""",
+document type when no version is named). """ + REVIEW_BOUNDARY + """ One item per person per source record.""",
 }
 
 THIRD_PRECISION = """You are the third and final auditor. Two auditors disagreed, or one gave no usable answer. Read the
