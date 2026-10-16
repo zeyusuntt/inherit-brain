@@ -5,7 +5,7 @@ node_modules/
 __pycache__/
 dist/
 docs/internal/
-data/
+/data/
 runs/
 *.pk
 *.pkl
