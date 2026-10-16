@@ -34,7 +34,7 @@ from inherit.ontology import SIGNATURES
 from inherit.tools import depth1
 from inherit.tools.catalog import TOOLS
 from inherit.tools.depth1 import CALL_CAP, Episode, ToolError
-from inherit.tools.guard import guard, guard_evidence
+from inherit.tools.guard import ID_RE, guard, guard_evidence
 from inherit.tools.trace import Trace
 
 PROMPT_VERSION = "agent/v1"
@@ -62,7 +62,7 @@ How to work
 
 Final answer: reply with only one JSON object, and nothing else:
 {"answer_text": "...", "answer_ids": ["..."], "evidence_ids": ["..."], "outcome": "..."}
-- answer_text: the answer in plain sentences. Name the entities you give as ids.
+- answer_text: the answer in plain sentences. Name only people, companies and items that appear in tool results; put every value that is graded (employee ids, company names, PR links, URLs) in answer_ids as well.
 - answer_ids: the answer values themselves, bare: employee ids such as eid_xxxxxxxx, company names, PR links or URLs. No label prefixes (write eid_xxxxxxxx, not Person:eid_xxxxxxxx). Use [] when you give no such values.
 - evidence_ids: record ids (messages, transcript segments, documents) that the tools returned and that support the answer.
 - outcome, one of:
@@ -277,7 +277,7 @@ class _Loop:
                                      {"role": "user", "content": inp.text}]
         self.calls: list[CallUsage] = []
         self.envelopes: list[Any] = []
-        self.guard_rows: list[list[dict]] = []
+        self.guard_rows: list[list[dict]] = [[{"refs": ID_RE.findall(inp.text)}]]  # ids quoted in the question
         self.cap_hit = self.budget_stop = self.repaired = False
         self.tool_calls = 0
         self.model_outcome: str | None = None
@@ -351,14 +351,11 @@ class _Loop:
                 return self.fail(f"invalid final answer after one repair: {err}")
         self.model_outcome = fields["outcome"]
         asked = _bare(fields["answer_ids"])
-        # names and ids quoted from the question are not unsupported entities (a refusal repeats them)
-        text, ids, dropped = guard(fields["answer_text"], asked, self.guard_rows, context=self.inp.text)
+        text, ids, dropped = guard(fields["answer_text"], asked, self.guard_rows)
         evidence, ev_dropped = guard_evidence(fields["evidence_ids"], self.guard_rows)
         self.dropped = dropped + [{"value": v, "where": "evidence", "reason": "not in any returned row"}
                                   for v in ev_dropped]
         outcome = self.model_outcome
-        if not ids and not text.strip() and outcome in REFUSALS:
-            text = fields["answer_text"]  # a refusal asserts no entity; the guard may not blank it
         if ids and outcome in REFUSALS:
             outcome, text = "path", f"{', '.join(ids)}. {text}".strip()
         elif not ids and not text.strip():

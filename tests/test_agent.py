@@ -517,11 +517,3 @@ def test_qualified_employee_and_link_ids_are_graded_as_bare_values_in_every_tool
 def test_the_depth1_resolve_text_says_where_the_product_node_is(tg):
     specs = {s["function"]["name"]: s["function"]["description"] for s in agent._Depth1(tg, P, QB, True).specs()}
     assert "Product:" in specs["resolve"]
-
-
-def test_a_refusal_the_guard_would_blank_is_kept_but_a_blanked_path_answer_is_not(tg):
-    res, _ = run(tg, [T(("resolve_person", {"name": "Zed Nobody"})), J("Unknown Mister Zorp.", outcome="unknown_name")],
-                 q=f"What did Zed Nobody work on in {P}?")
-    assert res.final.outcome == "unknown_name" and res.final.answer_text == "Unknown Mister Zorp."
-    res, _ = run(tg, [T(board()), J("Mister Zorp Holdings.", outcome="path")])
-    assert res.final.outcome == "run_failed"
