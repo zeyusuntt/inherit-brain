@@ -641,10 +641,10 @@ def test_name_candidates_carry_sessions_and_related_evidence():
 
 # ---------------------------------------------------------------- round 2 rubric (audit-prompts/v2)
 def test_v2_version_recorded_and_v1_frozen(tmp_path, sources):
-    assert ae.PROMPT_VERSION == "audit-prompts/v3"
+    assert ae.PROMPT_VERSION == "audit-prompts/v4"
     packets = write_round(tmp_path, sources, rnd=2)
     m = json.loads((tmp_path / "round-2" / "manifest.json").read_text())
-    assert m["prompt_hashes"]["version"] == "audit-prompts/v3" and m["seed"] == ae.BASE_SEED + 2 == 20261017
+    assert m["prompt_hashes"]["version"] == "audit-prompts/v4" and m["seed"] == ae.BASE_SEED + 2 == 20261017
     v1 = ae.prompt_hashes("audit-prompts/v1")
     assert v1["rubric:bug_event"] == "77f9e3f494192ddccaeff7d3a337bf4c13bb0c0da7b05972e511357ee1141c5c"  # as in round 1
     assert v1 != ae.prompt_hashes()
@@ -727,7 +727,7 @@ def test_review_content_boundary_in_precision_and_recall():
     for text in (ae.RUBRICS["review_relation"], ae.RECALL_RULES["recall_reviewer"], ae.REVIEW_TASK):
         assert "proposal about the document's content or a review question" in text
         assert "Pure work allocation" in text and "I'll add ..." in text
-    assert ae.REVIEW_BOUNDARY in ae.REVIEW_TASK.format(doc="d", type="t", product="p")
+    assert ae.REVIEW_BOUNDARY in ae.REVIEW_TASK.format(type="t", product="p", versions="v")
 
 
 def test_candidate_set_rule_and_evidence_in_ambiguous_review_packets():
@@ -775,7 +775,7 @@ def alias_source(P="P1", mutate=None):
 
 
 def test_v2_is_frozen_and_v3_differs():
-    assert ae.PROMPT_VERSION == "audit-prompts/v3"
+    assert ae.PROMPT_VERSION == "audit-prompts/v4"
     h2, h3 = ae.prompt_hashes("audit-prompts/v2"), ae.prompt_hashes()
     assert h2["version"] == "audit-prompts/v2" and h2["rubric:review_relation"] != h3["rubric:review_relation"]
     from eval import audit_prompts_v2 as m2
@@ -792,7 +792,7 @@ def test_v3_wording():
     assert "membership" in " ".join(ae.RUBRICS["whatif_path"].split())
     r = " ".join(ae.RUBRICS["review_relation"].split())
     assert "Judge the cited content proposal independently of adjacent allocation language; a message containing both can support a review relation." in r
-    assert len(ae.PROMPT_CHANGES) >= 5
+    assert len(ae.PROMPT_CHANGES_V3) >= 5
 
 
 def test_product_identity_evidence_comes_from_the_bundle_only():
@@ -889,10 +889,10 @@ def test_reviewer_eligibility_is_frozen_from_the_raw_inventory():
     s4 = alias_source(mutate=slack_ok)
     assert el(s4)
     pk, info = ae.recall_reviewer_packets({"P1": s4}, 3, random.Random(1))
-    assert info["eligible"] == 2 and info["ineligible"] == 0 and info["available"] == 2
+    assert info["eligible"] == 1 and info["ineligible"] == 0 and info["available"] == 1
     assert "t1" in {r["id"] for r in pk[0]["records"]}  # unversioned discussion included
     pk3, info3 = ae.recall_reviewer_packets({"P1": alias_source(mutate=author_only)}, 3, random.Random(1))
-    assert pk3 == [] and info3["eligible"] == 0 and info3["ineligible"] == 2  # a disclosed stratum, not resampled
+    assert pk3 == [] and info3["eligible"] == 0 and info3["ineligible"] == 1  # a disclosed stratum, not resampled
 
 
 def test_identity_is_neutral_provenance_and_claims_say_membership():
@@ -915,7 +915,7 @@ def test_identity_is_neutral_provenance_and_claims_say_membership():
 def test_recall_reviewer_instructions_permit_type_level_discussions():
     for text in (ae.RECALL_RULES["recall_reviewer"], ae.REVIEW_TASK):
         t = " ".join(text.split())
-        assert "name no version and share no exact link" in t and ("named feedback" in t.lower() or "document feedback" in t)
+        assert "name no version and share no exact link" in t and "feedback" in t.lower()
 
 
 def test_bug_channel_needs_identity_and_human_report_content():
@@ -979,3 +979,89 @@ def test_positive_pool_with_zero_denominator_still_fails():
     assert not rows["recall:recall_bug"]["pass"] and rows["recall:recall_bug"]["status"] == "evaluated"
     assert not rows["precision:whatif_path"]["pass"]  # positive pool, no packets/verdicts: a failure
     assert not all(ok for _, ok, _ in ae.gates(s))
+
+
+# ---------------------------------------------------------------- round 5: type-level reviewer recall (audit-prompts/v4)
+def test_v3_frozen_and_v4_differs():
+    from eval import audit_prompts_v3 as m3
+    assert ae.PROMPT_VERSION == "audit-prompts/v4"
+    h3, h4 = ae.prompt_hashes("audit-prompts/v3"), ae.prompt_hashes()
+    assert h3["version"] == "audit-prompts/v3" and h3["rubric:review_relation"] == ae.sha256_text(m3.RUBRICS["review_relation"])
+    assert h3["recall_rules:recall_reviewer"] != h4["recall_rules:recall_reviewer"]
+    assert h3["rubric:bug_event"] == h4["rubric:bug_event"]  # precision kinds unchanged from v3 apart from the author sentence
+    assert ae.batch_header("recall_reviewer", version="audit-prompts/v3") != ae.batch_header("recall_reviewer")
+
+
+def test_author_wording_in_rules_task_and_review_rubric():
+    w = "An author's acknowledgement, explanation, repetition, or promise to implement another person's feedback is not a reviewer contribution. Independently proposed content changes or substantive review questions are judged by the same rule regardless of authorship."
+    for text in (ae.RECALL_RULES["recall_reviewer"], ae.RUBRICS["review_relation"], ae.REVIEW_TASK):
+        assert w in " ".join(text.split())
+    assert ae.AUTHOR_WORDING == w
+
+
+def type_source(mutate=None):
+    return alias_source(mutate=mutate)
+
+
+def test_recall_reviewer_targets_are_product_document_types():
+    src = type_source()
+    pk, info = ae.recall_reviewer_packets({"P1": src}, 3, random.Random(1))
+    assert len(pk) == 1 and info["eligible"] == 1 and info["requested"] == 3  # one type, two versions
+    p = pk[0]
+    assert p["meta"]["document_type"] == "Design Doc" and p["meta"]["document_ids"] == ["design_v1", "design_v2"]
+    ids = {r["id"] for r in p["records"]}
+    assert {"design_v1", "design_v2", "mtg1#5", "product:P1"} <= ids
+    assert "ALL versions" in p["task"] and "design_v1" in p["task"] and "design_v2" in p["task"]
+    assert "add a diagram" in p["text"]  # each version's feedback
+
+
+def with_edges(src, versions=("design_v1", "design_v2")):
+    f = [e for e in src.facts["semantic"] if e.get("type") != "SUGGESTED"]
+    f += [{"kind": "edge", "type": "SUGGESTED", "src_id": "Person:eid_b", "dst_id": f"Document:{d}", "src": ["mtg1#5"],
+           "key": "mtg1#5", "props": {"kind": "suggestion", "version_ambiguous": True}} for d in versions]
+    src.facts["semantic"] = f
+    return src
+
+
+def test_type_level_match_deduplicates_versions_and_reports_strict_and_people():
+    src = with_edges(type_source())
+    pk, _ = ae.recall_reviewer_packets({"P1": src}, 1, random.Random(1))
+    p = pk[0]
+    assert ae.extracted_keys(p, src) == Counter({("bob ray", "mtg1#5"): 1})  # two versions, one contribution
+    items = [{"reviewer": "Bob Ray", "source": "mtg1#5"}, {"reviewer": "Ann Lee", "source": "m4"}]
+    r = ae.compare_reviewer_recall(p, items, src)
+    assert (r["truth"], r["matched"]) == (2, 1) and (r["strict_matched"]) == 1
+    assert (r["people_truth"], r["people_covered"]) == (2, 1)
+    # the auditor names a version the extraction did not link: still a type-level hit, a strict miss
+    src2 = with_edges(type_source(), versions=("design_v1",))
+    items2 = [{"reviewer": "Bob Ray", "source": "mtg1#5", "document": "design_v2"}]
+    r2 = ae.compare_reviewer_recall(p, items2, src2)
+    assert (r2["matched"], r2["strict_matched"]) == (1, 0)
+    r3 = ae.compare_reviewer_recall(p, [{**items2[0], "document": "design_v1"}], src2)
+    assert r3["strict_matched"] == 1
+    assert ae.validate_verdict({"packet_id": p["id"], "items": items2}, p) is None
+    assert ae.validate_verdict({"packet_id": p["id"], "items": [{**items2[0], "document": 3}]}, p)
+
+
+def test_collect_reports_strict_and_people_and_disclosure(tmp_path, sources):
+    srcs = {k: with_edges(alias_source(P=k) if False else sources[k]) for k in sources}
+    packets, sizes = ae.build_packets(srcs, 5, wi_fn, {**SMALL, "recall_reviewer": 1})
+    ae.write_round(packets, sizes, 5, None, tmp_path)
+    (tmp_path / "round-5" / "auditors.json").write_text(json.dumps(AUD))
+    rr = next(p for p in packets if p["kind"] == "recall_reviewer")
+    for w in ("codex", "claude", "third"):
+        put(tmp_path, w, "r", [{"packet_id": rr["id"], "items": [{"reviewer": "Bob Ray", "source": "mtg1#5"}]}], rnd=5)
+    s = ae.collect(5, srcs, tmp_path)
+    r = s["recall"]["recall_reviewer"]
+    assert (r["truth"], r["matched"], r["strict_matched"], r["people_truth"], r["people_covered"]) == (1, 1, 1, 1, 1)
+    rep = (tmp_path / "round-5" / "report.md").read_text()
+    assert "After inspecting dev rounds 1-4, the reviewer-recall endpoint was amended" in rep
+    assert "strict per-document recall" in rep and "distinct-reviewer coverage" in rep
+    assert all(c in rep for c in ae.PROMPT_CHANGES)
+    assert json.loads((tmp_path / "round-5" / "manifest.json").read_text())["seed"] == 20261020
+
+
+def test_older_rounds_keep_document_level_keys():
+    src = with_edges(type_source())
+    old = {"kind": "recall_reviewer", "meta": {"document_id": "design_v1", "document_type": "Design Doc"}}
+    assert ae.extracted_keys(old, src) == Counter({("bob ray", "mtg1#5"): 1})

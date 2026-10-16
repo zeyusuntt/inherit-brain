@@ -27,7 +27,7 @@ from typing import Callable
 
 from inherit.config import ROOT
 from inherit.data.records import ProductRecords, load_records, parse_mentions
-from eval import audit_prompts_v1, audit_prompts_v2
+from eval import audit_prompts_v1, audit_prompts_v2, audit_prompts_v3
 from inherit.data.split import SEED as SPLIT_SEED
 from inherit.data.split import split
 from inherit.extract.sessions import sessions
@@ -36,7 +36,7 @@ BASE_SEED = SPLIT_SEED  # 20261015; round N samples with BASE_SEED + N
 AUDIT_DIR = ROOT / "runs" / "audit"
 BUNDLE_DIR = ROOT / "data" / "bundle"
 FACTS_DIR = ROOT / "data" / "facts"
-PROMPT_VERSION = "audit-prompts/v3"  # v1 (round 1) and v2 (round 2) are frozen in audit_prompts_v1.py / _v2.py
+PROMPT_VERSION = "audit-prompts/v4"  # v1 to v3 are frozen in audit_prompts_v1.py .. _v3.py
 
 PRECISION_QUOTAS = {"bug_event": 50, "review_relation": 50, "name_resolution": 50,
                     "whatif_unowned": 30, "whatif_edge": 30, "whatif_path": 20}
@@ -648,10 +648,15 @@ ASSIGNED_PLACEMENT = (
     "introduction, and no second event at the acceptance; if nobody hands it over and a person takes it, the one event is on "
     "the message where they take it.")
 
+AUTHOR_WORDING = (
+    "An author's acknowledgement, explanation, repetition, or promise to implement another person's feedback is not a "
+    "reviewer contribution. Independently proposed content changes or substantive review questions are judged by the same "
+    "rule regardless of authorship.")
+
 REVIEW_BOUNDARY = (
     "A review relation needs a proposal about the document's content or a review question about it. Pure work allocation "
     "(taking a section, gathering input, proposing to collaborate) is not a review relation; a concrete content suggestion "
-    "phrased \"I'll add ...\" is one.")
+    "phrased \"I'll add ...\" is one. " + AUTHOR_WORDING)
 
 BUG_TASK = ("List every bug event in channel {name} (product {product}). Use only the records below. Event types: "
             "REPORTED (a bug is introduced or reported), ASSIGNED (someone is asked to take it or takes it), RESOLVED "
@@ -659,13 +664,14 @@ BUG_TASK = ("List every bug event in channel {name} (product {product}). Use onl
             "back after resolution). One item per bug per event; a message can hold several events. Give the bug "
             "(the id of the message where that bug was first reported), the type, the actor (who performed the event), "
             "the time (the message timestamp) and the message id of the event. " + ASSIGNED_PLACEMENT)
-REVIEW_TASK = ("List every reviewer of document {doc} (type {type}, product {product}): each person who gives a "
-               "suggestion, a requested change or a review question about this document, or about a document of this "
-               "type when the source names no version. " + REVIEW_BOUNDARY + " Sources are the document feedback, the meetings of this "
-               "document type, the Slack sessions that share the document link and the same-product Slack discussions of the "
-               "document type that name no version and share no exact link. One item per person per source "
-               "record. Give the reviewer as the name written in the record (or the eid when the record uses one) and "
-               "the id of the source record (a meeting line id like meeting#12, a message id, or the document id).")
+REVIEW_TASK = ("List every reviewer contribution about documents of type {type} in product {product}, across ALL versions "
+               "of the type ({versions}): each person who gives a suggestion, a requested change or a review question about "
+               "a document of this type. " + REVIEW_BOUNDARY + " Sources are the feedback of each version, the meetings of "
+               "this document type, the Slack sessions that share any version's link and the same-product Slack discussions "
+               "of the document type that name no version and share no exact link. One item per person per source record. "
+               "Give the reviewer as the name written in the record (or the eid when the record uses one), the id of the "
+               "source record (a meeting line id like meeting#12, a message id, or the document id) and, only when the "
+               "record names one version, that version's id as \"document\".")
 
 
 BUG_WORDS = re.compile(r"\b(?:bug|issue|problem|vulnerabilit\w*|leak|crash\w*|error|fail\w*)\b", re.I)
@@ -746,24 +752,30 @@ def recall_bug_packets(sources: dict[str, Source], n: int, rng: random.Random) -
     return out, {"requested": n, "available": ne, "eligible": ne, "ineligible": sum(len(v) for v in ident.values()) - ne}
 
 
+def _types(src: Source) -> list[str]:
+    return sorted({d.type for d in src.records.documents})
+
+
 def recall_reviewer_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tuple[list[dict], dict]:
-    cands = {p: [d.id for d in s.records.documents if reviewer_eligible(s, d)] for p, s in sources.items()}
+    """Targets are (product, document type): eligible when any version is (the frozen rule, at type level)."""
+    cands = {p: [t for t in _types(s) if any(reviewer_eligible(s, d) for d in s.records.documents if d.type == t)]
+             for p, s in sources.items()}
     out = []
-    for p, did in _spread_products(cands, n, rng):
-        src, d = sources[p], sources[p].doc[did]
-        recs = [doc_record(src, d)]
+    for p, typ in _spread_products(cands, n, rng):
+        src = sources[p]
+        versions = [d for d in src.records.documents if d.type == typ]
+        recs = [doc_record(src, d) for d in versions]
         for m in src.records.meetings:
-            if m.document_type == d.type:
+            if m.document_type == typ:
                 recs += meeting_records(src, m.id)
-        # sessions that share the link, and unversioned same-product discussions of the document type (no link needed)
-        terms = doc_terms(d)
+        terms = sorted({t for d in versions for t in doc_terms(d)})
         linked = [m.id for m in src.records.messages if any(t in m.text.casefold() for t in terms)]
         recs += message_session_records(src, linked)
-        task = REVIEW_TASK.format(doc=d.id, type=d.type, product=p)
-        names = [s.speaker for m in src.records.meetings if m.document_type == d.type for s in m.segments if s.speaker]
-        out.append(make_packet("recall_reviewer", f"{p}|{did}", src, task=task, records=recs, identity="always",
-                               meta={"document_id": did, "document_type": d.type}, names=names))
-    ne, total = sum(len(v) for v in cands.values()), sum(len(s.records.documents) for s in sources.values())
+        task = REVIEW_TASK.format(type=typ, product=p, versions=", ".join(d.id for d in versions))
+        names = [s.speaker for m in src.records.meetings if m.document_type == typ for s in m.segments if s.speaker]
+        out.append(make_packet("recall_reviewer", f"{p}|{typ}", src, task=task, records=recs, identity="always",
+                               meta={"document_type": typ, "document_ids": [d.id for d in versions]}, names=names))
+    ne, total = sum(len(v) for v in cands.values()), sum(len(_types(s)) for s in sources.values())
     return out, {"requested": n, "available": ne, "eligible": ne, "ineligible": total - ne}
 
 
@@ -863,9 +875,10 @@ A bug is reported once when it is introduced; it is assigned when someone is ask
 when reported fixed or closed; dismissed when judged not a bug; reopened when it returns after resolution.
 """ + ASSIGNED_PLACEMENT + """ A REPORTED event has no assignees.""",
     "recall_reviewer": """Each item: {"reviewer": "<name as written in the record, or the eid>", "source": "<source record
-id>"}. A reviewer is a person who gives a suggestion, a requested change or a review question about the document (or its
-document type when no version is named). Sources are: Slack sessions that share the document link; same-product Slack
-discussions of the document type that name no version and share no exact link; named feedback; and meetings of the same
+id>", "document": "<optional: the version id, only when the record names one version>"}. The target is a document type of
+one product: list every reviewer contribution about any version of the type, from named feedback, meetings of the type,
+Slack sessions that share any version's link, and same-product Slack discussions of the type that name no version and
+share no exact link. A reviewer is a person who gives a suggestion, a requested change or a review question about the
 document type. """ + REVIEW_BOUNDARY + """ One item per person per source record.""",
 }
 
@@ -904,14 +917,27 @@ PROMPT_CHANGES_V3 = (
     "identity with human report content (frozen before sampling); same-product type-level discussions are included in "
     "recall_reviewer packets; eligible and ineligible pool sizes are recorded",
 )
-PROMPT_CHANGES_BY_VERSION = {audit_prompts_v2.VERSION: PROMPT_CHANGES_V2, PROMPT_VERSION: PROMPT_CHANGES_V3}
-PROMPT_CHANGES = PROMPT_CHANGES_V3
+PROMPT_CHANGES_BY_VERSION = {audit_prompts_v2.VERSION: PROMPT_CHANGES_V2}
+PROMPT_CHANGES_V4 = (
+    "recall_reviewer: targets are (product, document type); the packet holds the review evidence of all versions of the "
+    "type (each version's feedback, same-type meetings, sessions sharing any version's link, same-product type-level "
+    "discussions); items may name a version (optional 'document')",
+    "recall comparison: (canonical reviewer, source record) matched against SUGGESTED edges to any version of the type, "
+    "deduplicated across versions (the gate); strict per-document recall and distinct-reviewer coverage reported alongside",
+    "author wording: an author's acknowledgement, explanation, repetition or promise to implement another person's feedback "
+    "is not a reviewer contribution; independent content proposals count regardless of authorship (recall rules, task text "
+    "and the review precision rubric)",
+)
+PROMPT_CHANGES_BY_VERSION[PROMPT_VERSION] = PROMPT_CHANGES_V4
+PROMPT_CHANGES_BY_VERSION[audit_prompts_v3.VERSION] = PROMPT_CHANGES_V3
+PROMPT_CHANGES = PROMPT_CHANGES_V4
 
 
 def prompt_set(version: str) -> dict:
     """The prompt texts of a version: v1 is frozen in audit_prompts_v1 (round 1), v2 is this module."""
-    if version in (audit_prompts_v1.VERSION, audit_prompts_v2.VERSION):
-        m = audit_prompts_v1 if version == audit_prompts_v1.VERSION else audit_prompts_v2
+    frozen = {m.VERSION: m for m in (audit_prompts_v1, audit_prompts_v2, audit_prompts_v3)}
+    if version in frozen:
+        m = frozen[version]
         return {"common_precision": m.COMMON_PRECISION, "common_recall": m.COMMON_RECALL, "third_precision": m.THIRD_PRECISION,
                 "third_recall": m.THIRD_RECALL, "open_work": m.OPEN_WORK, "rubrics": m.RUBRICS, "recall_rules": m.RECALL_RULES}
     if version != PROMPT_VERSION:
@@ -1074,6 +1100,8 @@ def validate_verdict(obj, packet: dict, third: bool = False) -> str | None:
                 return "item missing a required string field"
             if packet["kind"] == "recall_bug" and it["type"].upper() not in EVENT_TYPES:
                 return "unknown event type"
+            if packet["kind"] == "recall_reviewer" and "document" in it and not isinstance(it["document"], str):
+                return "document must be a string"
         return None
     v = obj.get("verdict")
     if v not in VERDICTS:
@@ -1168,9 +1196,29 @@ def extracted_keys(packet: dict, src: Source) -> Counter:
         for e in sorted((e for e in evs if e["type"] == "REPORTED"), key=lambda e: (e["ts"], e.get("seq") or 0)):
             first.setdefault(e["bug"], e["message_id"])
         return Counter((first.get(e["bug"], ""), e["type"], e["message_id"]) for e in evs)
-    dst = f"Document:{packet['meta']['document_id']}"
+    ids = packet["meta"].get("document_ids") or [packet["meta"]["document_id"]]  # rounds before 5 name one document
+    dst = {f"Document:{i}" for i in ids}
     return Counter({(src.name_of(e["src_id"].split(":", 1)[1]), rid)
-                    for e in src.rows("semantic", type="SUGGESTED") if e["dst_id"] == dst for rid in e["src"]})
+                    for e in src.rows("semantic", type="SUGGESTED") if e["dst_id"] in dst for rid in e["src"]})
+
+
+def compare_reviewer_recall(packet: dict, items: list[dict], src: Source) -> dict:
+    """Type-level recall (the gate: (canonical reviewer, source) against edges to any version, deduplicated), strict
+    per-document recall (an item that names a version is matched against that version's edges only) and distinct-reviewer
+    coverage (people)."""
+    truth = truth_keys("recall_reviewer", items, src)
+    ex = extracted_keys(packet, src)
+    cmp = compare_recall(truth, ex)
+    per_doc = {d: extracted_keys({"kind": "recall_reviewer", "meta": {"document_id": d}}, src)
+               for d in packet["meta"].get("document_ids", [])}
+    strict = 0
+    for it in {(i["reviewer"], i["source"], i.get("document")) for i in items}:
+        key = (src.name_of(it[0]), it[1].strip())
+        pool = per_doc.get(it[2], ex) if it[2] else ex
+        strict += key in pool
+    people = {k[0] for k in truth}
+    return {**cmp, "strict_matched": strict, "strict_truth": len(truth),
+            "people_truth": len(people), "people_covered": len(people & {k[0] for k in ex})}
 
 
 def shared_report_messages(src: Source, channel_id: str) -> int:
@@ -1263,7 +1311,12 @@ def collect(round_n: int, sources: dict[str, Source], root: Path = AUDIT_DIR) ->
                 r["pending"] += 1
                 continue
             src = sources[p["product"]]
-            cmp = compare_recall(truth_keys(kind, t["items"], src), extracted_keys(p, src))
+            if kind == "recall_reviewer" and "document_ids" in p["meta"]:
+                cmp = compare_reviewer_recall(p, t["items"], src)
+                for k in ("strict_matched", "strict_truth", "people_truth", "people_covered"):
+                    r[k] = r.get(k, 0) + cmp[k]
+            else:
+                cmp = compare_recall(truth_keys(kind, t["items"], src), extracted_keys(p, src))
             r["truth"] += cmp["truth"]
             r["matched"] += cmp["matched"]
             same = bool(a and b and truth_keys(kind, a["items"], src) == truth_keys(kind, b["items"], src))
@@ -1348,6 +1401,15 @@ def render_report(s: dict) -> str:
     L += ["", "## Recall", "", "| kind | matched/truth | recall | packets | auditor lists equal |", "|---|---|---|---|---|"]
     for k, r in sorted(s["recall"].items()):
         L.append(f"| {k} | {r['matched']}/{r['truth']} | {r['recall']} | {r['packets']} | {r['lists_equal']} |")
+    rr = s["recall"].get("recall_reviewer") or {}
+    if "strict_matched" in rr:
+        L += ["", f"Reviewer recall alongside the gate: strict per-document recall {rr['strict_matched']}/{rr['strict_truth']} "
+              f"(an item that names a version is matched against that version only); distinct-reviewer coverage "
+              f"{rr['people_covered']}/{rr['people_truth']} people."]
+    if s["prompt_hashes"]["version"] >= "audit-prompts/v4":
+        L += ["", "Disclosure: After inspecting dev rounds 1-4, the reviewer-recall endpoint was amended: targets are document "
+              "types (all versions), author acknowledgements are excluded by act, and strict per-document recall and "
+              "distinct-reviewer coverage are reported alongside. Earlier rounds' results are unchanged and remain failed."]
     empty = sorted(k for k, v in (s.get("sizes") or {}).items() if v.get("available") == 0)
     if empty:
         L += ["", f"Not estimable (empty dev pool, excluded from pass and fail): {', '.join(empty)}."]
