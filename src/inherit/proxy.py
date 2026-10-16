@@ -30,6 +30,8 @@ from inherit.meter import (
 
 log = logging.getLogger("inherit.proxy")
 ARM_HEADER = "X-Inherit-Arm"
+TAG_HEADER = "X-Inherit-Tag"  # optional per-attempt label, recorded on the ledger and never forwarded
+MAX_TAG_LEN = 300
 MAX_RETRIES = 2  # upstream 429 / 5xx, each attempt with a fresh reservation
 
 
@@ -97,14 +99,16 @@ def create_app(
             log.error("ledger write failed: %s", type(e).__name__)
             return False
 
-    def forward(path: str, content: bytes, model: str, ceiling: int, arm: str, extra: dict) -> Response:
+    def forward(
+        path: str, content: bytes, model: str, ceiling: int, arm: str, extra: dict, tag: str | None = None
+    ) -> Response:
         start = time.monotonic()
         for attempt in range(MAX_RETRIES + 1):
             remaining = deadline - (time.monotonic() - start)
             if attempt > 0 and remaining <= 0:
                 return _err(504, "deadline_exceeded", "proxy deadline reached; no new attempt started")
             try:
-                r = meter.reserve_pu(ceiling, arm, model)
+                r = meter.reserve_pu(ceiling, arm, model, tag)
             except BudgetExceeded as e:
                 return _err(402, "budget_exceeded", str(e))
             try:
@@ -173,6 +177,9 @@ def create_app(
             return finish(200, data, cost_pu, r.amount)
         raise AssertionError("unreachable")
 
+    def tag_of(request: Request) -> str | None:
+        return request.headers.get(TAG_HEADER, "").strip()[:MAX_TAG_LEN] or None
+
     def parse(raw: bytes, request: Request) -> tuple[str, dict] | JSONResponse:
         arm = request.headers.get(ARM_HEADER, "").strip()
         if not arm:
@@ -213,7 +220,7 @@ def create_app(
         price_in, price_out = meter.prices[body["model"]]
         in_bound = len(content) + PER_MESSAGE_TOKENS * len(msgs) + FIXED_OVERHEAD_TOKENS
         ceiling = in_bound * price_in + max(limits) * price_out
-        return forward("/chat/completions", content, body["model"], ceiling, arm, extra)
+        return forward("/chat/completions", content, body["model"], ceiling, arm, extra, tag_of(request))
 
     def embed_sync(raw: bytes, request: Request) -> Response:
         parsed = parse(raw, request)
@@ -229,7 +236,7 @@ def create_app(
             return _err(400, "invalid_request", "input must be a string or a non-empty list of strings")
         price_in, _ = meter.prices[body["model"]]
         ceiling = (len(raw) + PER_MESSAGE_TOKENS * n) * price_in
-        return forward("/embeddings", raw, body["model"], ceiling, arm, {})
+        return forward("/embeddings", raw, body["model"], ceiling, arm, {}, tag_of(request))
 
     @app.post("/v1/chat/completions")
     async def chat_completions(request: Request):

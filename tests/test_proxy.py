@@ -517,3 +517,43 @@ def test_attempt_timeout_is_min_of_per_attempt_and_remaining(tmp_path):
     c2, _ = make(tmp_path / "b", up2, deadline=1000.0, timeout=300.0)
     c2.post("/v1/chat/completions", json=body(), headers=H)
     assert up2.requests[0].extensions["timeout"]["read"] == 300.0
+
+
+# ---- attempt tag (Task 10, F9) ----------------------------------------------
+
+def test_tag_header_recorded_on_reserve_and_settle(tmp_path):
+    up = Upstream()
+    c, _ = make(tmp_path, up)
+    r = c.post("/v1/chat/completions", json=body(), headers={**H, "X-Inherit-Tag": "run1/P/ans/3/1"})
+    assert r.status_code == 200
+    evs = events(tmp_path)
+    assert [e["tag"] for e in evs if e["type"] in ("reserve", "settle")] == ["run1/P/ans/3/1"] * 2
+    assert "X-Inherit-Tag" not in up.requests[0].headers
+
+
+def test_tag_recorded_on_full_settle_and_embeddings(tmp_path):
+    up = Upstream((500, {"error": "x"}), (500, {"error": "x"}), (500, {"error": "x"}))
+    c, _ = make(tmp_path, up)
+    c.post("/v1/chat/completions", json=body(), headers={**H, "X-Inherit-Tag": "t1"})
+    assert all(e["tag"] == "t1" for e in events(tmp_path))
+    up2 = Upstream(default=(200, EMB_OK))
+    c2, _ = make(tmp_path / "e", up2)
+    c2.post("/v1/embeddings", json={"model": EMBED_MODEL, "input": "x"}, headers={**H, "X-Inherit-Tag": "t2"})
+    assert [e["tag"] for e in events(tmp_path / "e")] == ["t2", "t2"]
+
+
+def test_no_tag_header_leaves_events_untagged(tmp_path):
+    up = Upstream()
+    c, _ = make(tmp_path, up)
+    c.post("/v1/chat/completions", json=body(), headers=H)
+    assert all("tag" not in e for e in events(tmp_path))
+
+
+def test_client_sends_tag_only_when_set():
+    assert "X-Inherit-Tag" not in llm.proxy_openai_kwargs("a1")["default_headers"]
+    token = llm.ATTEMPT_TAG.set("run/P/ans/0/1")
+    try:
+        assert llm.proxy_openai_kwargs("a1")["default_headers"] == {
+            "X-Inherit-Arm": "a1", "X-Inherit-Tag": "run/P/ans/0/1"}
+    finally:
+        llm.ATTEMPT_TAG.reset(token)

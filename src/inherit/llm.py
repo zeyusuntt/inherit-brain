@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,6 +11,11 @@ import openai
 
 from inherit.config import load_settings
 from inherit.meter import BudgetExceeded  # noqa: F401  re-exported
+
+
+# Set by the eval runner around one question attempt: "<run id>/<slot>/<attempt>". Sent as X-Inherit-Tag so the
+# ledger can attribute spend to the attempt. A thread an arm starts itself must copy the context to inherit it.
+ATTEMPT_TAG: ContextVar[str | None] = ContextVar("inherit_attempt_tag", default=None)
 
 
 @dataclass
@@ -36,7 +42,10 @@ def proxy_openai_kwargs(arm: str) -> dict:
     """base_url, api_key and headers for any OpenAI-compatible client (llama-index, GraphRAG-SDK)."""
     if not isinstance(arm, str) or not arm.strip():
         raise ValueError("arm must be a non-empty string")
-    return {"base_url": proxy_url(), "api_key": "proxy", "default_headers": {"X-Inherit-Arm": arm}}
+    headers = {"X-Inherit-Arm": arm}
+    if ATTEMPT_TAG.get():
+        headers["X-Inherit-Tag"] = ATTEMPT_TAG.get()
+    return {"base_url": proxy_url(), "api_key": "proxy", "default_headers": headers}
 
 
 def _timeout() -> float:

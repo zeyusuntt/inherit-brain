@@ -56,6 +56,7 @@ class Reservation:
     arm: str
     amount: int  # pico-USD
     model: str = MODEL
+    tag: str | None = None  # opaque attempt label from X-Inherit-Tag, copied to the ledger events
 
 
 class Meter:
@@ -172,7 +173,7 @@ class Meter:
     def reserve(self, max_cost: float, arm: str, model: str = MODEL) -> Reservation:
         return self.reserve_pu(_pu_ceil(max_cost), arm, model)
 
-    def reserve_pu(self, amount: int, arm: str, model: str = MODEL) -> Reservation:
+    def reserve_pu(self, amount: int, arm: str, model: str = MODEL, tag: str | None = None) -> Reservation:
         _count(amount, "amount")
         if model not in self.prices:
             raise ValueError(f"no price for model {model!r}")
@@ -186,8 +187,11 @@ class Meter:
                 raise BudgetExceeded(
                     f"arm {arm!r} cap {sub / PICO} USD: committed {self._arm_total(arm) / PICO} + {amount / PICO}"
                 )
-            r = Reservation(uuid.uuid4().hex, arm, amount, model)
-            self._append({"type": "reserve", "id": r.id, "arm": arm, "amount": amount, "model": model})
+            r = Reservation(uuid.uuid4().hex, arm, amount, model, tag)
+            ev = {"type": "reserve", "id": r.id, "arm": arm, "amount": amount, "model": model}
+            if tag:
+                ev["tag"] = tag
+            self._append(ev)
             self._refresh()
             return r
 
@@ -207,6 +211,8 @@ class Meter:
                 "prompt_tokens": pt,
                 "completion_tokens": ct,
             }
+            if r.tag:
+                ev["tag"] = r.tag
             if cost > rec[1]:
                 ev["over_reservation"] = True
             self._append(ev)
