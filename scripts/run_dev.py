@@ -24,7 +24,7 @@ from inherit import llm  # noqa: E402
 from inherit.config import ROOT  # noqa: E402
 
 TYPES = ("person", "company", "pr", "url", "content", "unanswerable")
-JUDGE_CAP_USD, ARM_CAP_USD = 0.5, 1.0
+JUDGE_CAP_USD, ARM_CAP_USD = 0.5, 2.5  # the arm cap is cumulative over all runs of that arm name
 
 
 def build_questions(products: list[str], types: list[str] | None = None, sample: int | None = None,
