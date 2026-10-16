@@ -8,9 +8,11 @@
 
 `manifest` writes results/freeze/manifest.json (task-13-decisions R3): exactly the 30 bundle products x the five
 layer files (a file may be empty, may not be absent), the split, bundle, facts and lock hashes, the effective config
-(models, prices, caps, prompt and protocol versions), the extraction reports and access logs, the card corpus and
-embedding cache hashes, retrieval index and A2 build hashes where present, and a content identity of every loaded
-graph on every server, verified against the facts. It refuses a dirty tree. `check` recomputes all of it and prints
+(settings, models, prices, caps, prompt and protocol versions, and the arms and product subsets of
+results/freeze/arms.json), the version sidecars, extraction reports and the access logs of the freeze extraction runs,
+the card corpus and embedding cache hashes, the retrieval indexes the arms read (fingerprint recomputed, files hashed),
+A2 ontology, build and export identities for its sampled products, and a content identity of every loaded graph on
+every server, verified against the facts. Every one of these is required; nothing is optional. It refuses a dirty tree. `check` recomputes all of it and prints
 every difference. No subcommand opens a question file.
 
 R1: a layer's code or prompt version is recorded next to each product's facts (data/facts/<p>/freeze_versions.json).
@@ -41,7 +43,6 @@ LAYERS = ("structural", "names", "rules", "bugs", "semantic")
 EXPECTED_PRODUCTS = 30
 SUMMARY_FILES = {"rules": "rules_report.json", "bugs": "bugs_report.json", "semantic": "semantic_report.json"}
 VERSIONS_FILE = "freeze_versions.json"
-OPTIONAL_SECTIONS = ("a0_indexes", "a2")  # built or refreshed by later steps: only what the manifest recorded is checked
 
 
 class FreezeError(RuntimeError):
@@ -112,6 +113,7 @@ class Env:
     commit: Callable = git_commit  # (root) -> HEAD of a clean tree
     drift: Callable = git_drift  # (root, commit) -> differences
     embed: Callable | None = None  # texts -> vectors; None: the metered cached helper
+    a2_graph: Callable = lambda p: _default_a2_graph(p)  # (product) -> the A2 graph
     extra: dict = field(default_factory=dict)
 
     @property
@@ -132,13 +134,11 @@ def inventory(env: Env) -> list[str]:
 
 
 def select(spec: str, inv: list[str], splitter: Callable = split) -> list[str]:
-    dev, held = splitter(inv)
     if spec == "all":
         return sorted(inv)
-    if spec == "held":
-        return held
-    if spec == "dev":
-        return dev
+    if spec in ("held", "dev"):
+        dev, held = splitter(inv)
+        return held if spec == "held" else dev
     names = spec.split(",")
     unknown = [n for n in names if n not in inv]
     if unknown:
@@ -147,14 +147,19 @@ def select(spec: str, inv: list[str], splitter: Callable = split) -> list[str]:
 
 
 # ---------------------------------------------------------------- layer versions (R1)
-_SHARED = ("data/records.py", "extract/sessions.py", "extract/cite.py", "extract/catalog.py", "extract/llm_extract.py")
-_MODULES = {
-    "structural": ("extract/structural.py",),
-    "names": ("extract/names.py",),
-    "rules": ("extract/rules.py",),
-    "bugs": ("extract/bugs.py", "extract/bug_rules.py", "extract/bugstate.py", "extract/prompts.py"),
-    "semantic": ("extract/semantic.py", "extract/semantic_rules.py", "extract/semantic_prompts.py"),
-}
+SOURCE_ROOTS = ("extract", "data")  # directories under src/inherit hashed whole
+SOURCE_FILES = ("facts.py", "ontology.py")
+
+
+def extraction_source_digest() -> str:
+    """One digest of every source file the extraction outputs depend on: src/inherit/extract/**, src/inherit/data/**,
+    facts.py and ontology.py. Any change to any of them is a code change of every layer."""
+    src = Path(__file__).resolve().parent
+    files = sorted(f for d in SOURCE_ROOTS for f in (src / d).rglob("*.py")) + [src / n for n in SOURCE_FILES]
+    h = hashlib.sha256()
+    for f in files:
+        h.update(f.relative_to(src).as_posix().encode() + b"\0" + f.read_bytes() + b"\0")
+    return h.hexdigest()
 
 
 def declared_versions(layer: str) -> dict:
@@ -171,12 +176,8 @@ def declared_versions(layer: str) -> dict:
 
 
 def layer_versions(layer: str) -> dict:
-    """Declared prompt and rule versions plus a hash of the layer's source files."""
-    src = Path(__file__).resolve().parent
-    h = hashlib.sha256()
-    for rel in (*_SHARED, *_MODULES[layer]):
-        h.update(rel.encode() + b"\0" + (src / rel).read_bytes())
-    return {**declared_versions(layer), "code": h.hexdigest()}
+    """Declared prompt and rule versions plus the shared extraction-source digest."""
+    return {**declared_versions(layer), "code": extraction_source_digest()}
 
 
 def recorded_versions(env: Env, layer: str, product: str) -> dict | None:
@@ -226,7 +227,7 @@ def _stamp(env: Env, layer: str, product: str) -> None:
 
 # ---------------------------------------------------------------- extract
 def extract(env: Env, products: list[str], layers=LAYERS, *, estimate: bool = False, runner: Callable | None = None,
-            records_for: Callable | None = None) -> dict:
+            records_for: Callable | None = None, run_id: str = "norun") -> dict:
     """Run the layers in order for `products`. A fatal error (budget, proxy, timeout) propagates and stops the run;
     per-unit failures are counted per product and layer. Returns {product: {layer: {failures, complete}}}."""
     from inherit.extract import run as run_mod
@@ -267,7 +268,7 @@ def extract(env: Env, products: list[str], layers=LAYERS, *, estimate: bool = Fa
             _stamp(env, layer, p)
             fails = len((rep or {}).get("extraction_failures", []))
             complete = (rep or {}).get("manifest", {}).get("complete", True)
-            summary.setdefault(p, {})[layer] = {"failures": fails, "complete": complete}
+            summary.setdefault(p, {})[layer] = {"failures": fails, "complete": complete, "run_id": run_id}
     if estimate:
         print(f"estimate total projected {total:.4f} USD for {len(products)} products")
         return {}
@@ -278,8 +279,9 @@ def extract(env: Env, products: list[str], layers=LAYERS, *, estimate: bool = Fa
     env.out.mkdir(parents=True, exist_ok=True)
     path = env.out / "extraction_summary.json"
     old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    old.setdefault("runs", {})[run_id] = {"access_log": f"extract-{run_id}.jsonl"}
     for p, v in summary.items():
-        old.setdefault(p, {}).update(v)
+        old.setdefault("products", {}).setdefault(p, {}).update(v)
     path.write_text(json.dumps(old, sort_keys=True, indent=1) + "\n", encoding="utf-8")
     return summary
 
@@ -351,17 +353,50 @@ def graph_identity(graph) -> dict:
 
 
 # ---------------------------------------------------------------- the manifest state
-def effective_config() -> dict:
+ARM_INDEX = {"A0": "raw", "A0v": "raw", "A0f": "cards"}  # which retrieval index an arm reads
+ARMS_FILE = "arms.json"
+
+
+def load_arms(env: Env, inv: list[str], problems: list[str]) -> dict | None:
+    """results/freeze/arms.json (written by the controller after the pilot decision):
+    {"arms": {"A5": {"products": "all", "sub_cap_usd": 3.0}, "A2": {"products": [6 names]}, ...}}.
+    Returns {arm: {"products": [...], "sub_cap_usd": x}} for registered arms, or None."""
+    raw = _read_json(env.out / ARMS_FILE)
+    if raw is None or not raw.get("arms"):
+        problems.append(f"results/freeze/{ARMS_FILE} missing or empty: the arm and product-subset decision is an input")
+        return None
+    from eval.arms import ARMS
+
+    out = {}
+    for name, spec in sorted(raw["arms"].items()):
+        if name not in ARMS or name.startswith("dev-"):
+            problems.append(f"{ARMS_FILE}: unknown arm {name!r}")
+            continue
+        prods = spec.get("products", "all")
+        prods = list(inv) if prods == "all" else sorted(prods)
+        if not prods or [x for x in prods if x not in inv]:
+            problems.append(f"{ARMS_FILE}: arm {name} has an empty or unknown product list")
+            continue
+        out[name] = {"products": prods, "sub_cap_usd": spec.get("sub_cap_usd")}
+    return out
+
+
+def effective_config(arms: dict | None) -> dict:
+    import dataclasses
+
     from eval import grade
+    from eval.arms import ARMS
     from inherit import agent
     from inherit.extract import bug_rules, names, prompts, rules, semantic, semantic_prompts
 
-    s = load_settings()
-    cfg = {
+    settings = {k: v for k, v in dataclasses.asdict(load_settings()).items() if k != "meter_path"}
+    return {
+        "settings": settings,  # budget, endpoint, models, proxy limits, server URLs
         "models": {"chat": MODEL, "embed": EMBED_MODEL, "judge": MODEL},
         "prices_pico_usd_per_token": {k: list(v) for k, v in PRICES_PICO.items()},
-        "caps": {"project_cap_usd": PROJECT_CAP_USD, "default_max_tokens": s.default_max_tokens,
-                 "proxy_deadline_s": s.proxy_deadline_s, "agent": agent.arm_config("paper")},
+        "project_cap_usd": PROJECT_CAP_USD,
+        "arms": {n: {**a, "config": ARMS[n].config, "config_sha": ARMS[n].config_sha(),
+                     "prompt_versions": ARMS[n].prompt_versions} for n, a in (arms or {}).items()},
         "versions": {
             "bugs_prompt": prompts.BUGS_PROMPT_VERSION, "bug_rules": bug_rules.RULES_VERSION,
             "semantic_prompt": semantic_prompts.SEMANTIC_PROMPT_VERSION, "feature_fate": semantic.FATE_VERSION,
@@ -370,9 +405,8 @@ def effective_config() -> dict:
             "card": cards.CARD_VERSION, "agent_prompt": agent.PROMPT_VERSION,
             "judge_prompt": grade.PROMPT_VERSION, "scorer": grade.SCORER_VERSION,
         },
-        "layer_code": {layer: layer_versions(layer)["code"] for layer in LAYERS},
+        "extraction_source": extraction_source_digest(),
     }
-    return cfg
 
 
 def _card_corpus_hash(graph) -> str:
@@ -389,12 +423,14 @@ def collect(env: Env) -> tuple[dict, list[str]]:
     if len(inv) != env.expected:
         problems.append(f"bundle lists {len(inv)} products, expected {env.expected}")
     dev, held = env.split(inv)
-    cfg = effective_config()
+    arms = load_arms(env, inv, problems)
+    cfg = effective_config(arms)
     state: dict = {
         "bundle_sha256": bundle_hash(env.bundle), "split_hash": split_hash(dev, held),
         "dev_products": dev, "held_products": held, "products": inv,
         "upstream_herb_commit": _read(env.root / "data" / "raw" / "COMMIT", problems, "upstream HERB commit").strip(),
         "uv_lock_sha256": sha256_file(env.root / "uv.lock") if (env.root / "uv.lock").exists() else None,
+        "arms": arms, "arms_sha256": sha256_file(env.out / ARMS_FILE) if (env.out / ARMS_FILE).is_file() else None,
         "config": cfg, "config_hash": canon_hash(cfg),
     }
     if state["uv_lock_sha256"] is None:
@@ -404,6 +440,12 @@ def collect(env: Env) -> tuple[dict, list[str]]:
         problems.append(f"fact directories for products outside the bundle: {extra}")
     layers: dict = {}
     reports: dict = {}
+    sidecars: dict = {}
+    summary = _read_json(env.out / "extraction_summary.json") or {}
+    if not summary:
+        problems.append("results/freeze/extraction_summary.json missing: run the freeze extraction")
+    runs = summary.get("runs", {})
+    used_runs: set = set()
     for p in inv:
         d = env.facts / p
         if not d.is_dir():
@@ -418,23 +460,48 @@ def collect(env: Env) -> tuple[dict, list[str]]:
         for layer, rf in SUMMARY_FILES.items():
             if (d / rf).is_file():
                 reports.setdefault(p, {})[rf] = sha256_file(d / rf)
+            else:
+                problems.append(f"{p}: extraction report {rf} is absent")
+        side = d / VERSIONS_FILE
+        sidecars[p] = sha256_file(side) if side.is_file() else None
+        rec = json.loads(side.read_text(encoding="utf-8")) if side.is_file() else {}
+        for layer in LAYERS:
+            if rec.get(layer) != layer_versions(layer):
+                problems.append(f"{p}: layer {layer} was not extracted under the current code and prompt versions "
+                                "(re-run extract --products all)")
+            ent = summary.get("products", {}).get(p, {}).get(layer)
+            if ent is None or ent.get("run_id") not in runs:
+                problems.append(f"{p}: layer {layer} has no recorded freeze extraction run")
+            else:
+                used_runs.add(ent["run_id"])
     state["layers"] = layers
     state["facts_hash"] = _facts_hash(env.facts, inv)
     state["extraction_reports"] = reports
-    logs = sorted((env.root / "runs" / "access").glob("extract-*.jsonl"))
-    state["access_logs"] = {p.name: sha256_file(p) for p in logs}
-    if not logs:
-        problems.append("no extraction access log under runs/access")
-    for name in ("extraction_summary.json", "load_report.json"):
-        f = env.out / name
-        state[name.removesuffix(".json") + "_sha256"] = sha256_file(f) if f.is_file() else None
+    state["version_sidecars"] = sidecars
+    state["extraction_summary_sha256"] = (sha256_file(env.out / "extraction_summary.json")
+                                          if (env.out / "extraction_summary.json").is_file() else None)
+    logs = {}
+    for rid in sorted(used_runs):
+        f = env.root / "runs" / "access" / runs[rid]["access_log"]
+        if not f.is_file() or not f.read_text(encoding="utf-8").strip():
+            problems.append(f"access log of extraction run {rid} ({f.name}) is missing or empty")
+        else:
+            logs[f.name] = sha256_file(f)
+    state["access_logs"] = logs
+    lr = _read_json(env.out / "load_report.json") or {}
+    for ver in env.servers:
+        miss = [p for p in inv if p not in lr.get(ver, {})]
+        if miss:
+            problems.append(f"load report has no entry on server {ver} for {len(miss)} products ({miss[:3]}...): "
+                            "run load --products all")
+    state["load_report_sha256"] = (sha256_file(env.out / "load_report.json")
+                                   if (env.out / "load_report.json").is_file() else None)
     state["embedding_cache_sha256"] = _embedding_hash(env, inv, problems)
-    state["a0_indexes"] = _indexes(env, inv)
-    state["a2"] = _a2(env, inv)
     graphs, corpus = {}, {}
     wi = _read_json(env.out / "whatif_check.json")
     if wi is None:
         problems.append("results/freeze/whatif_check.json missing: run verify-whatif")
+    primary = {}
     for p in inv:
         if p not in layers or len(layers[p]) != len(loadmod.LAYER_FILES):
             continue
@@ -457,6 +524,7 @@ def collect(env: Env) -> tuple[dict, list[str]]:
                                 f"(graph {got['nodes']} nodes {got['edges']} edges, facts {want['nodes']}/{want['edges']})")
             if i == 0:
                 corpus[p] = _card_corpus_hash(g)
+                primary[p] = g
             if wi is not None:
                 w = wi.get(ver, {}).get(p)
                 if w is None:
@@ -467,6 +535,8 @@ def collect(env: Env) -> tuple[dict, list[str]]:
     state["graphs"] = graphs
     state["card_corpus_sha256"] = corpus
     state["whatif_check_sha256"] = sha256_file(env.out / "whatif_check.json") if wi is not None else None
+    state["a0_indexes"] = _indexes(env, arms or {}, primary, problems)
+    state["a2"] = _a2(env, arms or {}, problems)
     return state, problems
 
 
@@ -516,23 +586,90 @@ def _embedding_hash(env: Env, inv: list[str], problems: list[str]) -> str | None
     return canon_hash(files)
 
 
-def _indexes(env: Env, inv: list[str]) -> dict:
+def _dir_hash(d: Path) -> str:
+    h = hashlib.sha256()
+    for f in sorted(x for x in d.rglob("*") if x.is_file()):
+        h.update(f.relative_to(d).as_posix().encode() + b"\0" + sha256_file(f).encode() + b"\0")
+    return h.hexdigest()
+
+
+def _indexes(env: Env, arms: dict, graphs: dict, problems: list[str]) -> dict:
+    """The retrieval indexes the selected arms read, one per (kind, product): the persisted fingerprint must equal the
+    one recomputed from the current corpus and settings, and every persisted file is hashed."""
+    need: dict[str, set] = {}
+    for name, a in arms.items():
+        if name in ARM_INDEX:
+            need.setdefault(ARM_INDEX[name], set()).update(a["products"])
+    if not need:
+        return {}
+    from baselines import paper_retriever as pr
+    from inherit.data.bundle import load_bundle
+
     out: dict = {}
-    for kind in ("raw", "cards"):
-        for p in inv:
-            meta = env.root / "data" / "cache" / "baselines" / kind / p / "meta.json"
-            if meta.is_file():
-                out.setdefault(kind, {})[p] = {"fingerprint": json.loads(meta.read_text())["fingerprint"],
-                                               "meta_sha256": sha256_file(meta)}
+    for kind in sorted(need):
+        for p in sorted(need[kind]):
+            d = env.root / "data" / "cache" / "baselines" / kind / p
+            if not (d / "meta.json").is_file():
+                problems.append(f"{kind} retrieval index of {p} is missing ({d})")
+                continue
+            try:
+                ident = (pr.texts_identity(pr.paper_texts(load_bundle(env.bundle, p))) if kind == "raw"
+                         else _a0f_identity(graphs[p]))
+            except Exception as e:  # noqa: BLE001
+                problems.append(f"{kind} index of {p}: corpus identity not computable: {type(e).__name__}: {e}")
+                continue
+            got = json.loads((d / "meta.json").read_text(encoding="utf-8"))["fingerprint"]
+            if got != pr.fingerprint(ident):
+                problems.append(f"{kind} index of {p}: persisted fingerprint does not match the current corpus and settings")
+            out.setdefault(kind, {})[p] = {"fingerprint": got, "files_sha256": _dir_hash(d)}
     return out
 
 
-def _a2(env: Env, inv: list[str]) -> dict:
+def _default_a2_graph(product: str):
+    from falkordb import FalkorDB
+
+    from baselines import graphrag_sdk_arm as a2
+
+    return FalkorDB(host=a2.FALKOR_HOST, port=a2.FALKOR_PORT).select_graph(a2.graph_name(product))
+
+
+def a2_export_identity(graph) -> dict:
+    """Content identity of an A2 graph: nodes (labels, properties without vectors) and edges (type, properties, the
+    two endpoint rows), independent of internal ids."""
+    def clean(props):
+        return {k: v for k, v in props.items()
+                if "embedding" not in k.lower() and not (isinstance(v, list) and len(v) >= 64
+                                                         and all(isinstance(x, float) for x in v))}
+
+    rows = graph.ro_query("MATCH (n) RETURN id(n), labels(n), properties(n)").result_set
+    line = {i: _line([sorted(lb), clean(pr)]) for i, lb, pr in rows}
+    nodes = list(line.values())
+    edges = [[t, clean(pr), line[a], line[b]] for a, t, pr, b in
+             graph.ro_query("MATCH (a)-[e]->(b) RETURN id(a), type(e), properties(e), id(b)").result_set]
+    return _identity(nodes, edges)
+
+
+def _a2(env: Env, arms: dict, problems: list[str]) -> dict:
+    """A2's ontology, finalized build manifest and graph export identity for each of its sampled products."""
     out: dict = {}
-    for p in inv:
-        row = {k: sha256_file(f) for k in ("ontology", "build") if (f := env.root / "runs" / "a2" / f"{p}.{k}.json").is_file()}
-        if row:
-            out[p] = row
+    for p in arms.get("A2", {}).get("products", []):
+        row = {}
+        for k in ("ontology", "build"):
+            f = env.root / "runs" / "a2" / f"{p}.{k}.json"
+            if f.is_file():
+                row[k] = sha256_file(f)
+            else:
+                problems.append(f"A2 {k} file of {p} is missing ({f.name})")
+        b = _read_json(env.root / "runs" / "a2" / f"{p}.build.json")
+        if b is not None and b.get("finalized") is not True:
+            problems.append(f"A2 build of {p} is not finalized")
+        try:
+            row["export"] = a2_export_identity(env.a2_graph(p))
+            if not row["export"]["nodes"]:
+                problems.append(f"A2 graph of {p} is empty")
+        except Exception as e:  # noqa: BLE001
+            problems.append(f"A2 graph of {p} unreadable: {type(e).__name__}: {e}")
+        out[p] = row
     return out
 
 
@@ -575,18 +712,10 @@ def check(env: Env) -> list[str]:
         return [f"{path} does not exist"]
     rec = json.loads(path.read_text(encoding="utf-8"))
     state, problems = collect(env)
-    for k in OPTIONAL_SECTIONS:  # later steps add indexes and A2 builds; only recorded ones must still match
-        state[k] = _restrict(state.get(k, {}), rec.get(k, {}))
     state_rec = {k: v for k, v in rec.items() if k != "code_commit"}
     out = list(problems) + diff(state_rec, state)
     out += env.drift(env.root, rec["code_commit"])
     return out
-
-
-def _restrict(cur, rec):
-    if isinstance(rec, dict) and isinstance(cur, dict):
-        return {k: _restrict(cur[k], rec[k]) for k in rec if k in cur}
-    return cur
 
 
 # ---------------------------------------------------------------- CLI
@@ -602,8 +731,9 @@ def main(argv: list[str] | None = None, env: Env | None = None) -> int:
             sp.add_argument("--estimate", action="store_true")
     sub.add_parser("manifest")
     sub.add_parser("check")
+    ap.add_argument("--repo-root", default=None, help="tests only")
     args = ap.parse_args(argv)
-    env = env or Env()
+    env = env or Env(root=Path(args.repo_root) if args.repo_root else ROOT)
     if getattr(args, "servers", None):
         env.servers = tuple(args.servers.split(","))
     try:
@@ -612,10 +742,12 @@ def main(argv: list[str] | None = None, env: Env | None = None) -> int:
 
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
             ioguard.install(env.root, env.root / "runs" / "access" / f"extract-{stamp}.jsonl")
+            env.extra["run_id"] = stamp
             layers = tuple(args.layers.split(","))
             if any(x not in LAYERS for x in layers):
                 raise SystemExit(f"unknown layers: {layers}")
-            extract(env, select(args.products, inventory(env), env.split), layers, estimate=args.estimate)
+            extract(env, select(args.products, inventory(env), env.split), layers, estimate=args.estimate,
+                    run_id=env.extra.get("run_id", "norun"))
         elif args.cmd == "load":
             load_all(env, select(args.products, inventory(env), env.split))
         elif args.cmd == "verify-whatif":

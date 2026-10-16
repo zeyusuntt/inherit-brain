@@ -4,7 +4,7 @@
 open, os.listdir and os.scandir as a JSON line {path, mode, allowed} and raises PermissionError for
 anything that is not allowed.
 
-Inside the repo only src/, .venv/, data/bundle/, data/cache/, data/facts/ and runs/ are allowed.
+Inside the repo only src/, .venv/, data/bundle/, data/cache/, data/facts/, results/freeze/ and runs/ are allowed.
 Raw HERB data, question files and metadata files outside the bundle are refused wherever they live.
 Outside the repo, only the Python install, the temp dir and a short list of system dirs are allowed.
 """
@@ -20,8 +20,8 @@ import tempfile
 import threading
 from pathlib import Path
 
-READ_DIRS = ("src", ".venv", "data/bundle", "data/cache", "data/facts")
-WRITE_DIRS = ("runs/access", "data/cache", "data/facts")
+READ_DIRS = ("src", ".venv", "data/bundle", "data/cache", "data/facts", "results/freeze")
+WRITE_DIRS = ("runs/access", "data/cache", "data/facts", "results/freeze")
 PROCESS_EVENTS = ("subprocess.Popen", "os.system", "os.exec", "os.posix_spawn", "os.spawn", "os.fork", "os.forkpty")
 # Never readable, wherever they live. Checked before any directory allowance.
 FORBIDDEN_NAMES = ("answerable_questions", "unanswerable_questions", "ground_truth", "citations", "salesforce_team")
