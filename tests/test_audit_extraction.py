@@ -641,10 +641,10 @@ def test_name_candidates_carry_sessions_and_related_evidence():
 
 # ---------------------------------------------------------------- round 2 rubric (audit-prompts/v2)
 def test_v2_version_recorded_and_v1_frozen(tmp_path, sources):
-    assert ae.PROMPT_VERSION == "audit-prompts/v2"
+    assert ae.PROMPT_VERSION == "audit-prompts/v3"
     packets = write_round(tmp_path, sources, rnd=2)
     m = json.loads((tmp_path / "round-2" / "manifest.json").read_text())
-    assert m["prompt_hashes"]["version"] == "audit-prompts/v2" and m["seed"] == ae.BASE_SEED + 2 == 20261017
+    assert m["prompt_hashes"]["version"] == "audit-prompts/v3" and m["seed"] == ae.BASE_SEED + 2 == 20261017
     v1 = ae.prompt_hashes("audit-prompts/v1")
     assert v1["rubric:bug_event"] == "77f9e3f494192ddccaeff7d3a337bf4c13bb0c0da7b05972e511357ee1141c5c"  # as in round 1
     assert v1 != ae.prompt_hashes()
@@ -670,8 +670,9 @@ def test_v2_rubric_texts():
     assert "not extracted" in r["bug_event"] and "judged separately" in r["bug_event"]
     assert "Placement of ASSIGNED events" in ae.RECALL_RULES["recall_bug"]
     assert "OF THIS PRODUCT" in r["review_relation"] and "candidate set" in r["review_relation"]
-    assert "Topical association alone" in r["whatif_edge"] and "test and documentation PRs" in r["whatif_edge"]
-    assert "necessity" in r["whatif_path"]
+    from eval import audit_prompts_v2 as m2  # the v2 dependency wording lives in the frozen module
+    assert "Topical association alone" in m2.RUBRICS["whatif_edge"] and "test and documentation PRs" in m2.RUBRICS["whatif_edge"]
+    assert "Topical association alone" in r["whatif_edge"]
     assert ae.RECALL_RULES["recall_bug"].count('"bug": ') == 2  # the format line and the example item; no second definition
 
 
@@ -756,3 +757,144 @@ def test_version_ambiguous_remark_is_one_sampling_unit_per_document_type():
     src.facts["semantic"].append({"kind": "edge", "type": "SUGGESTED", "src_id": "Person:eid_a", "dst_id": "Document:other",
                                   "src": ["mtg1#4"], "key": "k2", "props": {"version_ambiguous": False, "kind": "suggestion"}})
     assert len(ae.review_units(src)) == 2
+
+
+# ---------------------------------------------------------------- round 3 rubric (audit-prompts/v3)
+def alias_source(P="P1", mutate=None):
+    d = data(P)
+    d["slack"] += [slack("al1", "Welcome to the Alias project channel, formerly known as the new name for P1.",
+                         "2025-12-01T09:00:00", ch="ch-al", name="planning-Alias", user="eid_c", P=P),
+                   slack("al2", "Kickoff notes", "2025-12-01T09:05:00", ch="ch-al", name="planning-Alias", user="eid_c", P=P),
+                   slack("al3", "Please review the Design Doc, Alias team.", "2026-02-02T09:00:00", ch="ch-al",
+                         name="planning-Alias", user="eid_b", P=P)]
+    if mutate:
+        mutate(d)
+    f, names = facts(P)
+    f["rules"][0]["props"]["aliases"] = ["EXTRACTEDALIAS"]
+    return ae.Source(P, build_records(d, EMP, CUST, P), f, names)
+
+
+def test_v2_is_frozen_and_v3_differs():
+    assert ae.PROMPT_VERSION == "audit-prompts/v3"
+    h2, h3 = ae.prompt_hashes("audit-prompts/v2"), ae.prompt_hashes()
+    assert h2["version"] == "audit-prompts/v2" and h2["rubric:review_relation"] != h3["rubric:review_relation"]
+    from eval import audit_prompts_v2 as m2
+    assert ae.sha256_text(m2.RUBRICS["whatif_edge"]) == h2["rubric:whatif_edge"]
+    assert "cannot be finished before the prerequisite" in " ".join(m2.RUBRICS["whatif_edge"].split())
+    assert ae.batch_header("whatif_edge", version="audit-prompts/v2") != ae.batch_header("whatif_edge")
+
+
+def test_v3_wording():
+    e = " ".join(ae.RUBRICS["whatif_edge"].split())
+    assert "An explicit task-to-PR statement establishes development membership, including component, testing, monitoring and documentation work." in e
+    assert "Hard necessity is not claimed; membership or merged status alone does not establish a hard prerequisite." in e
+    assert "cannot be finished before" not in e
+    assert "membership" in " ".join(ae.RUBRICS["whatif_path"].split())
+    r = " ".join(ae.RUBRICS["review_relation"].split())
+    assert "Judge the cited content proposal independently of adjacent allocation language; a message containing both can support a review relation." in r
+    assert len(ae.PROMPT_CHANGES) >= 5
+
+
+def test_product_identity_evidence_comes_from_the_bundle_only():
+    src = alias_source()
+    recs = ae.product_identity_records(src)
+    ids = {r["id"] for r in recs}
+    assert "product:P1" in ids and {"al1", "al2"} <= ids and "m1" not in ids
+    blob = json.dumps(recs)
+    assert "planning-Alias" in blob and "ch-al" in blob and "EXTRACTEDALIAS" not in blob
+    assert ae.product_aliases(src) == {"alias"}
+
+
+def test_identity_in_review_and_recall_reviewer_always_and_others_when_alias_appears():
+    src = alias_source()
+    pk, _ = ae.build_packets({"P1": src}, 3, wi_fn, {**SMALL, "name_resolution": 6})
+    for p in pk:
+        has = "product:P1" in {r["id"] for r in p["records"]}
+        if p["kind"] in ("review_relation", "recall_reviewer"):
+            assert has, p["kind"]
+        elif p["kind"] == "name_resolution":
+            mentions = any("alias" in r["text"].casefold() for r in p["records"] if r["id"] != "product:P1")
+            assert has == mentions
+    assert "EXTRACTEDALIAS" not in json.dumps(pk)
+
+
+def test_namesake_evidence_for_uniquely_resolved_review_speaker():
+    src = alias_source()  # eid_b and eid_c are both "Bob Ray"; the fixture edge is not ambiguous
+    pk, _ = ae.review_packets({"P1": src}, 5, random.Random(1))
+    ids = {r["id"] for r in pk[0]["records"]}
+    assert not pk[0]["claim"].get("ambiguous") and {"candidate:eid_b", "candidate:eid_c"} <= ids
+
+
+def test_edge_and_path_packets_keep_the_task_enumeration():
+    src = alias_source()
+    x = {"dependent": "Feature:P1:x", "prerequisite": "PR:https://github.com/o/r/pull/1", "rule": "ABOUT",
+         "citations": ["mtg1#5"], "texts": []}
+    p = ae._whatif_edge_packet("k", src, x)
+    ids = {r["id"] for r in p["records"]}
+    assert {"mtg1#4", "mtg1#5", "mtg1"} <= ids  # the whole meeting that enumerates the tasks, not just the line
+    px = ae._whatif_path_packet("k", src, {"person": "eid_a", "affected": "Feature:P1:x",
+                                           "path": ["Feature:P1:x", "PR:https://github.com/o/r/pull/1"],
+                                           "edges": [{"dependent": "Feature:P1:x", "prerequisite": "PR:https://github.com/o/r/pull/1",
+                                                      "rule": "ABOUT", "citations": ["mtg1#5"]}]})
+    assert {"mtg1#4", "mtg1"} <= {r["id"] for r in px["records"]}
+
+
+def test_reviewer_eligibility_is_frozen_from_the_raw_inventory():
+    def only_anonymous(d):
+        d["meeting_transcripts"] = []
+        d["slack"] = [m for m in d["slack"] if m["Message"]["User"]["utterranceID"] in ("m1", "m2", "m3")]
+        d["documents"][0]["feedback"] = "- add a diagram"
+    anon = alias_source(mutate=only_anonymous)
+    d1 = anon.doc["design_v1"]
+    assert not ae.reviewer_eligible(anon, d1)  # anonymous feedback alone is not a review opportunity
+
+    def named(d):
+        only_anonymous(d)
+        d["documents"][0]["feedback"] = "- Bob Ray: add a diagram"
+    assert ae.reviewer_eligible(alias_source(mutate=named), alias_source(mutate=named).doc["design_v1"])
+
+    def meeting_only(d):
+        only_anonymous(d)
+        d["meeting_transcripts"] = data("P1")["meeting_transcripts"]
+    s2 = alias_source(mutate=meeting_only)
+    assert ae.reviewer_eligible(s2, s2.doc["design_v1"])  # a named speaker other than the author (Ann Lee) exists
+
+    def author_only(d):
+        meeting_only(d)
+        d["meeting_transcripts"][0]["transcript"] = "Attendees\nAnn Lee\nTranscript\nAnn Lee: Ship it."
+    s3 = alias_source(mutate=author_only)
+    assert not ae.reviewer_eligible(s3, s3.doc["design_v1"])
+
+    def slack_type_level(d):
+        author_only(d)
+        d["slack"].append(slack("t1", "I think the Design Doc needs a risk section", "2026-02-03T09:00:00", ch="ch-dev",
+                                name="develop-x-{P}", user="eid_b"))
+    s4 = alias_source(mutate=slack_type_level)
+    assert ae.reviewer_eligible(s4, s4.doc["design_v1"])  # same-product type-level discussion, no link, non-author
+    pk, info = ae.recall_reviewer_packets({"P1": s4}, 3, random.Random(1))
+    assert info["eligible"] == 2 and info["ineligible"] == 0 and info["available"] == 2
+    assert "t1" in {r["id"] for r in pk[0]["records"]}  # unversioned discussion included
+    pk3, info3 = ae.recall_reviewer_packets({"P1": s3}, 3, random.Random(1))
+    assert pk3 == [] and info3["eligible"] == 0 and info3["ineligible"] == 2  # a disclosed stratum
+
+
+def test_bug_channel_needs_identity_and_human_report_content():
+    def setup_only(d):
+        d["slack"].append(slack("s1", "Channel created.", "2026-01-05T09:00:00", ch="ch-setup", name="bug-zed-{P}", user="slack_admin_bot"))
+    src = alias_source(mutate=setup_only)
+    assert ae.bug_channel_eligible(src, "ch-bug") and not ae.bug_channel_eligible(src, "ch-setup")
+    assert not ae.bug_channel_eligible(src, "ch-dev")  # no bug-channel identity
+    pk, info = ae.recall_bug_packets({"P1": src}, 3, random.Random(1))
+    assert info["eligible"] == 1 and info["ineligible"] == 1 and [p["meta"]["channel_id"] for p in pk] == ["ch-bug"]
+
+
+def test_zero_recall_truth_stays_a_failed_gate():
+    s = {"complete": True, "pending_third": 0, "precision": {}, "recall": {"recall_bug": {"truth": 0, "matched": 0, "recall": None, "pending": 0}}}
+    assert not dict((g["name"], g["pass"]) for g in ae._gate_rows(s))["recall:recall_bug"]
+
+
+def test_round_three_seed_and_report_changes(tmp_path, sources):
+    packets = write_round(tmp_path, sources, rnd=3)
+    assert json.loads((tmp_path / "round-3" / "manifest.json").read_text())["seed"] == 20261018
+    with pytest.raises(FileExistsError):
+        write_round(tmp_path, sources, rnd=3)

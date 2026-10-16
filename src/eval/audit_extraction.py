@@ -27,7 +27,7 @@ from typing import Callable
 
 from inherit.config import ROOT
 from inherit.data.records import ProductRecords, load_records, parse_mentions
-from eval import audit_prompts_v1
+from eval import audit_prompts_v1, audit_prompts_v2
 from inherit.data.split import SEED as SPLIT_SEED
 from inherit.data.split import split
 from inherit.extract.sessions import sessions
@@ -36,7 +36,7 @@ BASE_SEED = SPLIT_SEED  # 20261015; round N samples with BASE_SEED + N
 AUDIT_DIR = ROOT / "runs" / "audit"
 BUNDLE_DIR = ROOT / "data" / "bundle"
 FACTS_DIR = ROOT / "data" / "facts"
-PROMPT_VERSION = "audit-prompts/v2"  # v1 (round 1) is frozen in audit_prompts_v1.py
+PROMPT_VERSION = "audit-prompts/v3"  # v1 (round 1) and v2 (round 2) are frozen in audit_prompts_v1.py / _v2.py
 
 PRECISION_QUOTAS = {"bug_event": 50, "review_relation": 50, "name_resolution": 50,
                     "whatif_unowned": 30, "whatif_edge": 30, "whatif_path": 20}
@@ -212,8 +212,39 @@ def directory(src: Source, texts: list[str], extra_eids=(), names=()) -> list[st
     return lines
 
 
+def product_aliases(src: Source) -> set[str]:
+    """Other names of the product, from the bundle: the last token of a channel name that is not the product's own name."""
+    names = {m.channel_name for m in src.records.messages}
+    return {n.rsplit("-", 1)[-1].casefold() for n in names if "-" in n} - {src.product.casefold()}
+
+
+def product_identity_records(src: Source) -> list[dict]:
+    """Raw records that establish the product's name and its other names: the channels of the product file (ids and names)
+    and the first two messages (creation notices) of every channel named after another name. Bundle only."""
+    chans = {}
+    for m in src.records.messages:
+        chans.setdefault(m.channel_id, m.channel_name)
+    aliases = product_aliases(src)
+    head = (f"This packet's product is {src.product}. Product file channels (id: name): "
+            + "; ".join(f"{c}: {n}" for c, n in sorted(chans.items())) + ". Document ids: "
+            + ", ".join(d.id for d in src.records.documents) + ".")
+    out = [{"id": f"product:{src.product}", "text": head}]
+    for c, n in sorted(chans.items()):
+        if n.rsplit("-", 1)[-1].casefold() in aliases:
+            first = sorted(src.channel[c], key=lambda m: (m.ts, m.id))[:2]
+            out.append({"id": f"channel:{c}", "text": f"Channel {c} is named {n} (named after another name of {src.product}); "
+                                                     "its first messages are included below."})
+            out += [{"id": m.id, "text": fmt_message(src, m)} for m in first]
+    return out
+
+
 def make_packet(kind: str, key: str, src: Source, *, claim: dict | None = None, task: str | None = None,
-                records: list[dict], meta: dict | None = None, names=()) -> dict:
+                records: list[dict], meta: dict | None = None, names=(), identity: str = "if_alias") -> dict:
+    """identity: 'always' adds the product identity records; 'if_alias' adds them when a product alias occurs in the
+    records."""
+    al = product_aliases(src)
+    if identity == "always" or (al and any(a in r["text"].casefold() for r in records for a in al)):
+        records = list(records) + product_identity_records(src)
     seen, recs = set(), []
     for r in records:
         if r["id"] not in seen:
@@ -375,11 +406,10 @@ def review_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tu
                 else [doc_record(src, src.doc[rid])] if st == "document"
                 else [r for r in [record_text(src, rid)] if r])
         recs += [doc_record(src, d, feedback=False) for d in siblings]
-        if cands and st == "segment":  # the name-rule evidence for every same-name directory person
-            mid = src.seg[rid].meeting_id
-            row = next((r for r in src.names if r["meeting_id"] == mid
-                        and r["name"].casefold() == (speaker or "").casefold()), None)
-            recs += candidate_records(src, row) if row else []
+        if st == "segment" and speaker and sum(
+                1 for e2 in src.records.employees.values() if e2["name"].casefold().strip() == speaker.casefold().strip()) > 1:
+            # namesakes in the directory: the name-rule evidence for every same-name person, resolved or not
+            recs += candidate_records(src, {"meeting_id": src.seg[rid].meeting_id, "name": speaker})
         level = ("document TYPE (several versions exist; the relation is correct if the source is about this type of "
                  f"document: {doc.type if doc else '?'}; versions the extraction linked: {', '.join(u['versions'])}; "
                  f"all versions: {', '.join(d.id for d in siblings)})"
@@ -392,7 +422,7 @@ def review_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tu
                  **({"ambiguous": True, "judged as": "a candidate set (the complete tied set), not one asserted person"}
                     if cands else {}),
                  "source record": f"{rid} ({st})", "judged at": "document type" if ep.get("version_ambiguous") else "document"}
-        out.append(make_packet("review_relation", ident, src, claim=claim, records=recs,
+        out.append(make_packet("review_relation", ident, src, claim=claim, records=recs, identity="always",
                                meta={"source_type": st, "version_ambiguous": bool(ep.get("version_ambiguous")),
                                      "candidates": cands or [eid], "versions": u["versions"]},
                                names=[src.records.employees[c]["name"] for c in (cands or [eid]) if c in src.records.employees]))
@@ -558,6 +588,11 @@ def _whatif_unowned_packet(ident: str, src: Source, x: dict) -> dict:
 
 def _edge_records(src: Source, dependent: str, prereq: str, cites) -> tuple[list[dict], int]:
     got, miss = _hydrate(src, cites)
+    for c in cites:  # keep the task enumeration: the whole meeting or session behind each cited line
+        if c in src.seg:
+            got += meeting_records(src, src.seg[c].meeting_id)
+        elif c in src.msg:
+            got += message_session_records(src, [c])
     return got + item_records(src, dependent) + item_records(src, prereq), miss
 
 
@@ -631,9 +666,43 @@ REVIEW_TASK = ("List every reviewer of document {doc} (type {type}, product {pro
                "the id of the source record (a meeting line id like meeting#12, a message id, or the document id).")
 
 
+BUG_WORDS = re.compile(r"\b(?:bug|issue|problem|vulnerabilit\w*|leak|crash\w*|error|fail\w*)\b", re.I)
+
+
+def _human(m) -> bool:
+    return m.in_directory and not m.is_bot
+
+
+def bug_channel_eligible(src: Source, channel_id: str) -> bool:
+    """Frozen before sampling, from the raw inventory only: the channel has a bug-channel identity (bug-<owner>-<Product>)
+    and at least one human message that reports content (a customer id or a bug word); setup-only channels are out."""
+    msgs = src.channel.get(channel_id, [])
+    return bool(msgs) and msgs[0].bug_channel_owner is not None and any(
+        _human(m) and (CUST_RE.search(m.text) or BUG_WORDS.search(m.text)) for m in msgs)
+
+
+def reviewer_eligible(src: Source, d) -> bool:
+    """Frozen before sampling, from the raw inventory only: an attributable review opportunity. Any of: named feedback
+    (the feedback names a directory person or eid); a meeting of the document's type with a named speaker other than the
+    author; a Slack session that discusses the document (its link) or its same-product document type and has a human
+    participant other than the author."""
+    author = src.name_of(d.author)
+    if d.feedback:
+        fb = d.feedback.casefold()
+        if EID_RE.search(d.feedback) or any(e["name"].casefold() in fb for e in src.records.employees.values()):
+            return True
+    for m in src.records.meetings:
+        if m.document_type == d.type and any(sg.speaker and sg.speaker.casefold().strip() != author for sg in m.segments):
+            return True
+    return any(
+        any(_human(m) and m.user_id != d.author for m in sess)
+        and (d.link in (txt := "\n".join(m.text for m in sess)) or d.type.casefold() in txt.casefold())
+        for ch in src.channel.values() for sess in sessions(ch))
+
+
 def recall_bug_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tuple[list[dict], dict]:
-    cands = {p: [c for c in sorted(s.channel) if s.channel[c][0].bug_channel_owner is not None]
-             for p, s in sources.items()}
+    ident = {p: [c for c in sorted(s.channel) if s.channel[c][0].bug_channel_owner is not None] for p, s in sources.items()}
+    cands = {p: [c for c in chs if bug_channel_eligible(sources[p], c)] for p, chs in ident.items()}
     out = []
     for p, ch in _spread_products(cands, n, rng):
         src = sources[p]
@@ -642,14 +711,12 @@ def recall_bug_packets(sources: dict[str, Source], n: int, rng: random.Random) -
         task = BUG_TASK.format(name=msgs[0].channel_name, product=p)
         out.append(make_packet("recall_bug", f"{p}|{ch}", src, task=task, records=recs,
                                meta={"channel_id": ch, "channel_name": msgs[0].channel_name, "messages": len(msgs)}))
-    return out, {"requested": n, "available": sum(len(v) for v in cands.values())}
+    ne = sum(len(v) for v in cands.values())
+    return out, {"requested": n, "available": ne, "eligible": ne, "ineligible": sum(len(v) for v in ident.values()) - ne}
 
 
 def recall_reviewer_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tuple[list[dict], dict]:
-    def has_sources(src, d):
-        return bool(d.feedback or any(m.document_type == d.type for m in src.records.meetings)
-                    or any(d.link in m.text for m in src.records.messages))
-    cands = {p: [d.id for d in s.records.documents if has_sources(s, d)] for p, s in sources.items()}
+    cands = {p: [d.id for d in s.records.documents if reviewer_eligible(s, d)] for p, s in sources.items()}
     out = []
     for p, did in _spread_products(cands, n, rng):
         src, d = sources[p], sources[p].doc[did]
@@ -657,13 +724,15 @@ def recall_reviewer_packets(sources: dict[str, Source], n: int, rng: random.Rand
         for m in src.records.meetings:
             if m.document_type == d.type:
                 recs += meeting_records(src, m.id)
-        linked = [m.id for m in src.records.messages if d.link in m.text]
+        # sessions that share the link, and unversioned same-product discussions of the document type (no link needed)
+        linked = [m.id for m in src.records.messages if d.link in m.text or d.type.casefold() in m.text.casefold()]
         recs += message_session_records(src, linked)
         task = REVIEW_TASK.format(doc=d.id, type=d.type, product=p)
         names = [s.speaker for m in src.records.meetings if m.document_type == d.type for s in m.segments if s.speaker]
-        out.append(make_packet("recall_reviewer", f"{p}|{did}", src, task=task, records=recs,
+        out.append(make_packet("recall_reviewer", f"{p}|{did}", src, task=task, records=recs, identity="always",
                                meta={"document_id": did, "document_type": d.type}, names=names))
-    return out, {"requested": n, "available": sum(len(v) for v in cands.values())}
+    ne, total = sum(len(v) for v in cands.values()), sum(len(s.records.documents) for s in sources.values())
+    return out, {"requested": n, "available": ne, "eligible": ne, "ineligible": total - ne}
 
 
 # ---------------------------------------------------------------- prompts (versioned and hashed)
@@ -703,7 +772,7 @@ none; identity, status and time are never "na". A missing required field in your
 "correct" only if every field is "correct" (or such an "na"); otherwise "incorrect" (or "uncertain" under the general
 boundary).""",
     "review_relation": """Kind review_relation. The claim says a person suggested a change, or asked a review question,
-about a document. """ + REVIEW_BOUNDARY + """ When the claim lists several candidate speakers (the name resolution kept several
+about a document. """ + REVIEW_BOUNDARY + """ Judge the cited content proposal independently of adjacent allocation language; a message containing both can support a review relation. When the claim lists several candidate speakers (the name resolution kept several
 candidates and the claim shows ambiguous: True), judge it as a candidate set, not as an assertion about one person. It is
 correct only when the candidates are exactly the complete tied set under the frozen name rule (the eligible candidates are
 the directory people with exactly that name who are in the meeting, posted in the product Slack within 3 days of it, or are
@@ -731,18 +800,20 @@ the rule applied to the records.""",
 Kind whatif_unowned. Correct only if the item is open work, the named person is an owner, no other owner remains, and no
 later record in the later context hands it over to someone else, reassigns it, merges or resolves it, or otherwise
 changes who owns it or whether it is open.""",
-    "whatif_edge": """Kind whatif_edge. A dependency means the dependent item cannot be finished before the
-prerequisite. Rules: IMPLEMENTED_BY (a feature depends on the PR that implements it), ABOUT with kind development (a
-feature depends on a development PR about it), FIXES (a bug depends on the PR that fixes it). Correct only if the
-records show that relation between exactly these two items AND give evidence that the PR implements the feature, fixes the
-bug, or is necessary for it. Topical association alone (the PR is about the same subject, or mentions the item) is not
-enough. Apply the same standard to code, test and documentation PRs.""",
+    "whatif_edge": """Kind whatif_edge. A dependency edge records development membership. Rules: IMPLEMENTED_BY (a feature
+is implemented by the PR), ABOUT with kind development (a development PR belongs to the feature), FIXES (a PR fixes the
+bug). An explicit task-to-PR statement establishes development membership, including component, testing, monitoring and
+documentation work. Hard necessity is not claimed; membership or merged status alone does not establish a hard prerequisite.
+Correct only if the records show that membership between exactly these two items (the cited records, with the surrounding
+task enumeration, name both or make the link clear). Topical association alone (the PR merely mentions the subject) is
+not membership.""",
     "whatif_path": OPEN_WORK + """
 
 Kind whatif_path. The claim gives a chain of dependency steps from an affected item to the last item, which becomes newly
 unowned when the person leaves. Check every component and answer correct only if all hold: (1) each dependency step is
-supported by the records (rules: IMPLEMENTED_BY, ABOUT with kind development, FIXES) with evidence of implementation or
-necessity, not topical association alone (same standard for code, test and documentation PRs); (2) the steps join in order; (3) the affected item is open work or pending work as defined
+supported by the records as development membership (rules: IMPLEMENTED_BY, ABOUT with kind development, FIXES): an explicit
+task-to-PR statement establishes membership, including component, testing, monitoring and documentation work; hard
+necessity is not claimed and topical association alone is not membership; (2) the steps join in order; (3) the affected item is open work or pending work as defined
 above; (4) the last item is open work, the person is an owner and no other owner remains after the later context.""",
 }
 
@@ -774,7 +845,7 @@ output the single complete list: keep items that the records support, drop items
 Output only {"packet_id": "<id>", "items": [...]} in the same item format. You have not been shown any extraction."""
 
 
-PROMPT_CHANGES = (
+PROMPT_CHANGES_V2 = (
     "bug_event: event model defined (REPORTED carries no assignees, ASSIGNED placement, current assignee judged separately); "
     "status uses the frozen historical predicates (unresolved, active, reopened, no fix needed); missing values render "
     "'not extracted'",
@@ -785,11 +856,28 @@ PROMPT_CHANGES = (
     "code, test and documentation PRs alike",
 )
 
+PROMPT_CHANGES_V3 = (
+    "product identity: review_relation and recall_reviewer packets (and name, what-if and other packets whenever a product "
+    "alias appears in their records) show the product's channel ids and names and the creation notices from the bundle, "
+    "never an extracted alias list",
+    "review_relation: namesake evidence (directory matches, participants, mentions, nearby posts with full sessions) for "
+    "every meeting speaker with same-name people, not only ambiguous claims",
+    "whatif_edge and whatif_path: the whole meeting or session behind each cited line is kept, so task enumerations and "
+    "boundaries are visible; the rubric judges development membership (an explicit task-to-PR statement, including "
+    "component, testing, monitoring and documentation work), not hard necessity",
+    "review_relation: the cited content proposal is judged independently of adjacent allocation language",
+    "recall sampling: reviewer documents need an attributable review opportunity and bug channels a bundle bug-channel "
+    "identity with human report content (frozen before sampling); same-product type-level discussions are included in "
+    "recall_reviewer packets; eligible and ineligible pool sizes are recorded",
+)
+PROMPT_CHANGES_BY_VERSION = {audit_prompts_v2.VERSION: PROMPT_CHANGES_V2, PROMPT_VERSION: PROMPT_CHANGES_V3}
+PROMPT_CHANGES = PROMPT_CHANGES_V3
+
 
 def prompt_set(version: str) -> dict:
     """The prompt texts of a version: v1 is frozen in audit_prompts_v1 (round 1), v2 is this module."""
-    if version == audit_prompts_v1.VERSION:
-        m = audit_prompts_v1
+    if version in (audit_prompts_v1.VERSION, audit_prompts_v2.VERSION):
+        m = audit_prompts_v1 if version == audit_prompts_v1.VERSION else audit_prompts_v2
         return {"common_precision": m.COMMON_PRECISION, "common_recall": m.COMMON_RECALL, "third_precision": m.THIRD_PRECISION,
                 "third_recall": m.THIRD_RECALL, "open_work": m.OPEN_WORK, "rubrics": m.RUBRICS, "recall_rules": m.RECALL_RULES}
     if version != PROMPT_VERSION:
@@ -1203,8 +1291,9 @@ def render_report(s: dict) -> str:
          f"- integrity problems: {s['integrity_problems'] or 'none'}", ""]
     pv = s["prompt_hashes"]["version"]
     if pv != "audit-prompts/v1":
-        L += ["## Prompt changes", "", f"This round uses {pv}; round 1 used audit-prompts/v1 (kept unchanged). Changes:"]
-        L += [f"- {c}" for c in PROMPT_CHANGES] + [""]
+        L += ["## Prompt changes", "", f"This round uses {pv}; round 1 used audit-prompts/v1 and round 2 audit-prompts/v2 "
+              "(both kept unchanged). Changes in this version:"]
+        L += [f"- {c}" for c in PROMPT_CHANGES_BY_VERSION.get(pv, ())] + [""]
     L += ["## Method", "",
           "Each packet is judged on its own and answered per packet. Packets are scheduled in batches for the fan-out: a "
           f"batch holds only packets of one kind and the rubric, at most {BATCH_MAX_PACKETS} packets and about "
