@@ -70,9 +70,9 @@ class Tool:
         t0 = time.perf_counter()
         rows = self.impl(ctx, p)
         page, more, cursor = _page(rows, offset, sig)
-        note = None
+        note = ctx.hint
         phrase = p.get("feature") or p.get("topic")
-        if not rows and isinstance(phrase, str) and phrase.startswith("Feature:"):
+        if note is None and not rows and isinstance(phrase, str) and phrase.startswith("Feature:"):
             note = ("No rows for that feature id; call again with the question's full feature phrase as the "
                     "feature/topic text instead of the id.")
         return ToolResult(page, more, cursor, ctx.ops, _path(page), round((time.perf_counter() - t0) * 1000, 3), note)
@@ -103,6 +103,9 @@ def _schema(props: dict, required: tuple = ()) -> dict:
             "additionalProperties": False}
 
 
+UNSET = frozenset({"", "any", "all", "none"})
+
+
 def _validate(schema: dict, params: dict) -> dict:
     props = schema["properties"]
     out: dict[str, Any] = {k: v["default"] for k, v in props.items() if "default" in v}
@@ -112,6 +115,9 @@ def _validate(schema: dict, params: dict) -> dict:
         if v is None:
             continue
         spec = props[k]
+        if (spec["type"] == "string" and "enum" not in spec and k not in schema["required"] and k != "cursor"
+                and isinstance(v, str) and fold(v) in UNSET):
+            continue  # "any", "all", "none" or "" in a text filter means no filter
         if spec["type"] == "string":
             if not isinstance(v, str) or not normalise(v):
                 raise ToolError(f"{k} must be a non-empty string")
@@ -184,7 +190,7 @@ class _Ctx:
     """GRAPH.RO_QUERY only. Records one TraceOp per executed query with the parameters actually bound."""
 
     def __init__(self, tool: str, conn):
-        self.tool, self.conn, self.ops = tool, conn, []
+        self.tool, self.conn, self.ops, self.hint = tool, conn, [], None
 
     def q(self, text: str, **params) -> list:
         t0 = time.perf_counter()
@@ -242,6 +248,12 @@ def _resolve_components(ctx: _Ctx, text: str | None) -> list[str] | None:
                   or (len(_area_key(c).split()) >= 2 and _word_in(_area_key(c), key)))
     if near:
         return near
+    q = _stems(text)
+    scored = [(len(q & _stems(c)) / len(q | _stems(c)), c) for c in comps
+              if len(q) >= 2 and len(_stems(c)) >= 2 and (q <= _stems(c) or _stems(c) <= q)]
+    if scored:
+        best = max(sc for sc, _ in scored)
+        return sorted(c for sc, c in scored if sc == best)
     return sorted(c for c in comps if _word_in(key, _area_key(c)))
 
 
@@ -378,7 +390,23 @@ def _resolve_entity(ctx: _Ctx, p: dict) -> list[dict]:
                  "evidence": [], "note": "This is the product itself, the scope of every tool. It is not a customer, "
                  "feature or competitor: leave it out of customer, feature, topic and component filters."}
                 for pid, name in ctx.q("MATCH (p:Product) RETURN p.id, p.name")]
-    wanted = [KINDS[k] for k in (p.get("kinds") or KINDS)]
+    asked = list(dict.fromkeys(p.get("kinds") or KINDS))
+    unknown = [k for k in asked if k not in KINDS and k != "component"]
+    if unknown:
+        ctx.hint = f"Unknown kind(s) {unknown}; valid kinds: {', '.join([*KINDS, 'component'])}."
+    wanted = [KINDS[k] for k in asked if k in KINDS]
+    if "component" in asked and p.get("kinds"):
+        comps = _resolve_components(ctx, p["text"])
+        if comps:
+            rows_c = [{"answer": c, "id": c, "label": "Component", "name": c, "match": "component", "refs": [],
+                       "evidence": [], "note": "A component is a bug attribute, not a node: pass it to "
+                       "bug_board(component=...)."} for c in comps]
+            ctx.hint = ctx.hint or rows_c[0]["note"]
+            return rows_c + (_resolve_entity(ctx, {**p, "kinds": [k for k in asked if k in KINDS]})
+                             if any(k in KINDS for k in asked) else [])
+        if not any(k in KINDS for k in asked):
+            ctx.hint = ctx.hint or "No bug component matches that text."
+            return []
     rows: dict[str, dict] = {}
     present: set[str] = set()
     for label, fields in wanted:
@@ -639,6 +667,9 @@ def _fix_trail(ctx: _Ctx, p: dict) -> list[dict]:
 
 # ---------------------------------------------------------------- 6. pr_board
 def _pr_board(ctx: _Ctx, p: dict) -> list[dict]:
+    moved = _reason_phrase(p.get("feature"))
+    if moved:  # a reason phrase in the feature slot is the revert reason
+        p = {**p, "feature": None, "revert_reason": p.get("revert_reason") or moved}
     match = ["MATCH (rv:PR)-[r:REVERTS]->(pr:PR)" if p["state"] == "reverted" else "MATCH (pr:PR)"]
     where = ["pr.repo_scope = 'product'"]  # product-repo PRs only; open-source look-alikes are never returned
     if p["state"] == "reverted":
@@ -703,7 +734,28 @@ def _pr_board(ctx: _Ctx, p: dict) -> list[dict]:
 
 
 # ---------------------------------------------------------------- 7. feature_fate
+_REASON_WORDS = {"security": ({"security", "risk", "risks", "concern", "concerns", "issue", "issues", "vulnerability",
+                               "vulnerabilities"}, "security"),
+                 "product_direction": ({"change", "changes", "product", "direction", "shift"}, "direction"),
+                 "introduced_bugs": ({"introduced", "introduce", "bug", "bugs", "caused"}, "bug")}
+
+
+def _reason_phrase(text) -> str | None:
+    """The reason a phrase like "security risks" or "change in product direction" names, else None. Such a phrase is
+    a reason, not a feature subject."""
+    if not isinstance(text, str):
+        return None
+    words = {w for w in re.findall(r"\w+", fold(text)) if w not in _TOKEN_STOP}
+    for reason, (allowed, must) in _REASON_WORDS.items():
+        if words and words <= allowed and any(w.startswith(must) for w in words):
+            return reason
+    return None
+
+
 def _feature_fate(ctx: _Ctx, p: dict) -> list[dict]:
+    moved = _reason_phrase(p.get("topic"))
+    if moved:  # the subject slot holds only a reason phrase: it is the reason, there is no feature subject
+        p = {**p, "topic": None, "reason": p.get("reason") or moved}
     feats = _resolve_features(ctx, p.get("topic"))
     # the five fates are the semantic layer's derived Feature properties (one definition); events only give history
     feature_rows = ctx.q("MATCH (f:Feature) RETURN f.id, f.title, f.aliases, f.details, f.implemented, f.reverted, "
@@ -1011,8 +1063,10 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           "own name resolves to the Product, which is the scope of every tool, never a customer, feature or competitor. "
           "Example: which node is 'API rate limiting'? -> resolve_entity(text='API rate limiting', kinds=['bug']).",
           {"text": _s("The name, title, alias, link or key to resolve."),
-           "kinds": {"type": "array", "items": {"type": "string", "enum": list(KINDS)},
-                     "description": "Optional kinds to search; default all."}},
+           "kinds": {"type": "array", "items": {"type": "string"},
+                     "description": f"Optional kinds to search ({', '.join([*KINDS, 'component'])}); default all but "
+                                    "component. A component is a bug attribute, not a node: it returns the matching "
+                                    "Bug component values to pass to bug_board(component=...)."}},
           _resolve_entity, ("text",)),
     _tool("doc_people",
           "Authors and key reviewers of a document type (reviewers = people with an attributed substantive review "
@@ -1041,7 +1095,7 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           "company has the most <status> bugs: bug_board(status=<status>, actor='company', rank='max'). Which "
           "engineer resolved or is assigned the most bugs: bug_board(status=..., actor='resolver' or 'assignee', "
           "rank='max'). Unresolved issues reported by <company>: bug_board(status='unresolved', customer=<company>, "
-          "return='bugs'). customer is a reporting customer company (or Customer id), never the product name; a "
+          "return='bugs'). The component phrase from the question goes directly into component (no resolution step, no node lookup). customer is a reporting customer company (or Customer id), never the product name; a "
           "value equal to the product's name is ignored as a filter.",
           {"status": _enum("Frozen bug predicate.", ("unresolved", "resolved", "active", "reopened", "no_fix_needed",
                                                       "any"), "any"),
@@ -1072,7 +1126,9 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           "feature_fate(fate='unimplemented', return='people'). return='prs' lists the PRs associated with the "
           "selected features (feature-level, not their approval, merge or revert state): for questions about "
           "reverted, approved, unapproved, need-merge or need-close PRs use pr_board. The product's own name is not a "
-          "topic: omit topic.",
+          "topic: omit topic. topic is the feature subject only; the reason (security, product_direction, "
+          "introduced_bugs) goes in reason. A topic that is only a reason phrase such as 'security risks', "
+          "'change in product direction' or 'introduced bugs' is moved to reason.",
           {"topic": _s("Feature topic: the question's full feature phrase or an id from an earlier row. Never the "
                        "product name."),
            "fate": _enum("Feature fate.", ("any", "implemented", "unimplemented", "reverted", "delayed_then_added",
@@ -1104,7 +1160,8 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           "alone adds no state filter: leave state='any' unless the question asks for merged, pending merge, closed "
           "or reverted PRs. This is the tool for every question about reverted, approved, unapproved, need-merge or "
           "need-close PRs (PR-level predicates); feature_fate only lists the PRs associated with features. The "
-          "product's own name is not a feature: omit feature.",
+          "product's own name is not a feature: omit feature. The revert reason goes in revert_reason; a feature that is "
+          "only a reason phrase is moved there.",
           {"feature": _s(f"Feature, the question's full feature phrase or an id from an earlier row (a free-text phrase "
                          f"is resolved here). Never the product name."),
            "approval": _enum("Review state.", ("any", "approved", "unapproved"), "any"),

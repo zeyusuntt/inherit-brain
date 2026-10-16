@@ -837,3 +837,45 @@ def test_empty_feature_id_result_suggests_the_full_phrase(tg):
     assert call(tg, "feature_fate", topic="Feature:nosuch").note
     assert call(tg, "pr_board", feature="no such feature").note is None  # free text: nothing to suggest
     assert call(tg, "pr_board", feature="Feature:fA").note is None
+
+
+# ---------------------------------------------------------------- components, unset filters, topic vs reason
+def test_resolve_entity_component_kind_returns_bug_components_with_a_note(tg):
+    r = call(tg, "resolve_entity", text="backend processing and task queue management", kinds=["component"])
+    assert answers(r) == ["Backend Processing & Task Queue Management"] and r.rows[0]["label"] == "Component"
+    assert "bug_board(component=" in r.rows[0]["note"] and "bug_board(component=" in r.note
+    near = call(tg, "resolve_entity", text="frontend interface", kinds=["component"])
+    assert near.rows == [] and near.note
+    tok = call(tg, "resolve_entity", text="queue task processing backend", kinds=["component"])
+    assert answers(tok) == ["Backend Processing & Task Queue Management"]  # word order does not matter
+
+
+def test_unknown_kinds_return_empty_with_a_note_not_an_error(tg):
+    r = call(tg, "resolve_entity", text="techcorp", kinds=["gizmo"])
+    assert r.rows == [] and "valid kinds" in r.note and "component" in r.note
+    mixed = call(tg, "resolve_entity", text="techcorp", kinds=["gizmo", "customer"])
+    assert len(mixed.rows) == 2 and "gizmo" in mixed.note
+
+
+def test_unset_text_filters_mean_no_filter(tg):
+    base = counts(call(tg, "bug_board", status="any"))
+    for v in ("any", "ALL", "None", "", "  "):
+        assert counts(call(tg, "bug_board", status="any", component=v, customer=v)) == base
+    assert answers(call(tg, "pr_board", feature="any", approval="approved")) == answers(
+        call(tg, "pr_board", approval="approved"))
+    assert call(tg, "resolve_person", name="any").rows == []  # a required value is a value, not an unset filter
+
+
+def test_a_reason_phrase_in_the_topic_or_feature_slot_moves_to_the_reason(tg):
+    plain = answers(call(tg, "feature_fate", fate="reverted", reason="security"))
+    for phrase in ("security risks", "Security", "security concerns"):
+        r = call(tg, "feature_fate", fate="reverted", topic=phrase)
+        assert answers(r) == plain == ["Third-party scanner"], phrase
+    assert answers(call(tg, "feature_fate", fate="reverted", topic="change in product direction")) == ["Dark mode"]
+    assert answers(call(tg, "feature_fate", fate="reverted", topic="introduced bugs")) == ["Export v2"]
+    assert answers(call(tg, "feature_fate", fate="delayed_then_added",
+                        topic="change in product direction")) == ["Offline mode", "SSO login"]
+    assert answers(call(tg, "feature_fate", topic="dark mode", fate="reverted")) == ["Dark mode"]  # a subject stays
+    assert answers(call(tg, "pr_board", feature="introduced bugs", state="reverted")) == links(15)
+    assert answers(call(tg, "pr_board", feature="change in product direction", state="reverted")) == links(13)
+    assert catalog._reason_phrase("security risk management tool") is None  # a real feature phrase  # noqa: SLF001
