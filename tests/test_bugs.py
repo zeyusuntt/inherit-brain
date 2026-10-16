@@ -702,3 +702,18 @@ def test_reply_accepting_a_request_for_help_is_not_an_assignment_either(tmp_path
                            link=fx.link_json(("I1", "B1")))
     out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
     assert out.report["dropped"]["events"] == {"help_reply": 1}
+
+
+def test_look_alike_with_a_bad_quote_is_cited_by_its_link(tmp_path):
+    slack = [(i, a, t, x.replace("'", "") if i == "20260113-1-c0002" else x) for i, a, t, x in fx.SLACK]
+    ext = {"title": "Repeated log rows after rollbacks", "link": "https://github.com/postgres/postgres/pull/3",
+           "similar_mention": "Duplicate Log Entries for Manual Actions", "message_id": "20260113-1-c0002",
+           "citations": [fx.cite("20260113-1-c0002", "a quote the model made up")]}
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[fx.LEAK_BUG]),
+                                   "20260113-1-c0002": fx.session_json(external=[ext]),
+                                   "20260125-1-g0002": fx.session_json(events=[fx.REASSIGN_EVENT])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    [x] = nodes(out.facts, "ExternalBug").values()
+    assert x.props["citations"][0]["quote"] == "https://github.com/postgres/postgres/pull/3"
+    assert out.report["repaired_citations"] == 1

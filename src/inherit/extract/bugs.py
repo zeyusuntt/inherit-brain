@@ -314,11 +314,15 @@ def _repaired(item: dict, msgs, sess_src, rep, residual) -> dict:
     mid, title = item.get("message_id"), str(item.get("title") or "").strip()
     if mid not in msgs or not title:
         return item
+    link = br.pr_links(str(item.get("link") or ""))
     if any(validate_citation(c, sess_src, ALLOWED).ok for c in item.get("citations") or [] if isinstance(c, dict)):
         return item
     if normalise(title) in normalise(msgs[mid].text):
         rep["repaired_citations"] += 1
         return {**item, "citations": [{"record_id": mid, "quote": title}]}
+    if link and link[0] in msgs[mid].text and "customer_ids" not in item:  # a look-alike: its link is the evidence
+        rep["repaired_citations"] += 1
+        return {**item, "citations": [{"record_id": mid, "quote": link[0]}]}
     cust = [c for c in item.get("customer_ids") or [] if isinstance(c, str) and c in msgs[mid].text]
     if mid in residual and cust:  # a message the rules flagged as an unparsed intake, naming that customer
         rep["repaired_citations"] += 1
