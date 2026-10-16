@@ -61,15 +61,28 @@ def test_corpus_api_path_is_normalised_1024(tmp_path):
     assert embed.STATE["path"] == "api"
 
 
-@pytest.mark.parametrize("mode", ["reject", "ignore"])
-def test_corpus_truncates_when_dimensions_unsupported(tmp_path, mode):
-    f = Fake(mode)
+def test_corpus_truncates_when_dimensions_unsupported(tmp_path):
+    f = Fake("reject")
     out = embed.encode_corpus(["alpha"], cache_dir=tmp_path, embed_fn=f)
     assert len(out[0]) == 1024
     assert abs(math.sqrt(sum(x * x for x in out[0])) - 1) < 1e-5
     full = [float((5 + i) % 7) + 1.0 for i in range(1024)]
     assert out[0] == pytest.approx(unit(full), rel=1e-5)
     assert embed.STATE["path"] == "truncate"
+
+
+def test_silently_ignored_dimensions_is_rejected(tmp_path):
+    with pytest.raises(RuntimeError, match="ignored dimensions"):
+        embed.encode_corpus(["alpha"], cache_dir=tmp_path, embed_fn=Fake("ignore"))
+
+
+def test_unrelated_400_mentioning_dimension_propagates(tmp_path):
+    def bad(texts, *, arm, dimensions=None):
+        resp = httpx.Response(400, request=httpx.Request("POST", "http://x"))
+        raise openai.BadRequestError("input exceeds the maximum dimension of context", response=resp, body=None)
+
+    with pytest.raises(openai.BadRequestError):
+        embed.encode_corpus(["a"], cache_dir=tmp_path, embed_fn=bad)
 
 
 def test_other_errors_are_not_swallowed(tmp_path):

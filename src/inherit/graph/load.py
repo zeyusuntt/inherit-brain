@@ -25,6 +25,7 @@ from falkordb import FalkorDB
 
 from inherit import embed as embed_mod
 from inherit.config import ROOT, load_settings
+from inherit.data.split import split
 from inherit.facts import Facts
 from inherit.graph import acl, schema
 
@@ -199,6 +200,7 @@ def load_product(db, product: str, facts: Facts, *, embed=None) -> LoadStats:
     stats.embedded = dict(Counter(label for _, label, _ in targets))
     lap("embed")
 
+    schema.load_udf(db)  # registers or verifies herb_v1 before anything is dropped
     name = f"herb:{product}"
     acl.drop_product_users(db, product)
     if name in db.list_graphs():
@@ -234,16 +236,35 @@ def load_product(db, product: str, facts: Facts, *, embed=None) -> LoadStats:
     return stats
 
 
-def main(argv: list[str] | None = None) -> int:
-    from inherit.extract.run import select_products
+def resolve_products(spec: str, facts_dir: Path, inventory: list[str]) -> list[str]:
+    """dev, held, all or a name list, resolved from the frozen inventory (never from the directories present).
+    Every selected product must have a fact directory."""
+    dev, held = split(inventory)
+    if spec == "dev":
+        names = dev
+    elif spec == "held":
+        names = held
+    elif spec == "all":
+        names = sorted(inventory)
+    else:
+        names = spec.split(",")
+        unknown = [n for n in names if n not in inventory]
+        if unknown:
+            raise SystemExit(f"unknown products: {unknown}")
+    missing = [n for n in names if not (Path(facts_dir) / n).is_dir()]
+    if missing:
+        raise SystemExit(f"no fact directory for: {missing}")
+    return names
 
+
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--products", required=True)
     ap.add_argument("--servers", default=",".join(load_settings().falkor_urls))
     ap.add_argument("--facts", default=str(ROOT / "data" / "facts"))
     args = ap.parse_args(argv)
-    available = sorted(p.name for p in Path(args.facts).iterdir() if p.is_dir())
-    products = select_products(args.products, available)
+    manifest = json.loads((ROOT / "data" / "bundle" / "manifest.json").read_text())
+    products = resolve_products(args.products, Path(args.facts), manifest["products"])
     for ver in args.servers.split(","):
         db = FalkorDB.from_url(load_settings().falkor_urls[ver])
         for p in products:

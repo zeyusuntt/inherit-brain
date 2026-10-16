@@ -1,7 +1,6 @@
 """One embedding helper for the loader and the tools: same model, 1024 dims, L2-normalised.
 
-The API is asked for `dimensions=1024`. If it refuses the parameter, or ignores it and returns more components,
-the first 1024 components are kept and re-normalised (valid for this Matryoshka-trained model). `STATE["path"]`
+The API is asked for `dimensions=1024`. If it explicitly refuses the parameter, the first 1024 components are kept and re-normalised (valid for this Matryoshka-trained model). `STATE["path"]`
 records which path ran. Corpus vectors are cached on disk by text hash, so a reload costs nothing.
 """
 
@@ -34,8 +33,14 @@ def _normalise(v) -> np.ndarray:
     return (a / n).astype(np.float32)
 
 
+UNSUPPORTED_PHRASES = ("not support", "unsupported", "unrecognized", "unknown parameter", "unexpected keyword",
+                       "extra inputs", "not permitted", "not allowed")
+
+
 def _unsupported(e: openai.BadRequestError) -> bool:
-    return "dimension" in str(e).lower()
+    """True only for an explicit refusal of the `dimensions` parameter itself."""
+    msg = str(e).lower()
+    return "dimensions" in msg and any(p in msg for p in UNSUPPORTED_PHRASES)
 
 
 def _embed_batch(texts: list[str], embed_fn) -> list[np.ndarray]:
@@ -49,10 +54,10 @@ def _embed_batch(texts: list[str], embed_fn) -> list[np.ndarray]:
         path = "truncate"
     if len(res.vectors) != len(texts):
         raise RuntimeError(f"embedding API returned {len(res.vectors)} vectors for {len(texts)} texts")
+    if path == "api" and any(len(v) != DIM for v in res.vectors):
+        raise RuntimeError(f"embedding API ignored dimensions={DIM} and returned {len(res.vectors[0])} components")
     if any(len(v) < DIM for v in res.vectors):
         raise RuntimeError(f"embedding shorter than {DIM}")
-    if any(len(v) > DIM for v in res.vectors):
-        path = "truncate"
     STATE["path"] = path
     STATE["cost_usd"] += res.cost_usd
     STATE["prompt_tokens"] += res.prompt_tokens

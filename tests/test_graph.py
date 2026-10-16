@@ -429,3 +429,38 @@ def test_betweenness_hand_calculated(falkor):
     rows = g.query("CALL algo.betweenness({nodeLabels:['P'], relationshipTypes:['C']}) YIELD node, score "
                    "RETURN node.n, score").result_set
     assert {k: v for k, v in rows} == {"a": 0.0, "b": 3.0, "c": 4.0, "d": 3.0, "e": 0.0}
+
+
+# ---------------------------------------------------------------- production paths (fix round 1)
+def test_load_product_registers_and_verifies_udf(falkor, load_facts):
+    falkor.connection.execute_command("GRAPH.UDF", "DELETE", "herb_v1")
+    load(falkor, load_facts)  # fresh registration
+    assert falkor.udf_list("herb_v1")
+    load(falkor, load_facts)  # identical reload
+    assert q(falkor, G, "RETURN herb_v1.statusAt([{type:'REPORTED', ts:1}], 2)") == [["active"]]
+    falkor.connection.execute_command("GRAPH.UDF", "DELETE", "herb_v1")
+    falkor.udf_load("herb_v1", "function f() { return 1; }\nfalkor.register('f', f);")
+    try:
+        with pytest.raises(RuntimeError, match="different source"):
+            load(falkor, load_facts)
+        assert q(falkor, G, "MATCH (b:Bug) RETURN count(b)") == [[4]]  # refused before the old graph was dropped
+    finally:
+        falkor.connection.execute_command("GRAPH.UDF", "DELETE", "herb_v1")
+        schema.load_udf(falkor)
+
+
+def test_dev_selection_is_pinned_to_the_inventory(tmp_path):
+    from inherit.data.split import split
+
+    inventory = ["ActionGenie"] + [f"P{i:02d}" for i in range(12)]
+    dev, held = split(inventory)
+    for name in [*dev, *held, "AutoTuneForce"]:
+        (tmp_path / name).mkdir()
+    assert loadmod.resolve_products("dev", tmp_path, inventory) == dev
+    assert loadmod.resolve_products("held", tmp_path, inventory) == held
+    assert "AutoTuneForce" not in loadmod.resolve_products("all", tmp_path, inventory)
+    with pytest.raises(SystemExit, match="unknown"):
+        loadmod.resolve_products("AutoTuneForce", tmp_path, inventory)
+    (tmp_path / dev[1]).rmdir()
+    with pytest.raises(SystemExit, match="no fact directory"):
+        loadmod.resolve_products("dev", tmp_path, inventory)
