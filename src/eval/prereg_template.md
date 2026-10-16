@@ -96,6 +96,8 @@ How the differences are read:
 
 A family is a normalised question string. A family is multi-hop when the answer values its questions need are not in what A4 can see: the cards of every root the question text can name (plus the Product), and the full cards of their one-hop neighbours. On the development set this was computed by code for every instance; a family with mixed instances counts as multi-hop only if every instance needs content outside the visible set. Held-out strings never seen in development were classified from the question text and the card field list only, independently by two models (Codex and a Claude subagent); only strings both called multi-hop are in the set, and disagreements or uncertain cases stay outside it (they remain in every other endpoint). This is a schema-only classification, not a check against held-out content.
 
+{{dev_visibility_summary}}
+
 {{family_counts}}
 
 {{family_block}}

@@ -149,6 +149,31 @@ def test_values_inside_free_text_match_as_whole_tokens(g):
     assert verdict(g, "Who asked in Spec Sheet?", ["Init"])["verdict"] == "needs_more"
 
 
+def row(fam, verdict, *values):
+    return {"family": fam, "verdict": verdict,
+            "values": [{"visible": vis, "paging_only": pg} for vis, pg in values]}
+
+
+def test_dev_diagnostics_counts():
+    recs = {"a": row("f1", "visible", (True, False), (True, True)),   # f1: both instances have a paged or missing value
+            "b": row("f1", "needs_more", (False, None)),
+            "c": row("f2", "visible", (True, False)),                 # f2 has a clean instance
+            "d": row("f2", "needs_more", (False, None)),
+            "e": row("f3", "no_gold"), "f": row("f1", "no_gold")}
+    d = F.dev_diagnostics(recs)
+    assert d == {"voting_instances": 4, "visible_instances": 2, "needs_more_instances": 2, "values_total": 5,
+                 "values_paging_only": 1, "large_group_or_missing_families": 1, "large_group_or_missing_questions": 3}
+
+
+def test_dev_diagnostics_are_written_and_carried_through_merge(tmp_path):
+    out = tmp_path / "o"
+    diag = {"voting_instances": 1}
+    F._write(out, "dev_visibility.json", {"families": {}, "dev_diagnostics": diag})
+    F.cmd_packet(out, [("who reviewed <p>", "person")], [])
+    doc = F.cmd_merge(out, tmp_path / "x.json", tmp_path / "y.json")
+    assert doc["dev_diagnostics"] == diag and F._load_json(out / "families.json")["dev_diagnostics"] == diag
+
+
 # ---------------------------------------------------------------- family verdicts
 def test_family_verdict_rules():
     assert F.family_verdict(["needs_more", "needs_more"]) == "multi"

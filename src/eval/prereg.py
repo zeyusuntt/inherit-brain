@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
@@ -317,6 +318,26 @@ def family_texts(fam_doc: dict) -> tuple[str, str, str]:
     return summary, F.render_block(multi), excluded
 
 
+DIAG_KEYS = ("voting_instances", "visible_instances", "values_total", "values_paging_only",
+             "large_group_or_missing_families", "large_group_or_missing_questions")
+
+
+def dev_visibility_summary(fam_doc: dict) -> str:
+    """The dev visibility sentences, from the families.json counts and `dev_diagnostics` (descriptive only)."""
+    d = fam_doc.get("dev_diagnostics")
+    if not isinstance(d, dict) or any(not isinstance(d.get(k), int) for k in DIAG_KEYS):
+        raise PreregError("families.json has no complete dev_diagnostics; rerun `python -m eval.families dev`")
+    dev = Counter(f["verdict"] for f in fam_doc["families"].values() if f.get("source") == "dev")
+    return (f"Under the unchanged visibility rule, the development set yielded {dev['multi']} multi-hop, "
+            f"{dev['single']} single-hop and {dev['content (not classified)']} content families; "
+            f"{d['visible_instances']} of {d['voting_instances']} voting instances were visible. "
+            f"A paging diagnostic found {d['values_paging_only']} of {d['values_total']} answer values visible only "
+            f"inside neighbour groups larger than one page (200 cards or 12,000 tokens), and "
+            f"{d['large_group_or_missing_families']} families covering {d['large_group_or_missing_questions']} "
+            "development questions with every instance in that state or missing. This does not establish one-call "
+            "inaccessibility, because A4 can filter, count and group before paging, so it defines no subgroup.")
+
+
 def render(template: str, values: dict[str, str]) -> str:
     names = set(PLACEHOLDER_RE.findall(template))
     unknown = sorted(names - set(values))
@@ -349,7 +370,7 @@ def write_prereg(root: Path = ROOT, *, freeze_check: Callable | None = None, tem
         "config_hash": manifest["config_hash"], "acceptance_sha": sha256_file(acceptance_path(root)),
         "facts_hash": manifest["facts_hash"], "versions_table": versions_table(manifest),
         "card_fields": cards.render_fields(), "arms_table": arms_table(manifest), "a2_sample": a2_sample(manifest),
-        "family_counts": fam_summary, "family_block": fam_block, "excluded_unseen": excluded,
+        "dev_visibility_summary": dev_visibility_summary(fam_doc), "family_counts": fam_summary, "family_block": fam_block, "excluded_unseen": excluded,
         "auditors": auditors_block(acc), "acceptance_table": acceptance_table(acc),
     }
     text = render(Path(template).read_text(encoding="utf-8"), values)

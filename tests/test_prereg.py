@@ -43,12 +43,14 @@ def mk_manifest(root, **over):
     return m
 
 
-def mk_families(root, multi=("how many bugs",), excluded=True):
+def mk_families(root, multi=("how many bugs",), excluded=True, diagnostics=True):
     fams = {t: {"source": "dev", "verdict": "multi"} for t in multi}
     fams["single one"] = {"source": "dev", "verdict": "single"}
     if excluded:
         fams["unclear one"] = {"source": "held-unseen", "codex": "multi", "claude": "single", "verdict": "uncertain"}
-    jdump(P.families_path(root), F.build_families_doc(fams, {}))
+    diag = {"voting_instances": 10, "visible_instances": 8, "needs_more_instances": 2, "values_total": 20,
+            "values_paging_only": 3, "large_group_or_missing_families": 2, "large_group_or_missing_questions": 5}
+    jdump(P.families_path(root), F.build_families_doc(fams, {}, diag if diagnostics else None))
 
 
 def gates_stub(ok=True, complete=True):
@@ -264,7 +266,7 @@ def test_shipped_template_placeholders_are_all_known():
     names = set(P.PLACEHOLDER_RE.findall(P.TEMPLATE.read_text()))
     assert names == {"generated_utc", "code_commit", "upstream_herb_commit", "split_hash", "bundle_sha", "manifest_sha",
                      "config_hash", "acceptance_sha", "facts_hash", "versions_table", "card_fields", "arms_table",
-                     "a2_sample", "family_counts", "family_block", "excluded_unseen", "auditors", "acceptance_table"}
+                     "a2_sample", "dev_visibility_summary", "family_counts", "family_block", "excluded_unseen", "auditors", "acceptance_table"}
 
 
 def test_digest(world):
@@ -497,3 +499,26 @@ def test_arm_absent_from_spend_has_a_zero_base(tmp_path, monkeypatch):
     caps = []
     d = held_run(tmp_path, monkeypatch, {"fake": {"products": "all", "sub_cap_usd": 3.0}}, caps, spend_reader=lambda a: 0.0)
     assert R.read_manifest(d)["cap_base_usd"] == 0.0 and caps == [("fake", 3.0)]
+
+
+def test_dev_visibility_summary_sentence(tmp_path):
+    root = tmp_path
+    mk_families(root, multi=("a", "b"))
+    text = P.dev_visibility_summary(json.loads(P.families_path(root).read_text()))
+    assert text == (
+        "Under the unchanged visibility rule, the development set yielded 2 multi-hop, 1 single-hop and 0 content "
+        "families; 8 of 10 voting instances were visible. A paging diagnostic found 3 of 20 answer values visible "
+        "only inside neighbour groups larger than one page (200 cards or 12,000 tokens), and 2 families covering 5 "
+        "development questions with every instance in that state or missing. This does not establish one-call "
+        "inaccessibility, because A4 can filter, count and group before paging, so it defines no subgroup.")
+
+
+def test_missing_dev_diagnostics_are_refused(world):
+    root, d, qs = world
+    mk_families(root, diagnostics=False)
+    with pytest.raises(P.PreregError, match="dev_diagnostics"):
+        P.dev_visibility_summary(json.loads(P.families_path(root).read_text()))
+    accept(root, d, qs)
+    mk_families(root, diagnostics=False)
+    with pytest.raises(P.PreregError):
+        P.write_prereg(root, freeze_check=OK)

@@ -164,6 +164,25 @@ def family_verdict(instances: list[str]) -> str:
     return "single" if "visible" in votes else "multi"
 
 
+def dev_diagnostics(recs: dict[str, dict]) -> dict:
+    """Descriptive dev counts from the visibility rows. They define no subgroup and feed no verdict.
+    A family is large-group-or-missing when every one of its voting instances has a value that is missing
+    or visible only inside neighbour groups over one page."""
+    vals = [v for r in recs.values() for v in r["values"]]
+    fams: dict[str, list[dict]] = defaultdict(list)
+    for r in recs.values():
+        fams[r["family"]].append(r)
+    lg = [t for t, rs in fams.items()
+          if (vot := [r for r in rs if r["verdict"] in ("visible", "needs_more")])
+          and all(any(not v["visible"] or v["paging_only"] for v in r["values"]) for r in vot)]
+    return {"voting_instances": sum(r["verdict"] in ("visible", "needs_more") for r in recs.values()),
+            "visible_instances": sum(r["verdict"] == "visible" for r in recs.values()),
+            "needs_more_instances": sum(r["verdict"] == "needs_more" for r in recs.values()),
+            "values_total": len(vals), "values_paging_only": sum(v["paging_only"] is True for v in vals),
+            "large_group_or_missing_families": len(lg),
+            "large_group_or_missing_questions": sum(len(fams[t]) for t in lg)}
+
+
 def classify_dev(questions: list[Q.Question], graph_for) -> dict:
     """`graph_for(product)` gives a read-only graph handle. Returns {"questions": {...}, "families": {...}}."""
     viewers: dict[str, Viewer] = {}
@@ -188,7 +207,7 @@ def classify_dev(questions: list[Q.Question], graph_for) -> dict:
         else:
             out[t] = {"source": "dev", "type": types, "verdict": family_verdict(f["inst"]),
                       "votes": dict(sorted(Counter(f["inst"]).items()))}
-    return {"questions": recs, "families": out}
+    return {"questions": recs, "families": out, "dev_diagnostics": dev_diagnostics(recs)}
 
 
 # ---------------------------------------------------------------- held-out strings
@@ -285,10 +304,13 @@ def _input_hashes() -> dict:
     return out
 
 
-def build_families_doc(families: dict, hashes: dict) -> dict:
+def build_families_doc(families: dict, hashes: dict, dev_diagnostics: dict | None = None) -> dict:
     counts = Counter(f["verdict"] for f in families.values())
-    return {"families": dict(sorted(families.items())), "counts": dict(sorted(counts.items())),
-            "multi_hop_set": sorted(multi_set(families)), "hashes": hashes}
+    doc = {"families": dict(sorted(families.items())), "counts": dict(sorted(counts.items())),
+           "multi_hop_set": sorted(multi_set(families)), "hashes": hashes}
+    if dev_diagnostics is not None:
+        doc["dev_diagnostics"] = dev_diagnostics
+    return doc
 
 
 def _write(out: Path, name: str, obj) -> Path:
@@ -306,7 +328,8 @@ def cmd_dev(out: Path, graph_for=depth1.agent_graph, questions=None) -> dict:
     res = classify_dev(questions if questions is not None else Q.load_questions("dev"), graph_for)
     _write(out, "dev_visibility.json", res)
     _write(out, "families.json", build_families_doc(res["families"], {**_input_hashes(), "packet": None,
-                                                                      "codex_verdicts": None, "claude_verdicts": None}))
+                                                                      "codex_verdicts": None, "claude_verdicts": None},
+                                                  res["dev_diagnostics"]))
     return res
 
 
@@ -321,7 +344,8 @@ def cmd_packet(out: Path, pairs=None, names=None) -> dict:
 
 
 def cmd_merge(out: Path, codex: Path, claude: Path) -> dict:
-    dev = _load_json(out / "dev_visibility.json")["families"]
+    dev_doc = _load_json(out / "dev_visibility.json")
+    dev = dev_doc["families"]
     ids = _load_json(out / "packet_ids.json")
     unseen = merge_unseen(ids["rows"], read_verdicts(codex), read_verdicts(claude))
     unseen.update({c["template"]: {"source": "held-unseen", "type": c["type"], "verdict": CONTENT}
@@ -330,7 +354,7 @@ def cmd_merge(out: Path, codex: Path, claude: Path) -> dict:
               "codex_verdicts": sha(Path(codex).read_bytes()) if Path(codex).is_file() else None,
               "claude_verdicts": sha(Path(claude).read_bytes()) if Path(claude).is_file() else None,
               "residual_product_names": ids["residual_product_names"]}
-    doc = build_families_doc({**dev, **unseen}, hashes)
+    doc = build_families_doc({**dev, **unseen}, hashes, dev_doc.get("dev_diagnostics"))
     pairs = Counter((u["codex"] or "missing", u["claude"] or "missing") for u in unseen.values() if "codex" in u)
     doc["agreement"] = {"agree": sum(n for (a, b), n in pairs.items() if a == b and a != "missing"),
                         "total": len(ids["rows"]), "pairs": {f"{a}/{b}": n for (a, b), n in sorted(pairs.items())}}
