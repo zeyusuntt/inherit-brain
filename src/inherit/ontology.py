@@ -35,6 +35,7 @@ SIGNATURES: dict[str, frozenset[tuple[str, str]]] = {
     "MENTIONS": frozenset({("Message", "Person")}),
     "OPENED": frozenset({("Person", "PR")}),
     "REVIEWED": frozenset({("Person", "PR")}),
+    "SPOKE_IN": frozenset({("Person", "Meeting")}),
     "SHARED": frozenset({("Person", "Url"), ("Person", "Document"), ("Person", "PR")}),
     "COLLABORATED": frozenset({("Person", "Person")}),
 }
