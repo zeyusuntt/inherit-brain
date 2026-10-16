@@ -43,6 +43,11 @@ SERVER = "6.0"  # the FalkorDB server the agents read (bridges uses the native a
 MAX_TOOL_CALLS = CALL_CAP  # 12
 MAX_TOOL_TURNS = 12
 MAX_MODEL_CALLS = 14  # 12 tool turns + 1 final answer + 1 JSON repair
+# A custom tool set (tools_factory) makes model calls of its own (lookup extraction, answer verification, fallback).
+# Those share one per-question counter with the agent turns: at most 24 calls in total, the last two kept for the
+# final answer and one verification or repair.
+MAX_TOTAL_MODEL_CALLS = 24
+RESERVED_FINAL_CALLS = 2
 MAX_OUTPUT_TOKENS = 1024
 INPUT_TOKEN_BUDGET = 40_000
 DEADLINE_S = 300.0
@@ -286,14 +291,36 @@ class _Loop:
         self.tool_calls = 0
         self.model_outcome: str | None = None
         self.dropped: list[dict] = []
+        self.max_calls: int | None = None  # set by use_tools for a custom tool set; None keeps the 14-call arms as they were
+
+    def use_tools(self, tools) -> None:
+        """Install a custom tool set. It provides specs(), call(name, args) -> (envelope, guard rows) and ops, and
+        optionally system_prompt, review(loop, fields) -> fields and support(answer_ids, evidence_ids) -> rows. It
+        may call `nested_chat`; every such call is counted and limited with the agent's own."""
+        self.tools, self.max_calls = tools, MAX_TOTAL_MODEL_CALLS
+        self.messages[0]["content"] = getattr(tools, "system_prompt", SYSTEM_PROMPT)
+
+    def room(self, final: bool = False) -> bool:
+        if self.max_calls is None:
+            return True
+        return len(self.calls) < self.max_calls - (0 if final else RESERVED_FINAL_CALLS)
+
+    def nested_chat(self, messages: list[dict], *, response_format=None, final: bool = False):
+        """A model call made by a tool or a finaliser: same deadline, counter and usage list as the agent turns.
+        Refused with a ToolError when the per-question limit leaves no room (`final` may use the reserved calls)."""
+        if not self.room(final):
+            raise ToolError(f"model call limit reached: at most {self.max_calls} model calls per question")
+        return self.chat(response_format=response_format, messages=messages)
 
     def check_deadline(self) -> None:
         if self.clock() >= self.deadline:
             raise _Deadline
 
-    def chat(self, tools=None, response_format=None):
+    def chat(self, tools=None, response_format=None, messages=None):
         self.check_deadline()
-        r = self.model(self.messages, arm=self.arm, tools=tools, max_tokens=MAX_OUTPUT_TOKENS,
+        if self.max_calls is not None and len(self.calls) >= self.max_calls:
+            raise ToolError(f"model call limit reached: at most {self.max_calls} model calls per question")
+        r = self.model(self.messages if messages is None else messages, arm=self.arm, tools=tools, max_tokens=MAX_OUTPUT_TOKENS,
                        response_format=response_format)
         self.calls.append(CallUsage(self.arm, load_settings().model, r.prompt_tokens, r.completion_tokens,
                                     r.cost_usd, r.latency_s))
@@ -326,6 +353,8 @@ class _Loop:
     def go(self) -> "ArmResult":
         specs = self.tools.specs()
         for _ in range(MAX_TOOL_TURNS):
+            if not self.room():
+                break
             r = self.chat(tools=specs)
             tcs = getattr(r.message, "tool_calls", None) or []
             if not tcs:
@@ -357,10 +386,17 @@ class _Loop:
             fields, err = _parse(content)
             if fields is None:
                 return self.fail(f"invalid final answer after one repair: {err}")
+        review = getattr(self.tools, "review", None)
+        if review is not None:
+            fields = review(self, fields) or fields
         self.model_outcome = fields["outcome"]
         asked = _bare(fields["answer_ids"])
-        text, ids, dropped = guard(fields["answer_text"], asked, self.guard_rows)
-        evidence, ev_dropped = guard_evidence(fields["evidence_ids"], self.guard_rows)
+        rows = self.guard_rows
+        support = getattr(self.tools, "support", None)
+        if support is not None:
+            rows = [*rows, support(asked, fields["evidence_ids"])]
+        text, ids, dropped = guard(fields["answer_text"], asked, rows)
+        evidence, ev_dropped = guard_evidence(fields["evidence_ids"], rows)
         self.dropped = dropped + [{"value": v, "where": "evidence", "reason": "not in any returned row"}
                                   for v in ev_dropped]
         outcome = self.model_outcome
@@ -375,7 +411,8 @@ class _Loop:
                      sum(c.cost_usd for c in self.calls), len(self.calls))
 
     def fail(self, why: str) -> "ArmResult":
-        return self.result(FinalAnswer("run_failed", "", [], [], list(self.tools.ops), self.usage()), why)
+        ops = list(self.tools.ops) if self.tools is not None else []
+        return self.result(FinalAnswer("run_failed", "", [], [], ops, self.usage()), why)
 
     def result(self, final: FinalAnswer, failure: str | None = None) -> "ArmResult":
         from eval.arms import ArmResult
@@ -387,9 +424,13 @@ class _Loop:
 
 
 def answer(inp: ExecInput, *, toolset: str, arm: str, session: Session | None = None, graph=None,
-           model: Callable | None = None, clock: Callable[[], float] = time.monotonic) -> "ArmResult":
-    """Answer one question. `arm` is the metering name sent to the proxy; `graph` and `model` are for tests."""
-    if toolset not in TOOLSETS:
+           model: Callable | None = None, clock: Callable[[], float] = time.monotonic,
+           tools_factory: Callable | None = None) -> "ArmResult":
+    """Answer one question. `arm` is the metering name sent to the proxy; `graph` and `model` are for tests.
+
+    `tools_factory(loop)` replaces the built-in tool sets (then `toolset` is only a label for the diagnostics): the
+    paper baselines A0 and A0f run their tools in this same loop. See `_Loop.use_tools`."""
+    if tools_factory is None and toolset not in TOOLSETS:
         raise ValueError(f"toolset must be one of {TOOLSETS}, got {toolset!r}")
     if session is not None:
         found = session.find(inp.product, inp.text)
@@ -397,6 +438,10 @@ def answer(inp: ExecInput, *, toolset: str, arm: str, session: Session | None = 
             return _from_memory(found)
     loop = None
     try:
+        if tools_factory is not None:
+            loop = _Loop(inp, toolset, arm, None, model or llm.chat, clock)
+            loop.use_tools(tools_factory(loop))
+            return loop.go()
         conn = graph if graph is not None else open_graph(inp.product)
         tools = (_Full(conn, inp.product) if toolset == "full"
                  else _Depth1(conn, inp.product, inp.text, strict=toolset == "depth1"))
