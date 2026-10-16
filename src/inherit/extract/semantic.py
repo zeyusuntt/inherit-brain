@@ -1064,14 +1064,21 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                      if (_EXISTS.search(x) or (_DESCRIBES.search(x) and d.id.startswith(("latest_", "new_"))))
                      and not _NOT_DONE.search(x)]
 
+    def _words(text, parts=False):
+        whole = re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)*", text.casefold())
+        out = {w for w in whole if len(w) >= 4}
+        if parts:  # a hyphenated word also counts by its parts
+            out |= {x for w in whole for x in w.split("-") if len(x) >= 4}
+        return out
+
     def document_conflicts(fid):
         out = set()
         for name in [feature_info[fid]["title"], *cat.features.entries[fid]["aliases"]]:
-            need = set(re.findall(r"[a-z0-9]{4,}", name.casefold()))
+            need = _words(name)
             if not need:
                 continue
             k = -(-2 * len(need) // 3)  # at least two thirds of the feature name's words
-            out |= {d_ for d_, x in doc_sentences if len(need & set(re.findall(r"[a-z0-9]{4,}", x.casefold()))) >= k}
+            out |= {d_ for d_, x in doc_sentences if len(need & _words(x, True)) >= k}
         return sorted(out)
 
     fate: dict[str, dict] = {}
