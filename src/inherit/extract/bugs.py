@@ -17,6 +17,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 from inherit import llm
+from inherit.llm import BudgetExceeded
 from inherit.extract import bug_rules as br
 from inherit.extract.bugstate import derive_bug, sort_events
 from inherit.extract.catalog import build_catalog, repo_scope
@@ -48,6 +49,12 @@ EVIDENCE = {
 class BugResult:
     facts: Facts
     report: dict
+
+
+def _is_fatal(exc: Exception) -> bool:
+    """Budget exhaustion, an unreachable proxy and client timeouts stop the layer; they are not per-unit failures."""
+    return isinstance(exc, (BudgetExceeded, TimeoutError)) or (
+        isinstance(exc, RuntimeError) and str(exc).startswith("metering proxy"))
 
 
 def _dt(ts: str) -> datetime:
@@ -582,6 +589,8 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                                         or by_id[x["message_id"]].text, "ts": m.ts, "message_id": m.id})
                     ch_externals.append(xe)
             except Exception as exc:  # one bad session never aborts the product
+                if _is_fatal(exc):
+                    raise
                 rep["extraction_failures"].append({"kind": "session", "channel_id": channel_id,
                                                    "messages": [m.id for m in session if not m.is_bot],
                                                    "reason": "exception", "error": f"{type(exc).__name__}: {exc}"})
@@ -627,6 +636,8 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                                 if p["mention"] != bug["title"] and p["mention"] not in bug["aliases"]:
                                     bug["aliases"].append(p["mention"])
             except Exception as exc:  # a failed link call leaves its items unmatched
+                if _is_fatal(exc):
+                    raise
                 rep["extraction_failures"].append({"kind": "link", "channel_id": channel_id,
                                                    "messages": [q.get("message_id") for q in pending],
                                                    "reason": "exception", "error": f"{type(exc).__name__}: {exc}"})

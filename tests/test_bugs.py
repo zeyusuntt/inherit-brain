@@ -866,3 +866,23 @@ def test_an_exception_in_a_link_call_is_logged_and_the_items_stay_unmatched(tmp_
     [f] = out.report["extraction_failures"]
     assert f["kind"] == "link" and f["reason"] == "exception" and "RuntimeError: proxy down" in f["error"]
     assert out.report["events"]["unmatched"] == 1
+
+
+@pytest.mark.parametrize("exc", [lambda: bugs.BudgetExceeded("cap"), lambda: TimeoutError("slow"),
+                                 lambda: RuntimeError("metering proxy is not reachable")])
+def test_budget_proxy_and_timeout_errors_abort_the_run(tmp_path, monkeypatch, exc):
+    def boom(*a, **k):
+        raise exc()
+
+    monkeypatch.setattr(bugs, "_clean_session_answer", boom)
+    with pytest.raises(type(exc())):
+        run(tmp=tmp_path)
+
+
+def test_budget_error_in_a_link_call_aborts_the_run(tmp_path):
+    def explode(user):
+        raise bugs.BudgetExceeded("cap")
+
+    chat = fx.ScriptedChat(script=dict(fx.standard_chat().script), link=explode)
+    with pytest.raises(bugs.BudgetExceeded):
+        run(chat=chat, tmp=tmp_path)
