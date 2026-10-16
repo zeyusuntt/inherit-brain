@@ -666,7 +666,7 @@ def _fix_trail(ctx: _Ctx, p: dict) -> list[dict]:
 
 
 # ---------------------------------------------------------------- 6. pr_board
-def _pr_board(ctx: _Ctx, p: dict) -> list[dict]:
+def _pr_board_rows(ctx: _Ctx, p: dict) -> list[dict]:
     moved = _reason_phrase(p.get("feature"))
     if moved:  # a reason phrase in the feature slot is the revert reason
         p = {**p, "feature": None, "revert_reason": p.get("revert_reason") or moved}
@@ -734,6 +734,31 @@ def _pr_board(ctx: _Ctx, p: dict) -> list[dict]:
 
 
 # ---------------------------------------------------------------- 7. feature_fate
+def _with_alternatives(rows_fn, key: str):
+    """Run a feature-scoped tool; when a feature phrase's best match has no rows for the relation, list up to five other
+    features whose names contain the phrase's content tokens, with their row counts for the same relation. Nothing is
+    merged and nothing is retried."""
+    def run(ctx: _Ctx, p: dict) -> list[dict]:
+        rows = rows_fn(ctx, p)
+        phrase = p.get(key)
+        if rows or p.get("_alt") or not phrase or _reason_phrase(phrase) or _is_product_name(ctx, _area_key(phrase)):
+            return rows
+        matched = _resolve_features(ctx, phrase) or []
+        q = _stems(phrase)
+        cands = [(fid, title) for fid, title, topic, aliases, _ in
+                 ctx.q("MATCH (f:Feature) RETURN f.id, f.title, f.topic, f.aliases, f.details")
+                 if fid not in matched and q and any(q <= _stems(n) for n in [title, topic, *(aliases or [])] if n)]
+        found = [(len(rows_fn(ctx, {**p, key: fid, "_alt": True})), title, fid) for fid, title in sorted(cands)[:5]]
+        found = [t for t in found if t[0]]
+        if found and not ctx.hint:
+            found.sort(key=lambda t: (-t[0], t[1]))
+            ctx.hint = (f"No rows for '{phrase}' on its best feature match. Other features with rows for the same "
+                        "query (nothing was merged; retry with the right one): "
+                        + "; ".join(f"{t} ({n} rows)" for n, t, _ in found) + ".")
+        return rows
+    return run
+
+
 _REASON_WORDS = {"security": ({"security", "risk", "risks", "concern", "concerns", "issue", "issues", "vulnerability",
                                "vulnerabilities"}, "security"),
                  "product_direction": ({"change", "changes", "product", "direction", "shift"}, "direction"),
@@ -752,7 +777,7 @@ def _reason_phrase(text) -> str | None:
     return None
 
 
-def _feature_fate(ctx: _Ctx, p: dict) -> list[dict]:
+def _feature_fate_rows(ctx: _Ctx, p: dict) -> list[dict]:
     moved = _reason_phrase(p.get("topic"))
     if moved:  # the subject slot holds only a reason phrase: it is the reason, there is no feature subject
         p = {**p, "topic": None, "reason": p.get("reason") or moved}
@@ -761,19 +786,24 @@ def _feature_fate(ctx: _Ctx, p: dict) -> list[dict]:
     feature_rows = ctx.q("MATCH (f:Feature) RETURN f.id, f.title, f.aliases, f.details, f.implemented, f.reverted, "
                          "f.held, f.delayed_then_added, f.discussed_not_implemented")
     events: dict[str, list] = defaultdict(list)
-    for fid, eid, kind, date, reason, rtext, rec in ctx.q(
+    for fid, eid, kind, date, reason, rtext, rec, prs_ in ctx.q(
             "MATCH (f:Feature)-[:HAS_EVENT]->(ev:FeatureEvent) "
-            "RETURN f.id, ev.id, ev.kind, ev.date, ev.reason, ev.reason_text, ev.record_id"):
-        events[fid].append({"id": eid, "kind": kind, "date": date, "reason": reason, "reason_text": rtext, "record": rec})
+            "RETURN f.id, ev.id, ev.kind, ev.date, ev.reason, ev.reason_text, ev.record_id, ev.pr_links"):
+        events[fid].append({"id": eid, "kind": kind, "date": date, "reason": reason, "reason_text": rtext, "record": rec,
+                            "prs": prs_})
     impl: dict[str, list] = defaultdict(list)  # feature -> [(link, [(revert by, reason, applied, src)], src)]
     for fid, link, isrc, rvby, reason, applied, rsrc in ctx.q(
             "MATCH (f:Feature)-[ib:IMPLEMENTED_BY]->(pr:PR) OPTIONAL MATCH (rv:PR)-[r:REVERTS]->(pr) "
             "RETURN f.id, pr.link, ib.src, rv.link, r.reason, r.applied, r.src"):
         impl[fid].append((link, isrc, rvby, reason, applied, rsrc))
     about: dict[str, dict] = defaultdict(dict)
-    for fid, link, title, src in ctx.q("MATCH (pr:PR)-[a:ABOUT]->(f:Feature) WHERE pr.repo_scope = 'product' "
-                                       "RETURN f.id, pr.link, pr.title, a.src"):
-        about[fid][link] = (title, src)
+    for fid, link, title, src, merged in ctx.q("MATCH (pr:PR)-[a:ABOUT]->(f:Feature) WHERE pr.repo_scope = 'product' "
+                                               "RETURN f.id, pr.link, pr.title, a.src, pr.merged"):
+        about[fid][link] = (title, src, merged)
+    reverts: dict[str, list] = defaultdict(list)  # PR link -> [(reverting PR, reason, applied, src)]
+    for link, by_link, reason, applied, src in ctx.q("MATCH (rv:PR)-[r:REVERTS]->(pr:PR) "
+                                                     "RETURN pr.link, rv.link, r.reason, r.applied, r.src"):
+        reverts[link].append((by_link, reason, bool(applied), src or []))
     chosen: list[dict] = []
     for fid, title, aliases, details, f_impl, f_rev, f_held, f_delayed, f_dni in sorted(feature_rows):
         if feats is not None and fid not in feats:
@@ -789,14 +819,28 @@ def _feature_fate(ctx: _Ctx, p: dict) -> list[dict]:
             p["fate"], rev_reasons + hold_reasons + [e["reason"] for e in evs if e["reason"]])
         if p.get("reason") and p["reason"] not in pool:
             continue
-        reverts = [(rv, rs) for _, _, rv, _, ap, rs in impl[fid] if rv and ap]  # applied reverts of implementing PRs
+        applied_reverts = [(rv, rs) for _, _, rv, _, ap, rs in impl[fid] if rv and ap]  # applied reverts of implementing PRs
+        assoc = set(about[fid]) | {l for l, *_ in impl[fid]}
+        impl_links = {l for l, *_ in impl[fid]}
+        if p["fate"] == "reverted":  # the original PRs an applied revert reverted, by the revert's reason
+            fate_prs = {l: [r for r in reverts[l] if r[2] and (not p.get("reason") or r[1] == p["reason"])]
+                        for l in assoc}
+            fate_prs = {l: v for l, v in fate_prs.items() if v}
+        elif p["fate"] == "implemented":  # PRs with implementation evidence: IMPLEMENTED_BY or merged
+            fate_prs = {l: [] for l in assoc if l in impl_links or about[fid].get(l, (0, 0, False))[2] is True}
+        elif p["fate"] in ("held", "delayed_then_added"):  # PRs whose decisions held or resumed the feature
+            fate_prs = {l: [] for e in evs if e["kind"] in ("held", "resumed")
+                        and (not p.get("reason") or e["reason"] == p["reason"] or e["kind"] == "resumed")
+                        for l in e["prs"] or []}
+        else:
+            fate_prs = {l: [] for l in assoc}
         chosen.append({"id": fid, "title": title, "aliases": aliases or [], "details": details or [], "events": evs,
                        "fates": sorted(fates - {"any"}), "reasons": sorted(set(pool)),
                        "prs": sorted({*(l for l, *_ in impl[fid]), *about[fid]}),
-                       "revert_prs": sorted({rv for rv, _ in reverts}),
+                       "revert_prs": sorted({rv for rv, _ in applied_reverts}), "fate_prs": fate_prs,
                        "evidence": sorted({e["record"] for e in evs if e["record"]}
                                           | {s for _, isrc, *_r in impl[fid] for s in isrc or []}
-                                          | {s for _, rs in reverts for s in rs or []})})
+                                          | {s for _, rs in applied_reverts for s in rs or []})})
     if p["return"] == "features":
         return [{"answer": c["title"], "id": c["id"], "title": c["title"], "details": c["details"],
                  "aliases": c["aliases"],
@@ -808,11 +852,16 @@ def _feature_fate(ctx: _Ctx, p: dict) -> list[dict]:
     if p["return"] == "prs":
         out: dict[str, dict] = {}
         for c in chosen:
-            for link in c["prs"]:
+            for link, rvs in c["fate_prs"].items():
                 r = out.setdefault(link, {"answer": link, "title": about[c["id"]].get(link, (None,))[0],
-                                          "features": [], "via": set(), "refs": {f"PR:{link}"}, "evidence": set()})
+                                          "features": [], "via": set(), "reverts": [], "refs": {f"PR:{link}"},
+                                          "evidence": set()})
                 r["features"].append(c["id"])
                 r["refs"].add(c["id"])
+                for by_link, reason, _, src in rvs:
+                    r["reverts"].append({"by": by_link, "reason": reason})
+                    r["refs"].add(f"PR:{by_link}")
+                    r["evidence"].update(src)
                 if link in about[c["id"]]:
                     r["via"].add("about")
                     r["evidence"].update(about[c["id"]][link][1] or [])
@@ -1042,6 +1091,10 @@ def _if_leaves(conn, product: str, **params) -> ToolResult:
     return whatif.run_tool(conn, product, params["person"])
 
 
+_pr_board = _with_alternatives(_pr_board_rows, "feature")
+_feature_fate = _with_alternatives(_feature_fate_rows, "topic")
+
+
 # ---------------------------------------------------------------- the catalogue
 def _tool(name: str, description: str, props: dict, impl: Callable, required: tuple = (), kind: str = "readonly") -> Tool:
     return Tool(name, description, _schema(props, required), kind, impl)
@@ -1123,9 +1176,11 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           "reverted (needs an applied revert), delayed_then_added (held, then resumed or implemented), held (any hold), any; all five are the semantic layer's derived properties. reason "
           "filters the revert or hold reason. Example: features that could not be added for security reasons -> "
           "feature_fate(fate='reverted', reason='security'); who was responsible for unimplemented features -> "
-          "feature_fate(fate='unimplemented', return='people'). return='prs' lists the PRs associated with the "
-          "selected features (feature-level, not their approval, merge or revert state): for questions about "
-          "reverted, approved, unapproved, need-merge or need-close PRs use pr_board. The product's own name is not a "
+          "feature_fate(fate='unimplemented', return='people'). return='prs' lists the PRs that carry the fate's "
+          "evidence: reverted -> the original PRs an applied revert reverted (with the revert reason); implemented -> "
+          "PRs with implementation evidence (merged or implementing); held or delayed_then_added -> the PRs whose "
+          "decisions held or resumed the feature; otherwise the associated PRs. It does not filter by approval or "
+          "merge state: for questions about reverted, approved, unapproved, need-merge or need-close PRs use pr_board. The product's own name is not a "
           "topic: omit topic. topic is the feature subject only; the reason (security, product_direction, "
           "introduced_bugs) goes in reason. A topic that is only a reason phrase such as 'security risks', "
           "'change in product direction' or 'introduced bugs' is moved to reason.",

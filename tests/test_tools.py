@@ -826,7 +826,7 @@ def test_resolve_entity_with_the_product_name_returns_the_product_as_scope(tg):
 def test_descriptions_state_neutral_defaults_and_pr_level_routing():
     pb, ff, bb = (TOOLS[n].description for n in ("pr_board", "feature_fate", "bug_board"))
     assert "approval alone adds no state filter" in pb and "state='any'" in pb and "PR-level" in pb
-    assert "associated with the selected features" in ff and "use pr_board" in ff
+    assert "carry the fate's evidence" in ff and "use pr_board" in ff
     assert "status 'any' and rank 'all'" in bb
     assert "feature_fate" in pb and "pr_board" in ff
 
@@ -879,3 +879,59 @@ def test_a_reason_phrase_in_the_topic_or_feature_slot_moves_to_the_reason(tg):
     assert answers(call(tg, "pr_board", feature="introduced bugs", state="reverted")) == links(15)
     assert answers(call(tg, "pr_board", feature="change in product direction", state="reverted")) == links(13)
     assert catalog._reason_phrase("security risk management tool") is None  # a real feature phrase  # noqa: SLF001
+
+
+# ---------------------------------------------------------------- PR rows carry the fate; alternatives on empty matches
+@pytest.fixture
+def lead_graph(tsrv, tmp_path):
+    """A feature with eight associated PRs (one merged and reverted) and a narrower PR-less feature inside its name."""
+    from conftest import fx_node as N
+    from inherit.facts import Facts
+    from toolfx import _e
+
+    nodes = [N("Feature", "fQ", id="fQ", title="Lead scoring", topic="lead scoring", aliases=[], details=["Scores leads"],
+               product=P, implemented=True, reverted=True, held=False, resumed=False, delayed_then_added=False,
+               discussed=True, discussed_not_implemented=False, derived_by="fate/v1"),
+             N("Feature", "fR", id="fR", title="Lead", topic="lead", aliases=[], details=[], product=P,
+               implemented=False, reverted=False, held=False, resumed=False, delayed_then_added=False,
+               discussed=True, discussed_not_implemented=None, derived_by="fate/v1"),
+             N("FeatureEvent", "fQ:ev0", id="fQ:ev0", kind="reverted", reason="product_direction", date="2026-06-09",
+               record_id="rec-fq-ev0")]
+    edges = [_e("HAS", f"Product:{P}", "Feature:fQ", ["root"]), _e("HAS", f"Product:{P}", "Feature:fR", ["root"]),
+             _e("HAS_EVENT", "Feature:fQ", "FeatureEvent:fQ:ev0", ["rec-fq-ev0"])]
+    for n in range(30, 39):
+        link = pr(n)
+        nodes.append(N("PR", link, link=link, title=f"Lead scoring {n}", number=str(n), merged=n in (30, 38),
+                       state="closed", repo=f"salesforce/{P}", repo_scope="product", approval="approved",
+                       open_unmerged=False, created_at="2026-06-01T00:00:00"))
+        edges.append(_e("HAS", f"Product:{P}", f"PR:{link}", ["root"]))
+        edges.append(_e("OPENED", f"Person:{ALICE}", f"PR:{link}", [f"rec-pr{n}"]))
+        if n < 38:
+            edges.append(_e("ABOUT", f"PR:{link}", "Feature:fQ", [f"rec-pr{n}-fQ"], kind="development"))
+    edges.append(_e("IMPLEMENTED_BY", "Feature:fQ", f"PR:{pr(30)}", ["rec-impl30"]))
+    edges.append(_e("REVERTS", f"PR:{pr(38)}", f"PR:{pr(30)}", ["rec-revert38"], reason="product_direction",
+                    applied=True, reason_text="revert"))
+    load(tsrv, tool_facts().merge(Facts(nodes, edges)))
+    return agent_graph(tsrv, tmp_path)
+
+
+def test_feature_fate_prs_are_the_prs_that_carry_the_fate(lead_graph):
+    g = lead_graph
+    assert len(call(g, "feature_fate", topic="lead scoring", **{"return": "prs"}).rows) == 8  # the associated PRs
+    rev = call(g, "feature_fate", topic="lead scoring", fate="reverted", reason="product_direction", **{"return": "prs"})
+    assert answers(rev) == [pr(30)] and rev.rows[0]["reverts"] == [{"by": pr(38), "reason": "product_direction"}]
+    assert "rec-revert38" in rev.rows[0]["evidence"] and f"PR:{pr(38)}" in rev.rows[0]["refs"]
+    assert call(g, "feature_fate", topic="lead scoring", fate="reverted", reason="security",
+                **{"return": "prs"}).rows == []
+    assert answers(call(g, "feature_fate", topic="lead scoring", fate="implemented", **{"return": "prs"})) == [pr(30)]
+    assert answers(call(g, "pr_board", feature="lead scoring", state="reverted")) == [pr(30)]
+
+
+def test_empty_feature_match_lists_alternative_features_with_row_counts(lead_graph):
+    g = lead_graph
+    r = call(g, "pr_board", feature="lead", approval="approved")
+    assert r.rows == [] and "Lead scoring (8 rows)" in r.note and "nothing was merged" in r.note
+    f = call(g, "feature_fate", topic="lead", fate="reverted", **{"return": "prs"})
+    assert f.rows == [] and "Lead scoring (1 rows)" in f.note
+    assert call(g, "pr_board", feature="lead scoring", approval="approved").note is None  # rows found: no note
+    assert call(g, "pr_board", feature="unicorn hovercraft").note is None  # no candidate contains the tokens

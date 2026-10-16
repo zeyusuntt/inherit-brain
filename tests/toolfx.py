@@ -182,8 +182,9 @@ def tool_facts() -> Facts:
         has(fid)
         for i, (kind, date, reason) in enumerate(events):
             ev = f"{k}:ev{i}"
+            held_prs = [pr(21)] if k == "fE" and kind in ("held", "resumed") else []  # the PR decisions
             nodes.append(N("FeatureEvent", ev, id=ev, kind=kind, reason=reason, reason_text=reason, date=date,
-                           record_id=f"rec-{k}-ev{i}"))
+                           record_id=f"rec-{k}-ev{i}", pr_links=held_prs))
             edges.append(_e("HAS_EVENT", fid, f"FeatureEvent:{ev}", [f"rec-{k}-ev{i}"]))
         edges.extend(_e("IMPLEMENTED_BY", fid, f"PR:{pr(n)}", [f"rec-impl{n}"]) for n in impl)
     edges += [_e("CONTRIBUTED", f"Person:{DAN}", "Feature:fD", ["rec-c1"], kind="lead", ambiguous=False),
