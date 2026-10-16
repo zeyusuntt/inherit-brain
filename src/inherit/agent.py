@@ -302,6 +302,27 @@ def _evidence_prefix(rest: str) -> list[str] | None:
         pos += 1
 
 
+def _salvage_answer_ids(text: str) -> dict | None:
+    """A reply truncated inside its answer_ids list after a complete answer_text (typically a repeating cycle of the
+    same ids cut at the output cap): keep the distinct complete ids, outcome partial, no evidence. A cut inside
+    answer_text, or before the first complete id, is not salvaged."""
+    k = text.rfind('"answer_ids"')
+    if k < 0:
+        return None
+    head = text[:k].rstrip()
+    rest = text[k + len('"answer_ids"'):].lstrip()
+    if not head.endswith(",") or not rest.startswith(":") or not rest[1:].lstrip().startswith("["):
+        return None
+    items = _evidence_prefix(rest[1:].lstrip()[1:])
+    if not items:
+        return None
+    d = json.loads(head[:-1] + "}")
+    if not isinstance(d, dict) or set(d) != {"answer_text"} or not isinstance(d["answer_text"], str):
+        return None
+    return {"answer_text": d["answer_text"], "answer_ids": list(dict.fromkeys(items)), "outcome": "partial",
+            "evidence_ids": [], "salvaged_answer_ids": True}
+
+
 def _salvage(text: str) -> dict | None:
     """A reply truncated inside its final evidence_ids list (the model hit the output cap): when everything before
     the list is a complete prefix of the object that parses on its own, drop the incomplete last item and close the
@@ -309,7 +330,7 @@ def _salvage(text: str) -> dict | None:
     try:
         k = text.rfind('"evidence_ids"')
         if k < 0:
-            return None
+            return _salvage_answer_ids(text)
         head = text[:k].rstrip()
         rest = text[k + len('"evidence_ids"'):].lstrip()
         if not head.endswith(",") or not rest.startswith(":"):
@@ -419,7 +440,7 @@ class _Loop:
         self.cap_hit = self.budget_stop = self.repaired = False
         self.tool_calls = 0
         self.reminders = 0
-        self.salvaged = False
+        self.salvaged = self.salvaged_ids = False
         self.ties: list[list[str]] = []  # answer values of each rank=max result (its top tie)
         self.tie_completed: list[str] = []
         self.model_outcome: str | None = None
@@ -591,6 +612,7 @@ class _Loop:
                 return self.fail(f"final answer rejected: {e}")
         self.model_outcome = fields["outcome"]
         self.salvaged = bool(fields.get("salvaged_evidence"))
+        self.salvaged_ids = bool(fields.get("salvaged_answer_ids"))
         asked = _bare(fields["answer_ids"])
         rows = self.guard_rows
         support = getattr(self.tools, "support", None)
@@ -618,7 +640,7 @@ class _Loop:
         from eval.arms import ArmResult
 
         diag = {"toolset": self.toolset, "model_outcome": self.model_outcome, "budget_stop": self.budget_stop,
-                "cap_hit": self.cap_hit, "salvaged_evidence": self.salvaged, "reminded": self.reminders > 0, "reminders": self.reminders, "tie_completed": self.tie_completed,
+                "cap_hit": self.cap_hit, "salvaged_evidence": self.salvaged, "salvaged_answer_ids": self.salvaged_ids, "reminded": self.reminders > 0, "reminders": self.reminders, "tie_completed": self.tie_completed,
                 "searched": searched([e["tool"] for e in self.envelopes if "error" not in e and "tool" in e], self.guard_rows), "repaired": self.repaired, "tool_calls": self.tool_calls,
                 "model_calls": len(self.calls), "dropped": self.dropped}
         return ArmResult(final, list(self.calls), [*self.envelopes, {"agent": diag}], failure)

@@ -73,6 +73,7 @@ def run(inp, *, arm: str = ARM, model: Callable | None = None, retriever=None,
         return ArmResult(FinalAnswer(outcome, text, ids, evidence, [], use), calls,
                          [{"agent": {"toolset": "hybrid_once", "model_outcome": fields["outcome"],
                                      "salvaged_evidence": bool(fields.get("salvaged_evidence")),
+                                     "salvaged_answer_ids": bool(fields.get("salvaged_answer_ids")),
                                      "chunks": len(chunks), "model_calls": 1}}])
     except BudgetExceeded:
         return _failed("budget_exceeded", calls)

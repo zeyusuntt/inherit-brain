@@ -797,7 +797,7 @@ def test_an_unfinished_final_evidence_list_is_salvaged_without_the_cut_item():
 
 
 @pytest.mark.parametrize("bad", [
-    '{"answer_text": "The answer.", "answer_ids": ["a1", "a',                      # cut inside answer_ids
+    '{"answer_text": "The answer.", "answer_ids": ["a',                            # cut inside the first id
     '{"answer_text": "The ans',                                                     # cut inside answer_text
     '{"answer_text": "x", "answer_ids": ["a1"], "evidence_ids": ["r1", "r',          # outcome missing (old order)
     '{"answer_text": "x", "answer_ids": ["a1"], "outcome": "bogus", "evidence_ids": ["r1", "r',
@@ -880,3 +880,49 @@ def test_salvage_accepts_complete_items_with_valid_separators_only_when_truncate
     assert f["evidence_ids"] == ["r1", "r2"]
     f, _ = agent._parse(V5_HEAD + '["r1",\n "r2",')
     assert f["evidence_ids"] == ["r1", "r2"] and f["salvaged_evidence"]
+
+
+# ---------------------------------------------------------------- truncation inside answer_ids (repetition at the cap)
+AI_HEAD = '{"answer_text": "The answer.", "answer_ids": ['
+
+
+def test_a_repeating_cycle_cut_mid_item_inside_answer_ids_is_salvaged_as_partial():
+    cycle = ", ".join(['"eid_aaaaaaaa"', '"eid_bbbbbbbb"', '"eid_cccccccc"'] * 40)
+    f, err = agent._parse(AI_HEAD + cycle + ', "eid_aaaa')
+    assert err == "" and f["answer_ids"] == ["eid_aaaaaaaa", "eid_bbbbbbbb", "eid_cccccccc"]
+    assert f["outcome"] == "partial" and f["evidence_ids"] == [] and f["answer_text"] == "The answer."
+    assert f["salvaged_answer_ids"] is True and "salvaged_evidence" not in f
+    assert agent.apply_consistency(f["outcome"], f["answer_text"], f["answer_ids"]) == (
+        "partial", "The answer.", None)
+
+
+def test_a_cut_at_an_item_boundary_inside_answer_ids_is_salvaged_too():
+    f, _ = agent._parse(AI_HEAD + '"a1", "a2", ')
+    assert f["answer_ids"] == ["a1", "a2"] and f["salvaged_answer_ids"] is True
+
+
+@pytest.mark.parametrize("bad", [
+    AI_HEAD + '"eid_aaaa',                                  # cut inside the first id: nothing complete
+    AI_HEAD,                                                # empty list so far
+    '{"answer_text": "The ans',                             # cut inside answer_text
+    '{"answer_text": "x", "answer_ids": ["a1"], "outcome": "pa',   # cut after answer_ids closed
+    AI_HEAD + '"a1" "a2", "a',                              # missing separator
+    '{"answer_text": 5, "answer_ids": ["a1", "a',           # answer_text invalid
+    '{"outcome": "path", "answer_text": "x", "answer_ids": ["a1", "a',   # other fields before the list
+])
+def test_other_truncations_stay_invalid(bad):
+    f, err = agent._parse(bad)
+    assert f is None and err
+
+
+def test_the_evidence_case_is_unchanged_by_the_answer_ids_rule():
+    f, _ = agent._parse(V5_HEAD + '["r1", "r2", "r')
+    assert f["salvaged_evidence"] is True and "salvaged_answer_ids" not in f and f["outcome"] == "path"
+
+
+def test_the_loop_records_the_answer_ids_salvage(tg):
+    cut = '{"answer_text": "x", "answer_ids": ["BlueWave", "BlueWave", "Blue'
+    res, _ = run(tg, [T(board()), Say(cut)])
+    assert res.final.answer_ids == ["BlueWave"] and res.final.outcome == "partial"
+    assert res.envelopes[-1]["agent"]["salvaged_answer_ids"] is True
+    assert res.envelopes[-1]["agent"]["salvaged_evidence"] is False

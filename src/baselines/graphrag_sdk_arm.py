@@ -694,6 +694,7 @@ def answer(inp: ExecInput, *, opener: Callable | None = None, model: Callable | 
             return done(f"SDK answer not convertible to the shared schema: {err}")
     diag["model_fields"] = dict(fields)
     diag["salvaged_evidence"] = bool(fields.get("salvaged_evidence"))
+    diag["salvaged_answer_ids"] = bool(fields.get("salvaged_answer_ids"))
     # Shared answer handling: support only from the retrieved context (never the question), complete tokens only,
     # the output guard on the text, then the canonical refusal and the consistency rule.
     seen = Seen()

@@ -194,7 +194,8 @@ def run(inp, *, arm: str = "A1f", model: Callable | None = None, bundle_dir=BUND
         return ArmResult(FinalAnswer(outcome, text, ids, evidence, [], use), calls,
                          [{"agent": {"toolset": "long_context", "variant": variant, "request_tokens": n,
                                      "model_outcome": fields_out["outcome"], "model_calls": 1,
-                                     "salvaged_evidence": bool(fields_out.get("salvaged_evidence"))}}])
+                                     "salvaged_evidence": bool(fields_out.get("salvaged_evidence")),
+                                     "salvaged_answer_ids": bool(fields_out.get("salvaged_answer_ids"))}}])
     except BudgetExceeded:
         return _failed("budget_exceeded", calls)
     except Exception as e:  # noqa: BLE001 - any failure is this question's terminal run_failed
