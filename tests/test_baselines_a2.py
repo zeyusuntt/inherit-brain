@@ -310,7 +310,7 @@ def test_caps_are_set_before_use(monkeypatch):
     posted = []
     monkeypatch.setattr(a2, "_post_cap", lambda arm, usd: posted.append((arm, usd)))
     a2.set_caps()
-    assert posted == [("a2-build", 1.0), ("A2", 0.3)]
+    assert posted == [("a2-build", 1.3), ("A2", 0.3)]
 
 
 def test_one_meter_name_for_answering(monkeypatch):

@@ -61,7 +61,7 @@ from inherit.tools.guard import guard, guard_evidence
 PROMPT_VERSION = "a2/v2"
 ARM_BUILD, ARM_ANSWER = "a2-build", "A2"  # the one meter name per phase; ARM_ANSWER is also the registered arm name
 SAMPLE_SEED, SAMPLE_SIZE = 20261015, 6  # the pre-registered draw of held-out products A2 runs on
-BUILD_CAP_USD, ANSWER_CAP_USD = 1.0, 0.3
+BUILD_CAP_USD, ANSWER_CAP_USD = 1.30, 0.3  # build cap raised from 1.0 by the controller to finish the AnomalyForce dev build
 FALKOR_HOST, FALKOR_PORT = "localhost", 6379  # FalkorDB 4.22.1: the SDK's fulltext DDL (db.idx.fulltext.createNodeIndex
 # with a label and fields) is rejected by 6.0.2, which then trips the SDK's circuit breaker mid-ingest
 EMBED_DIM = 1024
