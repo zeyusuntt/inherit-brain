@@ -642,3 +642,36 @@ def test_area_named_in_an_earlier_message_of_the_session_is_accepted(tmp_path):
     chat = fx.ScriptedChat(script={"20260111-2-b0003": json.dumps(answer)})
     out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
     assert bug_by_title(out.facts, "Inefficient Database Query Optimization").props["component"] == "Billing Engine Core"
+
+
+def test_events_hung_on_a_look_alike_pseudo_bug_are_dropped(tmp_path):
+    bad = {"local_id": "x9", "title": "Duplicate Log Entries for Transaction Rollbacks", "aliases": [], "component": None,
+           "impact_text": "", "customer_ids": [], "message_id": "20260113-1-c0002",
+           "citations": [fx.cite("20260113-1-c0002", "similar to our")]}
+    ev = {"type": "ASSIGNED", "bug_ref": "x9", "bug_mention": None, "actor_message_id": "20260113-2-c0003",
+          "assignee_eids": [fx.EMMA], "fix_pr_links": [], "citations": [fx.cite("20260113-2-c0003", "I'll review the PR")]}
+    slack = [r for r in fx.SLACK] + [("20260113-2-c0003", fx.EMMA, "2026-01-13T10:05:00", "Thanks! I'll review the PR.")]
+    slack = [(i, a, t, x.replace("'", "") if i == "20260113-1-c0002" else x) for i, a, t, x in slack]
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[fx.LEAK_BUG]),
+                                   "20260113-1-c0002": fx.session_json(bugs=[bad], events=[ev]),
+                                   "20260125-1-g0002": fx.session_json(events=[fx.REASSIGN_EVENT])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    assert "BugEvent:Mini:20260113-2-c0003:0" not in nodes(out.facts, "BugEvent")
+    assert len(nodes(out.facts, "Bug")) == 3
+
+
+def test_assignment_events_in_an_open_source_session_are_dropped(tmp_path):
+    ev = {"type": "ASSIGNED", "bug_ref": None, "bug_mention": "Duplicate Log Entries for Manual Actions",
+          "actor_message_id": "20260113-2-c0003", "assignee_eids": [fx.EMMA], "fix_pr_links": [],
+          "citations": [fx.cite("20260113-2-c0003", "I'll review the PR")]}
+    slack = list(fx.SLACK) + [("20260113-2-c0003", fx.EMMA, "2026-01-13T10:05:00",
+                               "Thanks! This is like Duplicate Log Entries for Manual Actions. I'll review the PR.")]
+    slack = [(i, a, t, x.replace("'", "") if i == "20260113-1-c0002" else x) for i, a, t, x in slack]
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[fx.LEAK_BUG]),
+                                   "20260113-1-c0002": fx.session_json(events=[ev]),
+                                   "20260125-1-g0002": fx.session_json(events=[fx.REASSIGN_EVENT])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    assert out.report["dropped"]["events"] == {"look_alike_session": 1}
+    assert "BugEvent:Mini:20260113-2-c0003:0" not in nodes(out.facts, "BugEvent")

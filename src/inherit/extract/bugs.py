@@ -135,6 +135,7 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
     people = {m.user_id for m in msgs.values()} | {x for m in msgs.values() for x in m.mentions}
     text = "\n".join(m.text for m in msgs.values())
     session_links = set(br.pr_links(text))
+    look_alike_session = any(repo_scope(x, cat.product_repos) == "external" for x in session_links)
     dropped = rep["dropped"]
 
     def drop(kind, reason):
@@ -149,16 +150,16 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
     for reason, n in bad.items():
         dropped["bugs"][reason] += n
     bugs = []
-    rejected: dict[str, str] = {}  # local id -> title of a bug the checks below turn down: its events keep the words
+    rejected: dict[str, str] = {}  # local id -> title of a lifecycle message's invented bug: its events keep the words
     for b in ok_bugs:
         title, mid = str(b.get("title") or "").strip(), b.get("message_id")
-        if title and isinstance(b.get("local_id"), str):
-            rejected[b["local_id"]] = title
         if not title or mid not in msgs:
             drop("bugs", "bad_title_or_message")
             continue
         if br.LIFECYCLE.search(msgs[mid].text):
             drop("bugs", "lifecycle_message")  # a resolution, dismissal or reopening names a bug, it does not open one
+            if isinstance(b.get("local_id"), str):
+                rejected[b["local_id"]] = title
             continue
         if mid in parse_handled(parse):
             drop("bugs", "already_parsed")
@@ -171,7 +172,6 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
         if comp and not area_in(comp, msgs[mid].text):
             drop("components", "not_in_message")
             comp = None
-        rejected.pop(b.get("local_id"), None)
         bugs.append({"local_id": f"x:{b.get('local_id')}", "title": title,
                      "aliases": [a for a in (b.get("aliases") or []) if isinstance(a, str) and a.strip()],
                      "component": comp,
@@ -193,6 +193,9 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
             continue
         if mid in handled:
             rep["ignored_model_events"] += 1
+            continue
+        if typ == "ASSIGNED" and look_alike_session:  # people reviewing open-source PRs are not assigned to the bug
+            drop("events", "look_alike_session")
             continue
         if typ in EVIDENCE and not EVIDENCE[typ].search(msgs[mid].text):
             drop("events", "no_evidence_for_type")
