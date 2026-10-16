@@ -94,11 +94,17 @@ def chat(
 
 
 def embed(
-    texts: list[str], *, arm: str, model: str | None = None, base_url: str | None = None
+    texts: list[str],
+    *,
+    arm: str,
+    model: str | None = None,
+    base_url: str | None = None,
+    dimensions: int | None = None,
 ) -> EmbedResult:
     client = _client(arm, base_url)
-    raw, cost = _call(
-        client.embeddings.with_raw_response.create, model=model or load_settings().embed_model, input=texts
-    )
+    kw: dict[str, Any] = dict(model=model or load_settings().embed_model, input=texts)
+    if dimensions is not None:
+        kw["dimensions"] = dimensions
+    raw, cost = _call(client.embeddings.with_raw_response.create, **kw)
     resp = raw.parse()
     return EmbedResult([d.embedding for d in resp.data], resp.usage.prompt_tokens, cost)
