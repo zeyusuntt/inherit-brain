@@ -563,7 +563,7 @@ def test_bug_board_ignores_the_product_name_as_a_component(tg, comp):
 
 
 def test_the_prompt_says_the_graph_is_already_scoped_to_the_product():
-    assert "scoped to the product" in agent.SYSTEM_PROMPT and "component" in agent.SYSTEM_PROMPT
+    assert "already in scope" in agent.SYSTEM_PROMPT and "component" in agent.SYSTEM_PROMPT
 
 
 @pytest.mark.parametrize("toolset", TOOLSETS)
@@ -577,12 +577,13 @@ def test_refusals_use_one_canonical_text_in_every_toolset(tg, toolset):
 
 
 def test_a_refusal_with_no_tool_results_still_gets_the_template(tg):
-    res, _ = run(tg, [J("Nothing.", outcome="not_in_graph")])
+    res, _ = run(tg, [J("Nothing.", outcome="not_in_graph"), J("Nothing.", outcome="not_in_graph")])
     assert res.final.answer_text == CANON + "no tool returned results."
 
 
 def test_the_template_names_the_node_types_searched(tg):
-    res, _ = run(tg, [T(("resolve_entity", {"text": "TechCorp"})), J("x", outcome="not_in_graph")])
+    res, _ = run(tg, [T(("resolve_entity", {"text": "TechCorp"})), J("x", outcome="not_in_graph"),
+                      J("x", outcome="not_in_graph")])
     assert "resolve_entity (node types: Customer)" in res.final.answer_text
 
 
@@ -595,4 +596,66 @@ def test_the_common_prompt_has_the_refusal_and_list_rules():
     p = agent.SYSTEM_PROMPT
     assert "do not state a negative fact" in p and "not_in_graph" in p
     assert "tied at the top, answer_ids lists every tied row" in p and "detail fields" in p
-    assert agent.PROMPT_VERSION == "agent/v2"
+
+
+# ---------------------------------------------------------------- refusal needs a relation query (SPEC 5.3)
+def _resolver_only(toolset):
+    return ("resolve_entity", {"text": "TechCorp"}) if toolset == "full" else ("resolve", {"text": "TechCorp"})
+
+
+def _relation(toolset):
+    if toolset == "full":
+        return board()
+    return ("neighbors", {"root_id": "Customer:CUST-0001", "edge_type": "REPORTED_BY", "direction": "in"})
+
+
+@pytest.mark.parametrize("toolset", TOOLSETS)
+def test_a_refusal_after_resolver_calls_only_gets_one_reminder_and_the_loop_continues(tg, toolset):
+    q = f"Which bugs did TechCorp report in {P}?"
+    steps = [T(_resolver_only(toolset)), J("Nothing.", outcome="not_in_graph"), T(_relation(toolset)),
+             J("BlueWave.", ["BlueWave"] if toolset == "full" else [])]
+    res, m = run(tg, steps, q=q, toolset=toolset)
+    assert len(m.calls) == 4 and res.final.outcome == "path"
+    assert m.calls[2]["messages"][-1] == {"role": "user", "content": agent.REMINDER}
+    assert m.calls[2]["messages"][-2]["role"] == "assistant" and m.calls[2]["tools"]
+    assert res.envelopes[-1]["agent"]["reminded"] is True
+
+
+@pytest.mark.parametrize("toolset", TOOLSETS)
+def test_the_reminder_is_sent_once_and_a_second_refusal_is_accepted(tg, toolset):
+    q = f"Which bugs did TechCorp report in {P}?"
+    res, m = run(tg, [T(_resolver_only(toolset)), J("x", outcome="not_in_graph"), J("x", outcome="not_in_graph")],
+                 q=q, toolset=toolset)
+    assert len(m.calls) == 3 and res.final.outcome == "not_in_graph"
+
+
+@pytest.mark.parametrize("toolset", TOOLSETS)
+def test_a_failed_resolution_allows_the_refusal_without_a_reminder(tg, toolset):
+    call = ("resolve_person", {"name": "Zed Nobody"}) if toolset == "full" else ("resolve", {"text": "Zed Nobody"})
+    res, m = run(tg, [T(call), J("x", outcome="unknown_name")], q=f"What did Zed Nobody do in {P}?", toolset=toolset)
+    assert len(m.calls) == 2 and res.final.outcome == "unknown_name"
+
+
+@pytest.mark.parametrize("toolset", TOOLSETS)
+def test_a_relation_query_with_zero_rows_allows_the_refusal(tg, toolset):
+    if toolset == "full":
+        call = ("fix_trail", {"customer": "BlueWave"})
+    else:
+        call = ("neighbors", {"root_id": "Customer:CUST-0003", "edge_type": "FIXES", "direction": "in"})
+    steps = [T(("resolve", {"text": "BlueWave"})), T(call), J("x", outcome="not_in_graph")] if toolset != "full" else \
+        [T(call), J("x", outcome="not_in_graph")]
+    res, m = run(tg, steps, q=f"Which PRs fixed BlueWave bugs in {P}?", toolset=toolset)
+    assert res.final.outcome == "not_in_graph" and len(m.calls) == len(steps) + 0
+
+
+def test_a_refusal_with_no_tool_call_at_all_gets_the_reminder(tg):
+    res, m = run(tg, [J("x", outcome="not_in_graph"), T(board()), J("BlueWave.", ["BlueWave"])])
+    assert res.final.outcome == "path" and len(m.calls) == 3
+
+
+def test_the_v3_prompt_rules():
+    p = agent.SYSTEM_PROMPT
+    assert agent.PROMPT_VERSION == "agent/v3"
+    for frag in ("never a filter and never an entity to resolve", "Add a filter only when the question states it",
+                 "full phrase from the question", "all statuses", "do not replace them with values from unrelated"):
+        assert frag in p

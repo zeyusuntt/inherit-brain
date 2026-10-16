@@ -40,7 +40,7 @@ from inherit.tools.depth1 import CALL_CAP, Episode, ToolError
 from inherit.tools.guard import guard, guard_evidence
 from inherit.tools.trace import Trace
 
-PROMPT_VERSION = "agent/v2"
+PROMPT_VERSION = "agent/v3"
 TOOLSETS = ("full", "depth1", "depth1_chain")
 SERVER = "6.0"  # the FalkorDB server the agents read (bridges uses the native algorithm there)
 MAX_TOOL_CALLS = CALL_CAP  # 12
@@ -62,16 +62,17 @@ SYSTEM_PROMPT = """You answer questions about one company's product from a knowl
 
 How to work
 1. Find facts with the tools. Never answer from memory or guess: every person, company, link and fact in your answer must come from a tool result.
-2. Look up each person, company, document, bug, feature or PR the question names before you rely on it. A name the tools cannot find is unknown; do not substitute a similar one. The graph is already scoped to the product the question names: the product is not an entity to look up, and its name is not a filter or a component.
-3. If one name matches several people (namesakes), name every candidate and say the name is ambiguous. Do not pick one.
-4. You have at most 12 tool calls and a limited reading budget, so ask for what you need and no more. A result marked truncated has a cursor for the next page; a page counts as a call.
+2. Look up each person, company, document, bug, feature or PR the question names before you rely on it. A name the tools cannot find is unknown; do not substitute a similar one. The product the question names is already in scope: it is never a filter and never an entity to resolve, and its name is not a component, feature, topic or customer.
+3. Add a filter only when the question states it: no current or previous release scope, no merged or pending state, no status restriction unless the question asks for one (for a list of companies or people affected by issues in a component, use all statuses). Pass the full phrase from the question to feature, component and topic parameters, not a shortened phrase.
+3b. If one name matches several people (namesakes), name every candidate and say the name is ambiguous. Do not pick one.
+4. Build the final answer from the rows of the call that answers the relation the question asks about; do not replace them with values from unrelated later lookups. You have at most 12 tool calls and a limited reading budget, so ask for what you need and no more. A result marked truncated has a cursor for the next page; a page counts as a call.
 5. Stop when you can answer, or when the tools show the answer is not in the graph.
 
 Final answer: reply with only one JSON object, and nothing else:
 {"answer_text": "...", "answer_ids": ["..."], "evidence_ids": ["..."], "outcome": "..."}
 - answer_text: the answer in plain sentences. Name only people, companies and items that appear in tool results; put every value that is graded (employee ids, company names, PR links, URLs) in answer_ids as well.
 - answer_ids: the answer values themselves, bare: employee ids such as eid_xxxxxxxx, company names, PR links or URLs. No label prefixes (write eid_xxxxxxxx, not Person:eid_xxxxxxxx). Use [] when you give no such values.
-- Lists and ties: when a ranking returns several rows tied at the top, answer_ids lists every tied row. For a list question, answer_ids holds every returned answer value, not a sample. For a question that asks for content (features, suggestions, issues, claims), answer_text includes the detail fields the tools returned (feature details, suggestion texts, claim texts), not only titles.
+- Lists and ties: when a ranking returns several rows tied at the top, answer_ids lists every tied row (every tied answer value). For a list question, answer_ids holds every returned answer value, not a sample. For a question that asks for content (features, suggestions, issues, claims), answer_text includes the detail fields the tools returned (feature details, suggestion texts, claim texts), not only titles.
 - Nothing found: when the tool results contain nothing that answers what was asked, do not state a negative fact (not "No X reported ..." or "X has no ...") and do not add related facts, people or ids. Set outcome to not_in_graph (or unknown_name when a name could not be found), leave answer_ids empty, and say the records do not contain the information, naming what you searched.
 - evidence_ids: record ids (messages, transcript segments, documents) that the tools returned and that support the answer.
 - outcome, one of:
@@ -83,6 +84,10 @@ Final answer: reply with only one JSON object, and nothing else:
 
 FINAL_NUDGE = ("The tool budget is used up. Give your final answer now, as the single JSON object described in the "
                "instructions, using only what the tools returned.")
+REMINDER = ("Reminder: the product is already in scope. Query the relation the question asks about before concluding "
+            "there is no information.")
+RESOLVERS = frozenset({"resolve_person", "resolve_entity", "resolve"})
+NOT_RELATION = RESOLVERS | {"get_card"}
 REPAIR = ("Your reply was not accepted ({err}). Reply again with only the JSON object described in the instructions.")
 
 
@@ -313,6 +318,7 @@ class _Loop:
         self.guard_rows: list[list[dict]] = []
         self.cap_hit = self.budget_stop = self.repaired = False
         self.tool_calls = 0
+        self.reminded = False
         self.model_outcome: str | None = None
         self.dropped: list[dict] = []
         self.max_calls = MAX_TOTAL_MODEL_CALLS  # the one declared limit of every agentic arm
@@ -383,6 +389,20 @@ class _Loop:
             self.envelopes.append({"tool": name, "params": tc.function.arguments, "error": msg})
             return json.dumps({"error": msg}, ensure_ascii=False)
 
+    def unqueried_refusal(self, content: str) -> bool:
+        """SPEC 5.3: a refusal needs a name that failed to resolve, or a relation tool that returned zero rows."""
+        fields, _ = _parse(content)
+        if fields is None or fields["outcome"] not in REFUSALS or fields["answer_ids"]:
+            return False
+        for e in self.envelopes:
+            name = e.get("tool")
+            if name is None or "error" in e:
+                continue
+            empty = not e.get("rows") and not e.get("groups") and not e.get("count")
+            if empty and (name in RESOLVERS or name not in NOT_RELATION):
+                return False
+        return True
+
     def go(self) -> "ArmResult":
         specs = self.tools.specs()
         for _ in range(MAX_TOOL_TURNS):
@@ -391,6 +411,11 @@ class _Loop:
             r = self.chat(tools=specs)
             tcs = getattr(r.message, "tool_calls", None) or []
             if not tcs:
+                if not self.reminded and self.unqueried_refusal(r.message.content or ""):
+                    self.reminded = True
+                    self.messages.append({"role": "assistant", "content": r.message.content or ""})
+                    self.messages.append({"role": "user", "content": REMINDER})
+                    continue
                 return self.finish(r.message.content or "")
             self.messages.append({"role": "assistant", "content": r.message.content or "", "tool_calls": [
                 {"id": tc.id, "type": "function",
@@ -461,7 +486,7 @@ class _Loop:
         from eval.arms import ArmResult
 
         diag = {"toolset": self.toolset, "model_outcome": self.model_outcome, "budget_stop": self.budget_stop,
-                "cap_hit": self.cap_hit, "repaired": self.repaired, "tool_calls": self.tool_calls,
+                "cap_hit": self.cap_hit, "reminded": self.reminded, "repaired": self.repaired, "tool_calls": self.tool_calls,
                 "model_calls": len(self.calls), "dropped": self.dropped}
         return ArmResult(final, list(self.calls), [*self.envelopes, {"agent": diag}], failure)
 
