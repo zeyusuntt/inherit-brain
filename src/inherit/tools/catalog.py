@@ -12,7 +12,7 @@ Rows are typed, which is what the output guard checks (guard.py):
 
 Property and edge names follow what Tasks 4a, 4b and 4c write (semantic-facts-contract.md; bug facts as written by 4b:
 the BugEvent record id is `message_id`). The what-if tool (`if_leaves`) is a separate class of operation: it runs under
-the `whatif_<p>` identity and is delegated to Task 12.
+the `whatif_<p>` identity and lives in inherit/whatif.py.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ class Tool:
     name: str
     description: str
     params_schema: dict
-    kind: str  # "readonly" (GRAPH.RO_QUERY on agent_<p>) or "whatif" (whatif_<p>, Task 12)
+    kind: str  # "readonly" (GRAPH.RO_QUERY on agent_<p>) or "whatif" (whatif_<p>, inherit/whatif.py)
     impl: Callable
 
     def run(self, conn, product: str, **params) -> ToolResult:
@@ -972,13 +972,11 @@ def _bridges(ctx: _Ctx, p: dict) -> list[dict]:
              "refs": [f"Person:{eid}"], "evidence": []} for eid, name, role, s in scored[:p["top_k"]]]
 
 
-# ---------------------------------------------------------------- 10. if_leaves (Task 12)
+# ---------------------------------------------------------------- 10. if_leaves
 def _if_leaves(conn, product: str, **params) -> ToolResult:
-    try:
-        from inherit import whatif  # lazy: Task 12
-    except ImportError as e:
-        raise NotImplementedError("if_leaves arrives with Task 12 (inherit.whatif)") from e
-    return whatif.if_leaves(conn, product, **params)
+    from inherit import whatif  # lazy: whatif imports this module
+
+    return whatif.run_tool(conn, product, params["person"])
 
 
 # ---------------------------------------------------------------- the catalogue
@@ -1103,8 +1101,9 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           {"top_k": _int("Number of people to return.", 10, 1, 100)},
           _bridges),
     _tool("if_leaves",
-          "What-if: which work has no direct owner and which people and artefacts are affected if a person leaves "
-          "(runs on a copy of the graph under the whatif identity; Task 12). "
+          "What-if: which open bugs and PRs lose their only recorded owner, which already had none, and which "
+          "features and bugs depend on that work, if a person leaves. Computed from recorded responsibility and "
+          "dependency on a copy of the graph under the whatif identity; not a prediction. "
           "Example: what happens if Alice Ng leaves? -> if_leaves(person='Alice Ng').",
           {"person": _s("The person leaving: employee id or exact directory name.")},
           _if_leaves, ("person",), kind="whatif"),
