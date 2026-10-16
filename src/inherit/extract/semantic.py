@@ -644,7 +644,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         held_dates = sorted(e["date"] for e in evs if e["kind"] == "held")
         later = [e for e in evs if held_dates and e["kind"] in ("resumed", "implemented") and e["date"] > held_dates[0]]
         blocked_by_session = any(any(t and t in fs["text"] for t in feature_text[fid]) for fs in failed_sessions)
-        complete = meetings_ok and refs_ok and not blocked_by_session
+        # a feature lost to a validation failure is absent, so its own unresolved items cannot affect another feature
+        complete = meetings_ok and not blocked_by_session
         fate[fid] = {"implemented": implemented, "reverted": reverted, "held": kinds["held"] > 0,
                      "resumed": kinds["resumed"] > 0, "delayed_then_added": bool(held_dates and later),
                      "discussed": True,

@@ -624,3 +624,13 @@ def test_features_of_one_area_are_grouped_and_every_reference_follows(tmp_path):
     assert out.report["features_merged"] == 1
     assert (f"Person:{fx.CY}", ALERTS) in pairs(out.facts, "CONTRIBUTED")
     assert out.facts.conflicts == 0
+
+
+def test_a_feature_lost_to_validation_does_not_block_the_fate_of_others(tmp_path):
+    bad = json.loads(fx.M1_ANSWER)
+    bad["features"][1]["citations"] = [fx.cite(f"{fx.M1}#4", "never said")]  # predictive analytics is lost
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(bad)
+    out, _ = run(chat, tmp=tmp_path)
+    assert out.report["manifest"]["complete"] is False and out.report["manifest"]["unresolved_feature_refs"] >= 1
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True
