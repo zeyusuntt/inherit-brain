@@ -22,8 +22,6 @@ NODE_KEYS: dict[str, str] = {
     "Feature": "id",
     "Competitor": "name",
     "ExternalBug": "link",
-    "Observation": "id",  # test fixture for Task 6, pending Task 4a
-    "FeatureEvent": "id",  # test fixture for Task 6, pending Task 4a
 }
 
 # edge type -> allowed (src label, dst label) pairs. Types from spec 5.1 are added by the task that
@@ -40,13 +38,6 @@ SIGNATURES: dict[str, frozenset[tuple[str, str]]] = {
     "SPOKE_IN": frozenset({("Person", "Meeting")}),
     "SHARED": frozenset({("Person", "Url"), ("Person", "Document"), ("Person", "PR")}),
     "COLLABORATED": frozenset({("Person", "Person")}),
-    # Added for the Task 6 load fixture; Task 4a owns the final definitions.
-    "HAS": frozenset({("Product", t) for t in ("Bug", "Document", "Meeting", "Feature", "PR", "Competitor")}),
-    "HAS_EVENT": frozenset({("Bug", "BugEvent"), ("Feature", "FeatureEvent")}),  # Task 6 fixture
-    "ABOUT": frozenset({("Observation", "Bug"), ("Observation", "Feature"), ("Observation", "Person")}),  # mixed
-    "STATED": frozenset({("Person", "Observation")}),  # Task 6 fixture
-    "CONTRIBUTED": frozenset({("Person", "Feature")}),  # Task 6 fixture
-    "REVERTS": frozenset({("PR", "PR")}),  # Task 6 fixture
 }
 
 
