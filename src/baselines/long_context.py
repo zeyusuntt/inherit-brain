@@ -187,13 +187,9 @@ def run(inp, *, arm: str = "A1f", model: Callable | None = None, bundle_dir=BUND
         rows = [rows, seen.support(asked, fields_out["evidence_ids"])]
         text, ids, _ = guard(fields_out["answer_text"], asked, rows)
         evidence, _ = guard_evidence(fields_out["evidence_ids"], rows)
-        outcome = fields_out["outcome"]
-        if outcome in agent.REFUSALS and not ids:  # the shared canonical refusal, as in agent.finish
-            text = agent.refusal_text([], [])
-        if ids and outcome in agent.REFUSALS:
-            outcome, text = "path", f"{', '.join(ids)}. {text}".strip()
-        elif not ids and not text.strip():
-            return _failed("empty final answer: no answer ids and no text", calls)
+        outcome, text, failure = agent.apply_consistency(fields_out["outcome"], text, ids)
+        if failure:
+            return _failed(failure, calls)
         use = Usage(res.prompt_tokens, res.completion_tokens, res.cost_usd, 1)
         return ArmResult(FinalAnswer(outcome, text, ids, evidence, [], use), calls,
                          [{"agent": {"toolset": "long_context", "variant": variant, "request_tokens": n,

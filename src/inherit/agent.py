@@ -36,7 +36,7 @@ from inherit.memory import Finding, Session
 from inherit.ontology import NODE_KEYS, SIGNATURES
 from inherit.tools import depth1
 from inherit.tools.catalog import TOOLS
-from inherit.tools.depth1 import CALL_CAP, Episode, ToolError
+from inherit.tools.depth1 import CALL_CAP, Episode, ToolError, fold
 from inherit.tools.guard import guard, guard_evidence
 from inherit.tools.trace import Trace
 
@@ -45,6 +45,7 @@ TOOLSETS = ("full", "depth1", "depth1_chain")
 SERVER = "6.0"  # the FalkorDB server the agents read (bridges uses the native algorithm there)
 MAX_TOOL_CALLS = CALL_CAP  # 12
 MAX_TOOL_TURNS = 12
+MAX_REMINDERS = 2
 # One per-question counter for every model call of every agentic arm: at most 24 calls in total. A custom tool set
 # (tools_factory) makes calls of its own (lookup extraction, answer verification, fallback); the last two calls are kept
 # for the final answer and one verification or repair. The built-in toolsets never exceed 14 (12 turns + answer + repair).
@@ -286,19 +287,35 @@ def _bare(ids: list[str]) -> list[str]:
     return list(dict.fromkeys(_QUALIFIED.sub("", i) for i in ids))
 
 
-REFUSAL_TEXT = "I could not find information in the records to answer this question. Searched: {searched}."
+REFUSAL_SENTENCE = "I could not find information in the records to answer this question."
 _LABEL_PREFIX = re.compile(rf"^({'|'.join(sorted(NODE_KEYS, key=len, reverse=True))}):")
 
 
-def refusal_text(tools_used: list[str], rows: list[list[dict]]) -> str:
-    """The one canonical refusal wording, the same for every arm: what was searched, by tool and node label."""
+def refusal_text(*_unused) -> str:
+    """The one refusal sentence, identical for every arm. What was searched goes to diagnostics (`searched`)."""
+    return REFUSAL_SENTENCE
+
+
+def searched(tools_used: list[str], rows: list[list[dict]]) -> str:
+    """A diagnostic summary of what a run searched: tools in call order and the node labels seen in returned refs."""
     names = list(dict.fromkeys(tools_used))
     labels = sorted({m.group(1) for group in rows for r in group for ref in r.get("refs") or []
                      if isinstance(ref, str) and (m := _LABEL_PREFIX.match(ref))})
-    searched = ", ".join(names) if names else "no tool returned results"
-    if labels:
-        searched += f" (node types: {', '.join(labels)})"
-    return REFUSAL_TEXT.format(searched=searched)
+    out = ", ".join(names) if names else "no tool returned results"
+    return out + (f" (node types: {', '.join(labels)})" if labels else "")
+
+
+def apply_consistency(outcome: str, text: str, ids: list[str]) -> tuple[str, str, str | None]:
+    """The one consistency rule, shared by every arm that answers through the common JSON format. Returns
+    (outcome, text, failure): a refusal with no ids gets the canonical sentence; a refusal with supported ids becomes
+    `path` with the values up front; no ids and no text is a failure (the caller returns run_failed)."""
+    if outcome in REFUSALS and not ids:
+        text = REFUSAL_SENTENCE
+    if ids and outcome in REFUSALS:
+        outcome, text = "path", f"{', '.join(ids)}. {text}".strip()
+    elif not ids and not text.strip():
+        return outcome, text, "empty final answer: no answer ids and no text"
+    return outcome, text, None
 
 
 def _from_memory(f: Finding) -> "ArmResult":
@@ -321,7 +338,9 @@ class _Loop:
         self.guard_rows: list[list[dict]] = []
         self.cap_hit = self.budget_stop = self.repaired = False
         self.tool_calls = 0
-        self.reminded = False
+        self.reminders = 0
+        self.ties: list[list[str]] = []  # answer values of each rank=max result (its top tie)
+        self.tie_completed: list[str] = []
         self.model_outcome: str | None = None
         self.dropped: list[dict] = []
         self.max_calls = MAX_TOTAL_MODEL_CALLS  # the one declared limit of every agentic arm
@@ -383,6 +402,10 @@ class _Loop:
             env, rows = self.tools.call(name, args)
             self.guard_rows.append(rows)
             self.envelopes.append({"tool": name, "params": args, **env})
+            if args.get("rank") == "max":
+                top = [r["answer"] for r in env.get("rows") or [] if isinstance(r.get("answer"), str)]
+                if top:
+                    self.ties.append(top)
             return json.dumps(env, ensure_ascii=False, separators=(",", ":"))
         except (ToolError, TypeError, ValueError) as e:  # a bad call is shown to the model, not fatal
             msg = str(e)
@@ -392,19 +415,40 @@ class _Loop:
             self.envelopes.append({"tool": name, "params": tc.function.arguments, "error": msg})
             return json.dumps({"error": msg}, ensure_ascii=False)
 
-    def unqueried_refusal(self, content: str) -> bool:
-        """SPEC 5.3: a refusal needs a name that failed to resolve, or a relation tool that returned zero rows."""
-        fields, _ = _parse(content)
-        if fields is None or fields["outcome"] not in REFUSALS or fields["answer_ids"]:
+    def unqueried_refusal(self, fields: dict) -> bool:
+        """SPEC 5.3: a refusal is allowed only if a needed entity failed to resolve (a resolver call that ran and found
+        nothing; an erroring call, an empty result that carries a tool note (such as an unsupported kind) or a lookup of the product itself does not count) or a relation
+        tool (anything but a resolver or get_card; neighbors counts) ran and returned zero rows."""
+        if fields["outcome"] not in REFUSALS or fields["answer_ids"]:
             return False
+        product = {fold(self.inp.product), fold(f"Product:{self.inp.product}")}
         for e in self.envelopes:
             name = e.get("tool")
             if name is None or "error" in e:
                 continue
-            empty = not e.get("rows") and not e.get("groups") and not e.get("count")
-            if empty and (name in RESOLVERS or name not in NOT_RELATION):
+            if e.get("rows") or e.get("groups") or e.get("count"):
+                continue
+            if e.get("note"):  # an empty result with a tool hint (unsupported kind, retry with the full phrase) is not proof
+                continue
+            if name in RESOLVERS:
+                params = e.get("params") or {}
+                target = params.get("text") if isinstance(params.get("text"), str) else params.get("name")
+                if not (isinstance(target, str) and fold(target) in product):
+                    return False
+            elif name not in NOT_RELATION:
                 return False
         return True
+
+    def complete_ties(self, ids: list[str]) -> list[str]:
+        """If the answer holds a value from one rank=max result's top tie, add every value tied at the top in that same
+        call. Values of other calls are never copied."""
+        out = list(ids)
+        for top in self.ties:
+            if set(top) & set(ids):
+                add = [v for v in top if v not in out]
+                out += add
+                self.tie_completed += add
+        return out
 
     def go(self) -> "ArmResult":
         specs = self.tools.specs()
@@ -414,12 +458,10 @@ class _Loop:
             r = self.chat(tools=specs)
             tcs = getattr(r.message, "tool_calls", None) or []
             if not tcs:
-                if not self.reminded and self.unqueried_refusal(r.message.content or ""):
-                    self.reminded = True
-                    self.messages.append({"role": "assistant", "content": r.message.content or ""})
-                    self.messages.append({"role": "user", "content": REMINDER})
-                    continue
-                return self.finish(r.message.content or "")
+                out = self.finish(r.message.content or "", may_remind=True)
+                if out is not None:
+                    return out
+                continue  # a reminder was sent; the tool loop goes on
             self.messages.append({"role": "assistant", "content": r.message.content or "", "tool_calls": [
                 {"id": tc.id, "type": "function",
                  "function": {"name": tc.function.name, "arguments": tc.function.arguments}} for tc in tcs]})
@@ -437,7 +479,9 @@ class _Loop:
         self.messages.append({"role": "user", "content": FINAL_NUDGE})
         return self.finish(self.chat(response_format=JSON_FORMAT).message.content or "")
 
-    def finish(self, content: str) -> "ArmResult":
+    def finish(self, content: str, may_remind: bool = False) -> "ArmResult | None":
+        """The final answer from the model's `content`. With `may_remind` a refusal that breaks the relation rule (also
+        one produced inside the JSON repair) gets a reminder instead and None is returned, up to MAX_REMINDERS."""
         fields, err = _parse(content)
         rescued = False
         if fields is None:
@@ -452,6 +496,12 @@ class _Loop:
                 rescued = fields is not None
                 if fields is None:
                     return self.fail(f"invalid final answer after one repair: {err}")
+        if (may_remind and not rescued and self.reminders < MAX_REMINDERS and self.room()
+                and self.unqueried_refusal(fields)):
+            self.reminders += 1
+            self.messages.append({"role": "assistant", "content": content})
+            self.messages.append({"role": "user", "content": REMINDER})
+            return None
         review = getattr(self.tools, "review", None)
         if review is not None and not rescued:  # the fallback answer is the paper's last resort: not verified again
             try:
@@ -468,13 +518,10 @@ class _Loop:
         evidence, ev_dropped = guard_evidence(fields["evidence_ids"], rows)
         self.dropped = dropped + [{"value": v, "where": "evidence", "reason": "not in any returned row"}
                                   for v in ev_dropped]
-        outcome = self.model_outcome
-        if outcome in REFUSALS and not ids:  # one canonical refusal for every arm
-            text = refusal_text([e["tool"] for e in self.envelopes if "error" not in e], self.guard_rows)
-        if ids and outcome in REFUSALS:
-            outcome, text = "path", f"{', '.join(ids)}. {text}".strip()
-        elif not ids and not text.strip():
-            return self.fail("empty final answer: no answer ids and no text")
+        ids = self.complete_ties(ids)
+        outcome, text, failure = apply_consistency(self.model_outcome, text, ids)
+        if failure:
+            return self.fail(failure)
         return self.result(FinalAnswer(outcome, text, ids, evidence, list(self.tools.ops), self.usage()))
 
     def usage(self) -> Usage:
@@ -489,7 +536,8 @@ class _Loop:
         from eval.arms import ArmResult
 
         diag = {"toolset": self.toolset, "model_outcome": self.model_outcome, "budget_stop": self.budget_stop,
-                "cap_hit": self.cap_hit, "reminded": self.reminded, "repaired": self.repaired, "tool_calls": self.tool_calls,
+                "cap_hit": self.cap_hit, "reminded": self.reminders > 0, "reminders": self.reminders, "tie_completed": self.tie_completed,
+                "searched": searched([e["tool"] for e in self.envelopes if "error" not in e and "tool" in e], self.guard_rows), "repaired": self.repaired, "tool_calls": self.tool_calls,
                 "model_calls": len(self.calls), "dropped": self.dropped}
         return ArmResult(final, list(self.calls), [*self.envelopes, {"agent": diag}], failure)
 

@@ -16,7 +16,7 @@ from inherit.contracts import ExecInput, QuestionKey, TraceOp
 from inherit.llm import ChatResult
 from inherit.memory import Finding, Session
 
-CANON = "I could not find information in the records to answer this question. Searched: "
+CANON = "I could not find information in the records to answer this question."
 QB = f"Which company has the most unresolved bugs in {P}?"
 QP = f"Who opened {pr(1)} in {P}?"
 TOOLSETS = ("full", "depth1", "depth1_chain")
@@ -132,8 +132,8 @@ def test_all_zero_rows_gives_not_in_graph_listing_what_was_searched(tg):
     text = "I searched the Customer nodes for BlueWave and the FIXES edges on its bugs: no rows."
     res, _ = run(tg, [T(("fix_trail", {"customer": "BlueWave"})), J(text, outcome="not_in_graph")], q=q)
     assert res.final.outcome == "not_in_graph" and res.final.answer_ids == []
-    assert res.final.answer_text.startswith(CANON) and "Searched: fix_trail" in res.final.answer_text
-    assert "BlueWave" not in res.final.answer_text.split("Searched")[0]  # the model's own wording is replaced
+    assert res.final.answer_text == CANON  # the model's own wording is replaced
+    assert res.envelopes[-1]["agent"]["searched"].startswith("fix_trail")
     assert res.envelopes[0]['rows'] == []
 
 
@@ -572,19 +572,20 @@ def test_refusals_use_one_canonical_text_in_every_toolset(tg, toolset):
     res, _ = run(tg, [T(call), J("No one named Zed Nobody ever worked on anything.", outcome="unknown_name")],
                  q=f"What did Zed Nobody work on in {P}?", toolset=toolset)
     t = res.final.answer_text
-    assert res.final.outcome == "unknown_name" and t.startswith(CANON) and t.endswith(".")
-    assert "No one named" not in t and call[0] in t
+    assert res.final.outcome == "unknown_name" and t == CANON
+    assert "No one named" not in t and call[0] in res.envelopes[-1]["agent"]["searched"]
 
 
 def test_a_refusal_with_no_tool_results_still_gets_the_template(tg):
-    res, _ = run(tg, [J("Nothing.", outcome="not_in_graph"), J("Nothing.", outcome="not_in_graph")])
-    assert res.final.answer_text == CANON + "no tool returned results."
+    res, _ = run(tg, [J("Nothing.", outcome="not_in_graph")] * 3)
+    assert res.final.answer_text == CANON
+    assert res.envelopes[-1]["agent"]["searched"] == "no tool returned results"
 
 
 def test_the_template_names_the_node_types_searched(tg):
     res, _ = run(tg, [T(("resolve_entity", {"text": "TechCorp"})), J("x", outcome="not_in_graph"),
                       J("x", outcome="not_in_graph")])
-    assert "resolve_entity (node types: Customer)" in res.final.answer_text
+    assert "resolve_entity (node types: Customer)" in res.envelopes[-1]["agent"]["searched"]
 
 
 def test_ambiguous_and_partial_keep_the_models_own_text(tg):
@@ -622,11 +623,11 @@ def test_a_refusal_after_resolver_calls_only_gets_one_reminder_and_the_loop_cont
 
 
 @pytest.mark.parametrize("toolset", TOOLSETS)
-def test_the_reminder_is_sent_once_and_a_second_refusal_is_accepted(tg, toolset):
+def test_at_most_two_reminders_then_the_refusal_is_accepted(tg, toolset):
     q = f"Which bugs did TechCorp report in {P}?"
-    res, m = run(tg, [T(_resolver_only(toolset)), J("x", outcome="not_in_graph"), J("x", outcome="not_in_graph")],
-                 q=q, toolset=toolset)
-    assert len(m.calls) == 3 and res.final.outcome == "not_in_graph"
+    res, m = run(tg, [T(_resolver_only(toolset))] + [J("x", outcome="not_in_graph")] * 3, q=q, toolset=toolset)
+    assert len(m.calls) == 4 and res.final.outcome == "not_in_graph"
+    assert res.envelopes[-1]["agent"]["reminders"] == 2
 
 
 @pytest.mark.parametrize("toolset", TOOLSETS)
@@ -682,3 +683,54 @@ def test_a_tool_note_is_shown_to_the_model_and_kept_in_the_envelope(tg, monkeypa
 def test_no_note_key_when_the_tool_gave_none(tg):
     res, m = run(tg, [T(board()), J("BlueWave.", ["BlueWave"])])
     assert "note" not in json.loads([x for x in m.calls[1]["messages"] if x["role"] == "tool"][0]["content"])
+
+
+# ---------------------------------------------------------------- hardened refusal rule, ties, shared consistency
+@pytest.mark.parametrize("toolset", TOOLSETS)
+def test_a_resolver_that_errors_or_looks_up_the_product_does_not_license_a_refusal(tg, toolset):
+    bad = ("resolve_entity", {"text": "X", "kinds": ["nonsense"]}) if toolset == "full" else ("resolve", {})
+    prod = ("resolve_entity", {"text": P}) if toolset == "full" else ("resolve", {"text": P})
+    res, m = run(tg, [T(bad), T(prod), J("x", outcome="not_in_graph"), T(_relation(toolset)),
+                      J("BlueWave.", ["BlueWave"] if toolset == "full" else [])], toolset=toolset)
+    assert len(m.calls) == 5 and res.final.outcome == "path"
+    assert m.calls[3]["messages"][-1] == {"role": "user", "content": agent.REMINDER}
+
+
+def test_a_refusal_produced_inside_the_json_repair_is_rechecked(tg):
+    res, m = run(tg, [T(("resolve_entity", {"text": "TechCorp"})), Say("not json"),
+                      J("x", outcome="not_in_graph"), T(board()), J("BlueWave.", ["BlueWave"])])
+    assert res.final.outcome == "path" and len(m.calls) == 5
+    assert m.calls[3]["messages"][-1] == {"role": "user", "content": agent.REMINDER}
+    assert res.envelopes[-1]["agent"]["repaired"] is True
+
+
+def test_ties_of_one_rank_max_call_are_completed_and_other_calls_are_not_copied(tg):
+    tied = ("bug_board", {"status": "resolved", "actor": "fix_pr_author", "rank": "max"})
+    other = ("bug_board", {"status": "any", "actor": "company", "rank": "all"})
+    res, _ = run(tg, [T(tied), T(other), J("Alice.", [ALICE])])
+    assert res.final.answer_ids == [ALICE, BOB]
+    assert res.envelopes[-1]["agent"]["tie_completed"] == [BOB]
+    assert "TechCorp" not in res.final.answer_ids  # values of the other call are never copied
+
+
+def test_no_tie_completion_without_an_answer_value_from_the_top_tie(tg):
+    res, _ = run(tg, [T(board()), J("x", [], outcome="partial")])
+    assert res.final.answer_ids == [] and res.envelopes[-1]["agent"]["tie_completed"] == []
+
+
+def test_apply_consistency_is_the_one_rule():
+    assert agent.apply_consistency("not_in_graph", "No X.", []) == ("not_in_graph", agent.REFUSAL_SENTENCE, None)
+    assert agent.apply_consistency("unknown_name", "", []) == ("unknown_name", agent.REFUSAL_SENTENCE, None)
+    assert agent.apply_consistency("not_in_graph", "n", ["a", "b"]) == ("path", "a, b. n", None)
+    assert agent.apply_consistency("partial", "", [])[2] and agent.apply_consistency("path", " ", [])[2]
+    assert agent.apply_consistency("partial", "p", ["a"]) == ("partial", "p", None)
+    assert agent.REFUSAL_SENTENCE == "I could not find information in the records to answer this question."
+
+
+def test_every_arm_that_uses_the_shared_format_shares_the_helper():
+    import inspect
+
+    from baselines import hybrid_once, long_context
+
+    for mod in (hybrid_once, long_context):
+        assert "apply_consistency" in inspect.getsource(mod) and "refusal_text" not in inspect.getsource(mod)
