@@ -31,7 +31,7 @@ from inherit.extract.structural import _links
 from inherit.facts import Edge, Facts, Node
 from inherit.ontology import check_edge
 
-EXTRACTOR = "semantic/v2"
+EXTRACTOR = "semantic/v3"
 FATE_VERSION = "feature_fate/v1"
 PENDING_VERSION = "pending/v1"
 PROMPT_VERSION = SEMANTIC_PROMPT_VERSION
@@ -54,7 +54,8 @@ PRODUCT_PLANNING = "product-planning"
 DOC_ALLOWED = {("document", "content")}
 # Completed-action evidence (C1): a completion word in a sentence with no promise, plan, condition or negation.
 _COMPLETE = re.compile(r"\b(?:completed?|merged|finished|done|shipped|delivered|deployed|launched|implemented|released"
-                       r"|resolved|wrapped up|went live|is live|are live|now live|in production)\b", re.I)
+                       r"|resolved|wrapped up|went live|is live|are live|now live|in production|updated|upgraded|rolled out"
+                       r"|(?:is|are|now|been|put) in place)\b", re.I)
 _NOT_DONE = re.compile(r"\b(?:will|shall|going to|plan(?:s|ning|ned)? to|to be|should|would|could|can|need(?:s)? to|want"
                        r" to|hope|aim|next (?:week|sprint|month)|soon|once|when|if|after|before|until|unless|yet|never"
                        r"|not|ready for)\b|'ll\b|n't\b", re.I)
@@ -66,7 +67,7 @@ _Q_START = re.compile(r"^\W*(?:and |so |but )?(?:should|shall|do|does|did|is|are
 
 def completed(text: str) -> bool:
     """True when a sentence states finished work: a completion word and no promise, plan, condition or negation."""
-    return any(_COMPLETE.search(x) and not _NOT_DONE.search(x) for x in _SENTENCES.split(text or ""))
+    return any(_COMPLETE.search(x) and not _NOT_DONE.search(x) and "?" not in x for x in _SENTENCES.split(text or ""))
 
 
 # A document sentence that says the capability exists or was added is conflicting evidence for "not implemented".
@@ -458,6 +459,59 @@ def shows_remark(remark: str, doc_text: str) -> float:
 # reach it 4% of the time (0.5: 80% and 13%; 0.4: 90% and 26%). The text of a document is not used: against another
 # type's full text the remarks average 0.53 overlap, so it does not discriminate.
 REVISION_EVIDENCE = 0.6
+
+
+_ENUM = re.compile(r"\b(?:tasks?|items|topics|priorities|areas|workstreams)\b[^:.!?]{0,40}:\s*([^.!?]+)", re.I)
+
+
+def enumerated_tasks(text: str) -> list[str]:
+    """The items of a sentence that lists the sibling tasks of a meeting ("We have four main tasks to discuss: A, B, C
+    and D"); [] unless it lists at least three, each with two or more content words."""
+    m = _ENUM.search(text or "")
+    if not m:
+        return []
+    items = [x.strip() for x in re.split(r",\s*(?:and\s+)?|\s+and\s+", m.group(1)) if x.strip()]
+    return items if len(items) >= 3 and all(len(_stems(x)) >= 2 for x in items) else []
+
+
+def _cover(task: str, other: str) -> float:
+    st = _stems(task)
+    return len(st & _stems(other)) / len(st) if len(st) >= 2 else 0.0
+
+
+def quarantined_links(dev_links, titles: dict[str, str], pr_titles: dict[str, str], sources) -> list[dict]:
+    """PR associations the bundle contradicts: a segment or message that speaks the PR (most of its title words) with
+    task wording places its work under one task of a separately enumerated list ("refining the user interface"), and the
+    feature the PR was filed under is, by its own title, a different task of the same list. Nothing is regrouped or
+    reassigned; the association is only dropped. A PR placed under two different tasks is left alone."""
+    enums = [(rid, items) for _, _, rid, raw in sources for items in [enumerated_tasks(raw)] if items]
+    if not enums:
+        return []
+    out = []
+    for link, ls_ in dev_links.items():
+        pst = _stems(pr_titles.get(link, ""))
+        if len(pst) < 3:
+            continue
+        placed: dict[tuple[int, int], dict] = {}
+        for _, _, rid, raw in sources:
+            have = _stems(raw)
+            if len(pst & have) / len(pst) < 0.8 or not _TASK_CUE.search(raw):
+                continue
+            # an item counts only if some of its words are not the PR title's own (the title cannot name the task)
+            scored = sorted(((_cover(item, raw), (e, i)) for e, (_, items) in enumerate(enums)
+                             for i, item in enumerate(items) if _stems(item) - pst), reverse=True)
+            if scored and scored[0][0] >= 2 / 3 and (len(scored) == 1 or scored[0][0] > scored[1][0]):
+                placed.setdefault(scored[0][1], {"record": rid, "task": enums[scored[0][1][0]][1][scored[0][1][1]]})
+        if len({enums[e][1][i] for e, i in placed}) != 1:
+            continue
+        (e, i), where = next(iter(placed.items()))
+        items = enums[e][1]
+        for x in ls_:
+            t = titles.get(x["feature"], "")
+            if _cover(items[i], t) < 2 / 3 and any(j != i and _cover(items[j], t) >= 2 / 3 for j in range(len(items))):
+                out.append({"pr": link, "feature": x["feature"], "placed_under": items[i], "record": where["record"],
+                            "enumeration": enums[e][0]})
+    return out
 
 
 # ---- whose document a review is about (13f): the subject is read before the type
@@ -1141,6 +1195,12 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                           "citations": [*win["citations"], *keep["also_cited"]], "basis": "explicit_task"})
         dev_links[link] = [keep]
         winner_of[link] = win["feature"]
+    quarantined = quarantined_links(dev_links, {fid: feature_info[fid]["title"] for fid in feature_info},
+                                    {link: prs_raw[link].title for link in dev_links}, task_sources)
+    for q in quarantined:  # drop only the contradicted association
+        dev_links[q["pr"]] = [x for x in dev_links[q["pr"]] if x["feature"] != q["feature"]]
+        if not dev_links[q["pr"]]:
+            del dev_links[q["pr"]]
     unassigned = [p.link for p in product_prs if p.link not in dev_links]
 
     # ---- 6. derived outcomes
@@ -1274,6 +1334,33 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 "citations": c["citations"], "author": None, "target": cid, "reporters": []})
             doc_obs_n[d.id] += 1
     observations += doc_observations
+
+    # feature-bound completion sentences of meetings: an explicit "we've updated X, it is in place" about a feature is an
+    # implemented event even when the model did not report it (or it was rejected) and a PR for it is still open
+    have_impl = {(e["feature"], e["record"]) for e in fevents if e["kind"] == "implemented"}
+    reconciled_events = 0
+    for mt_ in rec.meetings:
+        for sg_ in mt_.segments:
+            for sent in _SENTENCES.split(sg_.text):
+                if not completed(sent) or rolled_back(sent):
+                    continue
+                st_ = _stems(sent)
+                hits = []
+                for fid_, names_ in names_of.items():
+                    cov = [len(ns & st_) / len(ns) if len(ns) >= 2 else 0.0 for ns in map(_stems, names_)]
+                    if max(cov, default=0.0) >= 2 / 3:
+                        hits.append(((max(cov), cov[0]), fid_))
+                hits.sort(reverse=True)
+                if not hits or (len(hits) > 1 and hits[0][0] <= hits[1][0]) or (hits[0][1], sg_.id) in have_impl:
+                    continue
+                good, _ = validate_items([{"citations": [{"record_id": sg_.id, "quote": sent.strip()}]}],
+                                         [SourceRecord(sg_.id, "segment", "text", sg_.text)], MEETING_ALLOWED)
+                if not good:
+                    continue
+                fevents.append({"feature": hits[0][1], "kind": "implemented", "reason": None, "date": mt_.date,
+                                "record": sg_.id, "citations": good[0]["citations"], "prs": [], "source": "meeting"})
+                have_impl.add((hits[0][1], sg_.id))
+                reconciled_events += 1
 
     # number events per record (R13) and build event nodes
     per_record: Counter = Counter()
@@ -1453,7 +1540,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         "feature_events": dict(Counter(e["kind"] for e in fevents)),
         "contributions": dict(Counter(c["kind"] for c in contributions)),
         "contributors": len({e for c in contributions for e in c["eids"]}),
-        "pr_conflicts": conflicts, "events_unattached": events_unattached, "unresolved_reviews": unresolved_reviews,
+        "pr_conflicts": conflicts, "pr_quarantined": quarantined, "completion_events_reconciled": reconciled_events, "events_unattached": events_unattached, "unresolved_reviews": unresolved_reviews,
         "pr_membership": {"bugfix_prs_excluded": len(bugfix), "by_basis": dict(Counter(l_["basis"] for ls in dev_links.values() for l_ in ls[:1])),
                           "unassigned": unassigned, "features_with_prs": len({f for fl in feat_of_pr.values() for f in fl})},
         "pr_decisions": {"by_action": dict(decision_prs), "unresolved_prs": state.get("unresolved_prs", [])},

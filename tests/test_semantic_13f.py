@@ -354,3 +354,104 @@ def test_workflow_requests_are_not_reviews(text):
 def test_requests_about_the_content_are_reviews(text):
     assert is_review("suggestion", text) is True
     assert is_review("review_question", text) is True
+
+
+# ---------------------------------------------------------------- round-2 fixes: completion and merged-feature quarantine
+
+from inherit.extract.semantic import completed  # noqa: E402
+
+
+@pytest.mark.parametrize("text", [
+    "We've reviewed and updated the OAuth 2.0 implementation to align with the latest security standards. "
+    "Proper token handling and secure storage are in place, and we're compliant.",
+    "The rollout is now in place.",
+    "The migration has been completed.",
+    "We upgraded the cache layer last week.",
+])
+def test_affirmative_completed_updates_count_as_completion(text):
+    assert completed(text) is True
+
+
+@pytest.mark.parametrize("text", [
+    "The documentation needs to be updated.",
+    "We will update the OAuth flow once QA signs off.",
+    "The update is not in place yet.",
+    "Is the secure storage in place?",
+    "We plan to have it in place by Friday.",
+])
+def test_plans_negations_and_questions_are_not_completion(text):
+    assert completed(text) is False
+
+
+UPDATED = "We've reviewed and updated the real-time alerts delivery. Everything is in place."
+
+
+def test_a_feature_bound_completion_sentence_makes_the_feature_implemented_despite_an_open_pr(tmp_path):
+    rec = fx.records()
+    segs = list(fx.M1_SEGS) + [(10, "Ben Ray", UPDATED)]
+    rec.meetings[0] = fx.meeting(fx.M1, "2026-03-01T10:00:00", "product-planning",
+                                 [fx.ANN, fx.BEN, fx.CY, fx.SAM1, fx.SAM2, fx.EVE], segs)
+    out, _ = run(None, rec, tmp_path)
+    f = nodes(out.facts, "Feature")[ALERTS].props
+    assert f["implemented"] is True and f["discussed_not_implemented"] is False  # PR 3 for alerts is still open
+    ev = [e for e in nodes(out.facts, "FeatureEvent").values() if e.props["kind"] == "implemented"
+          and e.props["feature"] == ALERTS and e.props["record_id"] == f"{fx.M1}#10"]
+    assert len(ev) == 1 and ev[0].props["citations"][0]["quote"].startswith("We've reviewed and updated")
+
+
+def test_a_planned_update_does_not_make_the_feature_implemented(tmp_path):
+    rec = fx.records()
+    segs = list(fx.M1_SEGS) + [(10, "Ben Ray", "We will update the real-time alerts delivery next week.")]
+    rec.meetings[0] = fx.meeting(fx.M1, "2026-03-01T10:00:00", "product-planning",
+                                 [fx.ANN, fx.BEN, fx.CY, fx.SAM1, fx.SAM2, fx.EVE], segs)
+    out, _ = run(None, rec, tmp_path)
+    assert nodes(out.facts, "Feature")[ALERTS].props["implemented"] is False
+
+
+ENUM = "We have three main tasks to discuss: real-time alerts, predictive analytics, and data exports."
+PLACE = "Next, we have predictive analytics. Dee, you're assigned to build Predictive Model Evaluation. Can you confirm?"
+
+
+def _rec_enum(*extra):
+    rec = fx.records()
+    segs = list(fx.M1_SEGS) + [(10 + i, "Ann Lee", t) for i, t in enumerate(extra)]
+    rec.meetings[0] = fx.meeting(fx.M1, "2026-03-01T10:00:00", "product-planning",
+                                 [fx.ANN, fx.BEN, fx.CY, fx.SAM1, fx.SAM2, fx.EVE], segs)
+    return rec
+
+
+def _wrong_membership():
+    chat = fx.standard_chat()
+    orig = chat.membership
+
+    def wrong(user):
+        data = json.loads(orig(user))
+        fref = next(ln.split(":")[0] for ln in user.splitlines() if ln.startswith("F") and "alerts" in ln)
+        for a in data["assignments"]:
+            if a["quote"].startswith("Evaluate"):
+                a["feature"] = fref  # the model files the PR under the sibling task "real-time alerts"
+        return json.dumps(data)
+
+    chat.membership = wrong
+    return chat
+
+
+def test_a_pr_placed_under_a_different_enumerated_sibling_task_loses_the_association(tmp_path):
+    out, _ = run(_wrong_membership(), _rec_enum(ENUM, PLACE), tmp_path)
+    assert _about(out, 6) == set()
+    ib = {(e.src_id, e.dst_id) for e in edges(out.facts, "IMPLEMENTED_BY")}
+    assert not [x for x in ib if x[1] == f"PR:{P}6"]
+    q = out.report["pr_quarantined"]
+    assert [(x["pr"], x["feature"], x["placed_under"]) for x in q] == [(f"{P}6", ALERTS, "predictive analytics")]
+
+
+def test_without_a_placing_statement_the_association_stays(tmp_path):
+    out, _ = run(_wrong_membership(), _rec_enum(ENUM), tmp_path)
+    assert _about(out, 6) == {(f"PR:{P}6", ALERTS)}
+    assert out.report["pr_quarantined"] == []
+
+
+def test_a_placement_under_the_features_own_task_is_kept(tmp_path):
+    out, _ = run(None, _rec_enum(ENUM, PLACE), tmp_path)  # standard membership already files PR 6 under predictive analytics
+    assert _about(out, 6) == {(f"PR:{P}6", PRED)}
+    assert out.report["pr_quarantined"] == []
