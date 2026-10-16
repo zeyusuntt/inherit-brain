@@ -61,7 +61,7 @@ Every arm answers in the same JSON shape with the same answer instructions (prom
 
 {{arms_table}}
 
-A2 (GraphRAG-SDK 1.4.0 with its automatic ontology) runs on a seeded sample of held-out products because its graph build costs about 0.55 USD per product: {{a2_sample}}. No question family is multi-hop under the rule in section 11, so H3 is not estimable and A4 carries no confirmatory hypothesis. A4, A4c and A0f therefore run on one seeded prefix of the held-out products (seed 20261015), sized from the pilot costs so the whole project stays under the cap; the products are listed in the table above. Any arm run on a product subset is compared with A5 and A0 on the same products only, and its denominators are those products' questions.
+A2 (GraphRAG-SDK 1.4.0 with its automatic ontology) runs on a seeded sample of held-out products because its graph build costs about 0.55 USD per product: {{a2_sample}}. Under the rule in section 11 only one question family is multi-hop, so H3 rests on few questions (section 11). A4 answers every held-out question of the multi-hop families in all products, and otherwise runs, with A4c and A0f, on one seeded prefix of the held-out products (seed 20261015), sized from the pilot costs so the whole project stays under the cap; the table above lists the products. Any arm run on a product subset is compared with A5 and A0 on the same products only, and its denominators are those products' questions.
 
 How the differences are read:
 - A0f minus A0: the effect of the pre-extracted representation on a retrieval agent (representation and retrieved content change together).
