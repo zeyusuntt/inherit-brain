@@ -226,10 +226,13 @@ def test_a_link_is_supported_only_by_the_complete_token():
 def test_refusal_is_the_canonical_text_and_the_original_is_kept():
     raw = good(answer_ids=[], evidence_ids=[], outcome="not_in_graph", answer_text="Sorry, I do not know that.")
     res = run(StubRag(raw))
-    assert res.final.outcome == "not_in_graph" and res.final.answer_text == agent.refusal_text(["graphrag_retrieval"], [])
-    assert [e for e in res.envelopes if "a2" in e][0]["a2"]["model_fields"]["answer_text"] == "Sorry, I do not know that."
+    assert res.final.outcome == "not_in_graph" and res.final.answer_text == agent.REFUSAL_SENTENCE  # the shared sentence
+    diag = [e for e in res.envelopes if "a2" in e][0]["a2"]
+    assert diag["model_fields"]["answer_text"] == "Sorry, I do not know that."
+    assert diag["searched"] == "graphrag_retrieval"
     res = run(StubRag(raw, ctx=None))  # nothing retrieved
-    assert res.final.answer_text == agent.refusal_text([], [])
+    assert res.final.answer_text == agent.REFUSAL_SENTENCE
+    assert [e for e in res.envelopes if "a2" in e][0]["a2"]["searched"] == "no tool returned results"
 
 
 def test_qualified_ids_become_bare():
@@ -310,7 +313,7 @@ def test_caps_are_set_before_use(monkeypatch):
     posted = []
     monkeypatch.setattr(a2, "_post_cap", lambda arm, usd: posted.append((arm, usd)))
     a2.set_caps()
-    assert posted == [("a2-build", 1.45), ("A2", 0.3)]
+    assert posted == [("a2-build", 1.55), ("A2", 0.3)]
 
 
 def test_one_meter_name_for_answering(monkeypatch):
@@ -329,6 +332,18 @@ def test_arm_registered():
     assert arm.config["graph"] == "a2:<product>" and arm.config["model"]
     assert arm.sub_cap_usd == 0.3
     assert arm.config["held_out_sample_seed"] == 20261015 and arm.config["held_out_sample_size"] == 6
+
+
+def test_registration_needs_no_bundle(monkeypatch, tmp_path):
+    monkeypatch.setattr(a2, "BUNDLE_DIR", tmp_path / "missing")
+    monkeypatch.setattr(a2, "frozen_sample", lambda *a, **k: (_ for _ in ()).throw(ValueError("no bundle")))
+    assert a2.arm_config()["held_out_sample_size"] == 6  # config does not draw the sample
+
+
+def test_without_a_bundle_the_arm_fails_the_question_not_the_import(monkeypatch):
+    monkeypatch.setattr(a2, "allowed_products", lambda: (_ for _ in ()).throw(FileNotFoundError("no bundle")))
+    res = run(StubRag(good()))
+    assert res.final.outcome == "run_failed" and "held-out sample" in res.failure
 
 
 # ---------------------------------------------------------------- one budget per question (F2)
@@ -661,4 +676,3 @@ def test_the_arm_refuses_held_out_products_outside_the_sample(monkeypatch):
 def test_the_recorded_sample_on_the_real_split():
     assert a2.frozen_sample() == ["EdgeForce", "WorkFlowGenie", "PitchForce", "ProposalForce", "AutoTuneForce",
                                   "CoachForce"]
-    assert ARMS["A2"].config["held_out_sample"] == a2.frozen_sample()

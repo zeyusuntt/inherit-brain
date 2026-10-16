@@ -61,7 +61,7 @@ from inherit.tools.guard import guard, guard_evidence
 PROMPT_VERSION = "a2/v2"
 ARM_BUILD, ARM_ANSWER = "a2-build", "A2"  # the one meter name per phase; ARM_ANSWER is also the registered arm name
 SAMPLE_SEED, SAMPLE_SIZE = 20261015, 6  # the pre-registered draw of held-out products A2 runs on
-BUILD_CAP_USD, ANSWER_CAP_USD = 1.45, 0.3  # build cap raised from 1.0 by the controller to finish the AnomalyForce dev build
+BUILD_CAP_USD, ANSWER_CAP_USD = 1.55, 0.3  # build cap raised from 1.0 by the controller to finish the AnomalyForce dev build
 FALKOR_HOST, FALKOR_PORT = "localhost", 6379  # FalkorDB 4.22.1: the SDK's fulltext DDL (db.idx.fulltext.createNodeIndex
 # with a label and fields) is rejected by 6.0.2, which then trips the SDK's circuit breaker mid-ingest
 EMBED_DIM = 1024
@@ -605,18 +605,14 @@ CONVERT = ("Rewrite the answer below as the JSON object described. Restate only 
 
 
 def arm_config() -> dict:
-    s = load_settings()
-    try:
-        sample = frozen_sample()
-    except OSError:  # no local bundle: the config then records no sample and the arm refuses every held-out product
-        sample = None
+    s = load_settings()  # no bundle access here: registration must work without data/ (the sample is drawn at run time)
     return {"graph": "a2:<product>", "model": s.model, "embed_model": s.embed_model, "embed_dim": EMBED_DIM,
             "sdk": "graphrag-sdk 1.4.0", "falkordb_port": FALKOR_PORT, "ner": "LLMExtractor",
             "discovery_per_category": DISCOVERY_PER_CATEGORY, "discovery_sample_chunks": DISCOVERY_SAMPLE_CHUNKS,
             "max_output_tokens": ANSWER_MAX_TOKENS, "deadline_s": DEADLINE_S, "temperature": 0,
             "max_model_calls": agent.MAX_TOTAL_MODEL_CALLS, "reserved_final_calls": agent.RESERVED_FINAL_CALLS,
             "input_token_budget": agent.INPUT_TOKEN_BUDGET,
-            "held_out_sample_seed": SAMPLE_SEED, "held_out_sample_size": SAMPLE_SIZE, "held_out_sample": sample}
+            "held_out_sample_seed": SAMPLE_SEED, "held_out_sample_size": SAMPLE_SIZE}
 
 
 def open_graph(product: str, budget: QuestionBudget) -> GraphRAG:
@@ -646,7 +642,11 @@ def answer(inp: ExecInput, *, opener: Callable | None = None, model: Callable | 
            clock: Callable[[], float] = time.monotonic) -> ArmResult:
     """Answer one question. `opener`, `model` and `clock` are for tests."""
     budget = QuestionBudget(model, clock)
-    if inp.product not in allowed_products():
+    try:
+        allowed = allowed_products()
+    except Exception as e:  # noqa: BLE001 - no bundle: the sample cannot be drawn, so nothing is answered
+        return _failed(f"cannot determine the held-out sample: {type(e).__name__}: {e}", budget, [])
+    if inp.product not in allowed:
         return _failed(f"product {inp.product} is not in the pre-registered sample (dev products and "
                        f"{SAMPLE_SIZE} held-out products drawn with seed {SAMPLE_SEED})", budget, [])
     try:
@@ -713,13 +713,10 @@ def answer(inp: ExecInput, *, opener: Callable | None = None, model: Callable | 
     evidence, ev_dropped = guard_evidence(fields["evidence_ids"], rows)
     diag["dropped"] = dropped + [{"value": v, "where": "evidence", "reason": "not in the retrieved context"}
                                  for v in ev_dropped]
-    outcome = fields["outcome"]
-    if outcome in agent.REFUSALS and not ids:
-        text = agent.refusal_text(["graphrag_retrieval"] if items else [], [])
-    if ids and outcome in agent.REFUSALS:
-        outcome, text = "path", f"{', '.join(ids)}. {text}".strip()
-    elif not ids and not text.strip():
-        return done("empty final answer: no answer ids and no text")
+    diag["searched"] = agent.searched(["graphrag_retrieval"] if items else [], [])
+    outcome, text, failure = agent.apply_consistency(fields["outcome"], text, ids)
+    if failure:
+        return done(failure)
     diag.update(model_calls=budget.started, input_tokens=sum(c.prompt_tokens for c in budget.calls))
     calls = list(budget.calls)
     use = Usage(sum(c.prompt_tokens for c in calls), sum(c.completion_tokens for c in calls),
