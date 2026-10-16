@@ -49,12 +49,17 @@ class Caller:
         self.cost_usd = 0.0
         self.est_in = self.est_out = 0  # dry mode token estimates for the misses
 
-    def json_call(self, kind: str, messages: list[dict], max_tokens: int) -> tuple[dict | None, str | None]:
-        """(parsed object, None) or (None, reason). reason: truncated, invalid_json."""
+    def json_call(self, kind: str, messages: list[dict], max_tokens: int,
+                  check=None) -> tuple[dict | None, str | None]:
+        """(parsed object, None) or (None, reason). reason: truncated, invalid_json, invalid_shape. `check(data)` returns
+        an error string for a response of the wrong shape: such an answer is never cached or returned, and a cached one
+        that fails it is asked again."""
         path = self.dir / f"{request_sha(messages, max_tokens)}.json"
         if path.exists():
-            self.cached[kind] += 1
-            return json.loads(path.read_text(encoding="utf-8"))["response"], None
+            hit = json.loads(path.read_text(encoding="utf-8"))["response"]
+            if check is None or not check(hit):
+                self.cached[kind] += 1
+                return hit, None
         if self.dry:
             self.calls[kind] += 1
             self.est_in += len(json.dumps(messages, ensure_ascii=False)) // 4
@@ -73,6 +78,8 @@ class Caller:
             data = parse_json_object(res.message.content)
             if data is None:
                 return None, "invalid_json"
+            if check is not None and check(data):
+                return None, "invalid_shape"
             self.dir.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps({"response": data, "attempts": attempt + 1, "max_tokens": mt,
                                         "completion_tokens": res.completion_tokens}, ensure_ascii=False,

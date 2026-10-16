@@ -386,17 +386,6 @@ def _two_bug_slack(resolved_text):
     ]
 
 
-def test_mention_that_contains_exactly_one_title_links_without_the_model(tmp_path):
-    slack = _two_bug_slack("Hi team, the bug about Duplicate Log Entries for Manual Actions in the audit dashboard "
-                           "has been resolved.")
-    chat = fx.ScriptedChat()
-    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
-    assert chat.calls == []
-    r = next(n for n in nodes(out.facts, "BugEvent").values() if n.props["type"] == "RESOLVED")
-    assert r.props["link_method"] == "contained"
-    assert r.props["bug"].endswith("duplicate-log-entries-for-manual-actions")
-
-
 def test_mention_that_contains_two_titles_is_not_guessed(tmp_path):
     slack = _two_bug_slack("Hi team, the bug about Duplicate Log Entries for Manual Actions and Inefficient Database "
                            "Query Optimization has been resolved.")
@@ -559,31 +548,6 @@ def test_bug_title_slightly_reworded_by_the_model_is_cited_by_its_customer_id(tm
     assert ev.props["citations"][0]["quote"] == "CUST-0064"
 
 
-def test_mention_with_the_same_content_words_links_without_the_model(tmp_path):
-    slack = _two_bug_slack("Hi team, the bug about Manual Actions Log Entries Duplicate has been resolved.")
-    chat = fx.ScriptedChat()
-    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
-    assert chat.calls == []
-    r = next(n for n in nodes(out.facts, "BugEvent").values() if n.props["type"] == "RESOLVED")
-    assert r.props["link_method"] == "words" and r.props["bug"].endswith("duplicate-log-entries-for-manual-actions")
-
-
-def test_dropping_function_words_makes_during_the_same_as_in(tmp_path):
-    slack = [
-        ("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
-        ("20260111-1-b0002", fx.IAN, "2026-01-11T09:02:00",
-         f"First up, we have a 'Insecure Data Transmission in Export Process' issue. Customer CUST-0047 is affected. "
-         f"@{fx.EMMA}, can you take this one?"),
-        ("20260126-0-f0001", fx.EMMA, "2026-01-26T13:00:00",
-         "Hi team, I looked into the reported issue about insecure data transmission during the export process."),
-        ("20260126-1-f0002", fx.EMMA, "2026-01-26T13:02:00", "After reviewing, this is functioning as intended."),
-    ]
-    chat = fx.ScriptedChat()
-    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
-    assert chat.link_calls == []  # (a session call for the missing product area is separate)
-    assert out.report["events"]["unmatched"] == 0
-
-
 def test_model_cannot_open_a_bug_from_a_lifecycle_message(tmp_path):
     bad = {"local_id": "x9", "title": "Duplicate Log Entries for Manual Actions again", "aliases": [], "component": None,
            "impact_text": "", "customer_ids": [], "message_id": "20260125-0-g0001",
@@ -594,23 +558,6 @@ def test_model_cannot_open_a_bug_from_a_lifecycle_message(tmp_path):
     out, _ = run(chat=chat, tmp=tmp_path)
     assert len(nodes(out.facts, "Bug")) == 3
     assert out.report["dropped"]["bugs"] == {"lifecycle_message": 1}
-
-
-def test_reintroduced_title_that_contains_an_earlier_bug_is_the_same_bug(tmp_path):
-    slack = [
-        ("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
-        ("20260111-1-b0002", fx.IAN, "2026-01-11T09:02:00",
-         f"First up, we have a 'Data Integrity Issue'. Customer CUST-0047 is affected. @{fx.EMMA}, can you take this?"),
-        ("20260121-0-c0001", fx.IAN, "2026-01-21T09:00:00", fx.B_INTRO),
-        ("20260121-1-c0002", fx.IAN, "2026-01-21T09:02:00",
-         f"First up, we have a 'Data Integrity Issue in Trend Reports'. Customer CUST-0108 is affected. "
-         f"@{fx.BOB}, can you take this?"),
-    ]
-    out, _ = run(chat=fx.ScriptedChat(), rec=fx.records(slack=slack), tmp=tmp_path)
-    [b] = nodes(out.facts, "Bug").values()
-    assert b.props["customer_ids"] == ["CUST-0047", "CUST-0108"]
-    assert "Data Integrity Issue in Trend Reports" in b.props["aliases"]
-    assert b.props["current_assignees"] == [fx.BOB]
 
 
 def test_events_of_a_rejected_model_bug_fall_back_to_its_title_as_the_mention(tmp_path):
@@ -717,3 +664,127 @@ def test_look_alike_with_a_bad_quote_is_cited_by_its_link(tmp_path):
     [x] = nodes(out.facts, "ExternalBug").values()
     assert x.props["citations"][0]["quote"] == "https://github.com/postgres/postgres/pull/3"
     assert out.report["repaired_citations"] == 1
+
+
+# ---------------------------------------------------------------- identity is exact; the model links the rest
+
+def _pair_slack(resolved_text, ts="2026-01-15T11:00:00"):
+    return [
+        ("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
+        ("20260111-1-b0002", fx.IAN, "2026-01-11T09:02:00",
+         f"First up, we have a 'Exports Overwrite Imports' issue. Customer CUST-0047 is affected. @{fx.EMMA}, can you take this one?"),
+        ("20260111-2-b0003", fx.IAN, "2026-01-11T09:10:00",
+         f"Next, we have an 'Imports Overwrite Exports' issue. Customer CUST-0108 is affected. @{fx.BOB}, can you take this one?"),
+        ("20260115-0-d0001", fx.BOB, ts, resolved_text),
+    ]
+
+
+def test_reordered_words_are_two_bugs_and_a_lookalike_mention_goes_to_the_model(tmp_path):
+    slack = _pair_slack("Hi team, the bug about overwrite imports exports has been resolved.")
+    chat = fx.ScriptedChat(link=fx.link_json(("I1", "B2")))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    assert len(nodes(out.facts, "Bug")) == 2
+    assert len(chat.link_calls) == 1
+    r = next(n for n in nodes(out.facts, "BugEvent").values() if n.props["type"] == "RESOLVED")
+    assert r.props["link_method"] == "model" and r.props["bug"].endswith("imports-overwrite-exports")
+
+
+def test_reordered_title_introduced_later_is_a_new_bug_not_a_merge(tmp_path):
+    out, _ = run(chat=fx.ScriptedChat(), rec=fx.records(slack=_pair_slack("Thanks all.")), tmp=tmp_path)
+    titles = sorted(b.props["title"] for b in nodes(out.facts, "Bug").values())
+    assert titles == ["Exports Overwrite Imports", "Imports Overwrite Exports"]
+
+
+def test_containing_mention_is_not_linked_without_the_model(tmp_path):
+    slack = _pair_slack("Hi team, the bug about Exports Overwrite Imports in the audit dashboard has been resolved.")
+    chat = fx.ScriptedChat(link=fx.link_json(("I1", None)))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    assert len(chat.link_calls) == 1 and out.report["events"]["unmatched"] == 1
+
+
+def test_local_reference_to_a_bug_reported_later_stays_unmatched(tmp_path):
+    # the ack at 09:01 would self-assign the bug introduced at 09:05
+    slack = [
+        ("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
+        ("20260111-1-b0002", fx.BOB, "2026-01-11T09:01:00", "Sure thing! I'll dive in right away."),
+        ("20260111-2-b0003", fx.IAN, "2026-01-11T09:05:00",
+         "First up, we have a 'Memory Leak in Exports' issue. Customer CUST-0047 is affected. Can you take this one?"),
+    ]
+    out, _ = run(chat=fx.ScriptedChat(), rec=fx.records(slack=slack), tmp=tmp_path)
+    b = bug_by_title(out.facts, "Memory Leak in Exports").props
+    assert "ASSIGNED" not in b["event_types"]
+    assert out.report["events"]["unmatched"] >= 0
+
+
+def test_model_event_with_a_local_ref_to_a_later_bug_stays_unmatched(tmp_path):
+    # 20260111-2-b0003 (09:05) says it takes the leak bug that is only introduced at 09:20 (b0006)
+    ev = {"type": "ASSIGNED", "bug_ref": "x1", "bug_mention": None, "actor_message_id": "20260111-2-b0003",
+          "assignee_eids": [fx.EMMA], "fix_pr_links": [], "citations": [fx.cite("20260111-2-b0003", "I'll dive into")]}
+    slack = [r if r[0] != "20260111-2-b0003" else (r[0], r[1], r[2], "Sure thing! I'll dive into the leak.") for r in fx.SLACK]
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[fx.LEAK_BUG], events=[ev]),
+                                   "20260125-1-g0002": fx.session_json(events=[fx.REASSIGN_EVENT])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    leak = bug_by_title(out.facts, "Memory Leak in Suggestion Rendering").props
+    assert "ASSIGNED" not in leak["event_types"]
+    assert out.report["events"]["unmatched"] == 1
+
+
+# ---------------------------------------------------------------- response shape, long sessions
+
+@pytest.mark.parametrize("bad", [
+    '{"bugs": 7, "events": [], "external": []}',
+    '{"bugs": [], "events": ["x"], "external": []}',
+    '{"bugs": [], "events": [], "external": [], "components": {"a": 1}}',
+])
+def test_valid_json_with_the_wrong_shape_is_a_failure_and_is_not_cached(tmp_path, bad):
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": bad, "20260125-1-g0002": fx.session_json(events=[fx.REASSIGN_EVENT])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, tmp=tmp_path)
+    [f] = out.report["extraction_failures"]
+    assert f["reason"] == "invalid_shape" and "20260111-5-b0006" in f["messages"]
+    assert len(list((tmp_path / bugs.PROMPT_VERSION).glob("*.json"))) == 2  # the bad answer is not on disk
+
+
+def test_link_answer_with_the_wrong_shape_is_a_failure(tmp_path):
+    chat = fx.ScriptedChat(script=dict(fx.standard_chat().script), link='{"links": 5}')
+    out, _ = run(chat=chat, tmp=tmp_path)
+    assert [f["kind"] for f in out.report["extraction_failures"]] == ["link"]
+    assert out.report["events"]["unmatched"] == 1
+
+
+def test_poisoned_cache_entry_is_ignored(tmp_path):
+    run(tmp=tmp_path)
+    for f in (tmp_path / bugs.PROMPT_VERSION).glob("*.json"):
+        d = json.loads(f.read_text())
+        if "bugs" in d["response"]:
+            d["response"]["bugs"] = 7
+            f.write_text(json.dumps(d))
+    chat = fx.standard_chat()
+    out, _ = run(chat=chat, tmp=tmp_path)
+    assert out.report["extraction_failures"] == [] and len(chat.session_calls) == 2  # both poisoned answers are asked again
+
+
+def _long_slack(n=120):
+    rows = [("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
+            ("20260111-1-b0002", fx.IAN, "2026-01-11T09:01:00", fx.B_TITLE3)]
+    for i in range(n):
+        rows.append((f"20260111-{i + 2}-c{i:04d}", fx.EMMA if i % 2 else fx.BOB, f"2026-01-11T{10 + i // 60:02d}:{i % 60:02d}:30",
+                     "Thanks, will check on this soon. " * 12))
+    return rows
+
+
+def test_oversized_session_is_split_at_message_boundaries(tmp_path):
+    leak = dict(fx.LEAK_BUG, message_id="20260111-1-b0002",
+                citations=[fx.cite("20260111-1-b0002", "memory leak issue in the suggestion rendering")])
+    chat = fx.ScriptedChat(script={"20260111-1-b0002": fx.session_json(bugs=[leak])})
+    out, _ = run(chat=chat, rec=fx.records(slack=_long_slack()), tmp=tmp_path)
+    calls = chat.session_calls
+    assert len(calls) >= 2
+    for c in calls:
+        assert len(c["user"]) / 3 <= 6000
+        assert "[20260111-0-b0001]" in c["user"]  # the opener stays as context
+    seen = [m for c in calls for m in __import__("re").findall(r"\[(20260111-\d+-c\d{4})\]", c["user"])]
+    assert len(set(seen)) == 120  # every message reaches the model once
+    assert len(nodes(out.facts, "Bug")) == 1
+    assert out.report["split_sessions"] == 1

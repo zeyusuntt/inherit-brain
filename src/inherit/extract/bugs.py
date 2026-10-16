@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from inherit import llm
@@ -104,6 +104,51 @@ def build_session_request(session, parse, rec, cat, known_areas=()) -> tuple[lis
     return [{"role": "system", "content": BUG_SESSION_SYSTEM}, {"role": "user", "content": "\n".join(lines)}], max_tokens
 
 
+MAX_INPUT_TOKENS = 6000
+CHUNK_CHARS = 3 * 4000  # message text per chunk when a session is split (characters / 3 estimates tokens)
+
+
+def split_session(session, parse, rec, cat, known_areas=()):
+    """[(messages, parse)] to send. A session whose request fits in 6,000 input tokens (characters / 3) goes whole.
+    A longer one is cut at message boundaries; every chunk starts with the session opener as context, keeps the full
+    rules list (so refs m1.. stay stable) and only its own unparsed messages and area gaps."""
+    req, _ = build_session_request(session, parse, rec, cat, known_areas)
+    if len(req[1]["content"]) / 3 <= MAX_INPUT_TOKENS:
+        return [(session, parse)]
+    msgs = [m for m in session if not m.is_bot]
+    chunks, cur, size = [], [], 0
+    for m in msgs:
+        n = len(_msg_line(m, rec.employees)) + 1
+        if cur and size + n > CHUNK_CHARS:
+            chunks.append(cur)
+            cur, size = [], 0
+        cur.append(m)
+        size += n
+    chunks.append(cur)
+    out = []
+    for c in chunks:
+        ids = {m.id for m in c}
+        own = c if c[0].id == msgs[0].id else [msgs[0], *c]
+        by_msg = {b["local_id"]: b["message_id"] for b in parse.bugs}
+        out.append((own, replace(parse, residual=[x for x in parse.residual if x in ids],
+                                 no_area=[x for x in parse.no_area if by_msg[x] in ids])))
+    return out
+
+
+def _items(data, key) -> bool:
+    v = data.get(key)
+    return v is None or (isinstance(v, list) and all(isinstance(x, dict) for x in v))
+
+
+def session_shape_error(data: dict) -> str | None:
+    bad = [k for k in ("bugs", "events", "external", "components") if not _items(data, k)]
+    return f"not a list of objects: {bad}" if bad else None
+
+
+def link_shape_error(data: dict) -> str | None:
+    return None if _items(data, "links") else "links is not a list of objects"
+
+
 def hints_of(parse) -> dict[str, dict]:
     """Refs m1.. for rules events that name a bug by words (no local bug): the model may point at them."""
     out = {}
@@ -117,7 +162,8 @@ def build_link_request(bugs_in_order, items, channel_name) -> tuple[list[dict], 
     lines = [f"CHANNEL: {channel_name}", "", "BUGS:"]
     for ref, b in bugs_in_order:
         lines.append(f"{ref}: '{b['title']}'; aliases {b['aliases'][:5]}; component {b['component']}; "
-                     f"customers {', '.join(b['customer_ids']) or 'none'}; first reported {b['first_ts']}")
+                     f"customers {', '.join(b['customer_ids']) or 'none'}; first reported {b['first_ts']}; "
+                     f"text: {(b.get('impact_text') or '')[:220]!r}")
     lines += ["", "ITEMS:"]
     for ref, it in items:
         lines.append(f"{ref}: kind {it['kind']}; type {it['type']}; time {it['ts']}; words used for the bug: "
@@ -130,7 +176,7 @@ def build_link_request(bugs_in_order, items, channel_name) -> tuple[list[dict], 
 
 # ---------------------------------------------------------------- model answer -> validated candidates
 
-def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_only=False):
+def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_only=False, prefix=""):
     """Validated (bugs, events, externals) from one model answer. Counts every drop in `rep`."""
     msgs = {m.id: m for m in session if not m.is_bot}
     people = {m.user_id for m in msgs.values()} | {x for m in msgs.values() for x in m.mentions}
@@ -173,7 +219,7 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
         if comp and not area_in(comp, msgs[mid].text):
             drop("components", "not_in_message")
             comp = None
-        bugs.append({"local_id": f"x:{b.get('local_id')}", "title": title,
+        bugs.append({"local_id": f"x:{prefix}{b.get('local_id')}", "title": title,
                      "aliases": [a for a in (b.get("aliases") or []) if isinstance(a, str) and a.strip()],
                      "component": comp,
                      "impact_text": str(b.get("impact_text") or ""), "customer_ids": cids, "message_id": mid,
@@ -218,8 +264,8 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
         fix = [br.pr_links(x)[0] for x in fix if br.pr_links(x)]
         fix = [x for x in fix if x in session_links]
         ref, mention, local = e.get("bug_ref"), e.get("bug_mention"), None
-        if isinstance(ref, str) and f"x:{ref}" in local_ids:
-            local = f"x:{ref}"
+        if isinstance(ref, str) and f"x:{prefix}{ref}" in local_ids:
+            local = f"x:{prefix}{ref}"
         elif isinstance(ref, str) and ref in local_ids:
             local = ref
         elif isinstance(ref, str) and ref in hints:
@@ -347,7 +393,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
     by_id = {m.id: m for m in bug_msgs}
     rep = {"dropped": defaultdict(Counter), "ignored_model_events": 0, "extraction_failures": [],
            "unmatched_events": [], "fix_links_not_in_catalogue": [], "sessions": 0, "model_sessions": 0,
-           "residual_messages": 0, "unlinked_external": [], "rules_dropped": Counter(), "repaired_citations": 0}
+           "residual_messages": 0, "unlinked_external": [], "rules_dropped": Counter(), "repaired_citations": 0, "model_calls_split_sessions": 0}
     src_all = {m.id: SourceRecord(m.id, "message", "text", m.text) for m in bug_msgs}
 
     nodes: dict[str, Node] = {}
@@ -392,23 +438,13 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
             return _dt(ch_bugs[bid]["first_ts"]) <= _dt(ts)
 
         def find_bug(text, ts):
-            """(bug id, method) or (None, None): exact or alias key; else a unique bug whose title or alias (3 words or
-            more) sits whole inside the mention or the other way round; else a unique bug whose title or alias has the
-            same content words (3 or more). More than one candidate is no match."""
+            """(bug id, method) or (None, None): the exact normalised title or an established alias of a bug that was
+            already reported at `ts`. Word overlap never decides identity; the rest goes to the channel linker."""
             k = key_of(text)
             bid = registry.get(k)
             if bid and eligible(bid, ts):
                 return bid, ("exact" if key_of(ch_bugs[bid]["title"]) == k else "alias")
-            if not k:
-                return None, None
-            hits = {rb for rk, rb in registry.items() if eligible(rb, ts) and (
-                (len(rk.split()) >= 3 and f" {rk} " in f" {k} ") or (len(k.split()) >= 3 and f" {k} " in f" {rk} "))}
-            if len(hits) == 1:
-                return next(iter(hits)), "contained"
-            words = br.content_words(text)
-            same = {rb for rk, rb in registry.items() if eligible(rb, ts) and len(words) >= 3
-                    and br.content_words(rk) == words}
-            return (next(iter(same)), "words") if len(same) == 1 else (None, None)
+            return None, None
 
         for si, session in enumerate(sessions(msgs)):
             rep["sessions"] += 1
@@ -424,16 +460,24 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
             m_bugs, m_events, m_ext = [], [], []
             if parse.residual or parse.reopen or parse.no_area:
                 rep["model_sessions"] += 1
-                req, mt = build_session_request(session, parse, rec, cat, known_areas)
-                data, reason = caller.json_call("session", req, mt)
-                if data is None:
-                    rep["extraction_failures"].append({"kind": "session", "channel_id": channel_id,
-                                                       "messages": [m.id for m in session if not m.is_bot],
-                                                       "reason": reason})
-                else:
-                    m_bugs, m_events, m_ext, areas = _clean_session_answer(
-                        data, session, parse, rec, cat, rep, sess_src,
-                        areas_only=not (parse.residual or parse.reopen))
+                chunks = split_session(session, parse, rec, cat, known_areas)
+                rep["model_calls_split_sessions"] += len(chunks) > 1
+                for ci, (csess, cparse) in enumerate(chunks):
+                    req, mt = build_session_request(csess, cparse, rec, cat, known_areas)
+                    data, reason = caller.json_call("session", req, mt, session_shape_error)
+                    if data is None:
+                        rep["extraction_failures"].append({"kind": "session", "channel_id": channel_id,
+                                                           "messages": [m.id for m in csess if not m.is_bot],
+                                                           "reason": reason})
+                        continue
+                    csrc = [src_all[m.id] for m in csess if not m.is_bot]
+                    cb, ce, cx, areas = _clean_session_answer(
+                        data, csess, cparse, rec, cat, rep, csrc,
+                        areas_only=not (cparse.residual or cparse.reopen),
+                        prefix=f"{ci}." if len(chunks) > 1 else "")
+                    m_bugs += cb
+                    m_events += ce
+                    m_ext += cx
                     for b in parse.bugs:
                         b["component"] = b["component"] or areas.get(b["local_id"])
             local_bug: dict[str, str] = {}
@@ -471,9 +515,11 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                     if ev["bug_id"] is None:
                         rep["dropped"]["events"]["bug_dropped"] += 1
                         continue
+                    if not eligible(ev["bug_id"], m.ts):  # the bug was not reported yet: no target, stays unmatched
+                        ev["bug_id"] = ev["link_method"] = None
                 else:
                     ev["bug_id"], ev["link_method"] = find_bug(e["mention"], m.ts)
-                if ev["bug_id"] is None:
+                if ev["bug_id"] is None and ev.get("mention"):
                     pending.append(ev)
                 ch_events.append(ev)
             for x in [*parse.externals, *m_ext]:
@@ -502,7 +548,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                                                      "context": ctx, "_p": p, "_ok": set(eligible)}))
             if items:
                 req, mt = build_link_request(list(bref.items()), [(r, i) for r, i in items], cname)
-                data, reason = caller.json_call("link", req, mt)
+                data, reason = caller.json_call("link", req, mt, link_shape_error)
                 if data is None:
                     rep["extraction_failures"].append({"kind": "link", "channel_id": channel_id,
                                                        "messages": [i["_p"]["message_id"] for _, i in items],
@@ -642,6 +688,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
         "extraction_failures": rep["extraction_failures"],
         "dropped": {k: dict(v) for k, v in rep["dropped"].items()},
         "rules_dropped": dict(rep["rules_dropped"]), "repaired_citations": rep["repaired_citations"],
+        "split_sessions": rep["model_calls_split_sessions"],
         "ignored_model_events": rep["ignored_model_events"],
         "estimate": {"prompt_tokens": caller.est_in, "completion_tokens": caller.est_out,
                      "projected_usd": round(caller.projected_usd(), 6)} if dry else None,
