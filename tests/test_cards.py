@@ -40,8 +40,11 @@ def test_bug_card_has_customer_id_and_company_but_not_contact_role(g):
 def test_bug_card_props_follow_the_allowlist(g):
     c = cards.card(g, "Bug:b5")
     assert c["props"] == {"title": "Users can't log in", "component": "Auth", "aliases": ["login failure"],
-                          "unresolved": True, "active": True, "reopened": False, "no_fix_needed": False}
-    assert "resolver" not in c["props"] and "status" not in c["props"]  # no copied relationship answers
+                          "impact_text": "Users cannot sign in.", "first_reported": "2026-06-01T09:00:00",
+                          "status": "active", "unresolved": True, "active": True, "reopened": False,
+                          "no_fix_needed": False, "resolved": False}
+    for helper in ("current_assignees", "customer_ids", "companies", "event_types", "resolver"):
+        assert helper not in c["props"]  # pre-joined answers stay out of cards
 
 
 def test_own_props_only_allowlisted_and_never_embedding(g):
@@ -184,7 +187,7 @@ def test_allowlist_covers_every_ontology_label_and_bans_internal_fields():
     assert set(cards.ALLOWLIST) == set(NODE_KEYS)
     for label, fields in cards.ALLOWLIST.items():
         assert not any(f.endswith("_json") or f in ("embedding", "extractor", "key", "source_id") for f in fields)
-    assert cards.CARD_VERSION == "v1"
+    assert cards.CARD_VERSION == "v2"
     assert cards.SRC_CAP == 3 and "COLLABORATED" in cards.EXCLUDED_EDGES
 
 
@@ -204,4 +207,13 @@ def test_doc_fields_section_is_generated_from_code():
     assert cards.render_fields() in doc
     for label in cards.ALLOWLIST:
         assert f"### {label}" in cards.render_fields()
-    assert "v1" in doc and "12,000" in doc and "deviation" in doc.lower()
+    assert "v2" in doc and "12,000" in doc and "deviation" in doc.lower()
+
+
+def test_feature_card_has_the_fate_predicates_and_no_copied_lists():
+    for f in ("implemented", "reverted", "held", "delayed_then_added", "discussed_not_implemented", "topic"):
+        assert f in cards.ALLOWLIST["Feature"]
+    assert not {"people", "prs", "contributors"} & set(cards.ALLOWLIST["Feature"])
+    assert {"record_id", "reason", "date", "kind"} <= set(cards.ALLOWLIST["FeatureEvent"])
+    assert {"pending_action", "approval", "repo_scope"} <= set(cards.ALLOWLIST["PR"])
+    assert cards.ALLOWLIST["Competitor"] == ("name", "aliases")

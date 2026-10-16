@@ -13,14 +13,15 @@ import json
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-CARD_VERSION = "v1"
+CARD_VERSION = "v2"
 SRC_CAP = 3  # record ids listed per neighbour entry; a longer list ends with "..." and no count
 ELLIPSIS = "..."
 EXCLUDED_EDGES = frozenset({"COLLABORATED"})  # derived analytic projection, not a recorded relation
 PRODUCT_LABELS = ("Bug", "Document", "Meeting", "Feature", "PR", "Competitor")  # spec 6.1: all a Product card lists
 
 # Logical field allowlist per label, frozen with CARD_VERSION. Names are logical: `_json` storage is decoded first.
-# Nothing here is a copied relationship answer (resolver, fix author, assignee, counts): those stay traversals.
+# Nothing here is a copied relationship answer (resolver, fix author, assignee, counts) or aggregate: those stay
+# traversals. Bug helper lists (companies, customer_ids, current_assignees, event_types) are left out for that reason.
 ALLOWLIST: dict[str, tuple[str, ...]] = {
     "Product": ("name", "aliases"),
     "Person": ("eid", "name", "role", "in_directory"),
@@ -31,16 +32,17 @@ ALLOWLIST: dict[str, tuple[str, ...]] = {
                  "source_product_name"),
     "Meeting": ("document_type", "date", "release_scope"),
     "PR": ("title", "number", "summary", "state", "merged", "mergeable", "created_at", "repo", "repo_scope",
-           "approval", "open_unmerged"),
+           "approval", "open_unmerged", "pending_action", "pending_reason"),
     "Url": ("link", "descriptions", "kind", "release_scope", "source_product_name"),
-    "Bug": ("title", "component", "aliases", "impact_text", "unresolved", "active", "reopened", "no_fix_needed"),
-    "BugEvent": ("ts", "type", "position"),
-    "Feature": ("title", "aliases", "details", "implemented", "reverted", "delayed_then_added",
+    "Bug": ("title", "aliases", "component", "impact_text", "first_reported", "status", "unresolved", "active",
+            "reopened", "no_fix_needed", "resolved"),
+    "BugEvent": ("ts", "type", "seq"),
+    "Feature": ("title", "topic", "aliases", "details", "implemented", "reverted", "held", "delayed_then_added",
                 "discussed_not_implemented"),
-    "FeatureEvent": ("kind", "date", "reason"),
-    "Competitor": ("name",),
+    "FeatureEvent": ("kind", "reason", "reason_text", "date", "record_id"),
+    "Competitor": ("name", "aliases"),
     "ExternalBug": ("title", "link"),
-    "Observation": ("kind", "text", "release_scope"),
+    "Observation": ("kind", "text", "release_scope", "record_id"),
 }
 
 # Stored fields a display name may need (Task 6 storage: record id in `source_id`, dicts under `<name>_json`).

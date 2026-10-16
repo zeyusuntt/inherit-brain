@@ -27,7 +27,9 @@ def card_facts(load_facts, many: int = 0, extra: Facts | None = None) -> Facts:
     nodes = [
         N("Bug", "b5", id="b5", status="active", title="Users can't log in", component="Auth",
           aliases=["login failure"], unresolved=True, active=True, reopened=False, no_fix_needed=False,
-          resolver="Person:eid_b2000002"),
+          resolved=False, first_reported="2026-06-01T09:00:00", impact_text="Users cannot sign in.",
+          current_assignees=["eid_b2000002"], customer_ids=["CUST-0001"], companies=["TechCorp"],
+          event_types=["REPORTED"], resolver="Person:eid_b2000002"),
         N("Document", "long_doc", id="long_doc", type="Long Report", content=LONG, feedback="- one\n- two"),
     ]
     edges = [
