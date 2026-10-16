@@ -542,3 +542,59 @@ def test_empty_pool_gate_is_shown_as_not_estimable_not_as_a_pass(world):
     row = next(line for line in table.splitlines() if "whatif_path" in line)
     assert "not estimable (empty dev pool)" in row and "pass" not in row.split("|")[-2]
     assert "| pass |" in next(line for line in table.splitlines() if "precision:bug" in line)
+
+
+# ---------------------------------------------------------------- include_families
+def fam_questions():
+    import dataclasses
+
+    qs = mk_questions(("P1", "P2", "P3"))
+    out = []
+    for q in qs:
+        if q.key.product in ("P2", "P3") and q.key.kind == "ans" and q.key.index == 0:
+            q = dataclasses.replace(q, text=f"Who is the lead of {q.key.product}?")  # the multi-hop family
+        if q.key.product == "P3" and q.key.kind == "unans" and q.key.index == 0:
+            q = dataclasses.replace(q, text="Who is the lead of P3?")  # same string, but unanswerable
+        out.append(q)
+    return out
+
+
+def fam_run(tmp_path, monkeypatch, spec, prereg_line="multi-hop family: who is the lead of <p>"):
+    (tmp_path / "PREREG.md").write_text(f"facts hash: {FACTS}\n{prereg_line}\n")
+    monkeypatch.setitem(ARMS, "fake", make_arm(name="fake"))
+    write_arms(tmp_path, {"fake": spec})
+    return R.run_arm("fake", "held", questions=fam_questions(), launch_check=lambda r: None, **held_kw(tmp_path))
+
+
+def test_include_families_adds_answerable_family_questions_from_other_products(tmp_path, monkeypatch):
+    d = fam_run(tmp_path, monkeypatch, {"products": ["P1"], "include_families": "multihop"})
+    m = R.read_manifest(d)
+    assert m["products"] == ["P1", "P2", "P3"] and m["family_added"] == 2
+    assert sorted(s for s in m["slots"] if not s.startswith("P1")) == sorted(
+        str(q.key) for q in fam_questions() if q.key.product != "P1" and q.key.kind == "ans" and q.key.index == 0)
+
+
+def test_without_the_key_only_the_listed_products_run(tmp_path, monkeypatch):
+    m = R.read_manifest(fam_run(tmp_path, monkeypatch, {"products": ["P1"]}))
+    assert m["products"] == ["P1"] and m["family_added"] == 0
+
+
+def test_empty_multihop_set_adds_nothing(tmp_path, monkeypatch):
+    m = R.read_manifest(fam_run(tmp_path, monkeypatch, {"products": ["P1"], "include_families": "multihop"},
+                                prereg_line="multi-hop families: none"))
+    assert m["products"] == ["P1"] and m["family_added"] == 0
+
+
+def test_bad_include_families_value_is_refused(tmp_path, monkeypatch):
+    with pytest.raises(R.RunStateError, match="include_families"):
+        fam_run(tmp_path, monkeypatch, {"products": ["P1"], "include_families": "all"})
+
+
+def test_arms_table_renders_include_families():
+    m = mk_manifest_dict_for_table()
+    assert "P3 plus every held question in the multi-hop families" in P.arms_table(m)
+
+
+def mk_manifest_dict_for_table():
+    return {"products": ["P1", "P2", "P3"],
+            "arms": {"A4": {"products": ["P3"], "sub_cap_usd": 2.0, "include_families": "multihop"}}}

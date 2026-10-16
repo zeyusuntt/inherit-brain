@@ -33,7 +33,7 @@ from typing import Any, Callable, Literal
 
 from eval import receipt as rc
 from eval.arms import ARMS, ArmResult
-from eval.questions import Question, load_questions, snapshot_hash
+from eval.questions import Question, load_questions, snapshot_hash, template
 from inherit import llm
 from inherit.config import ROOT
 from inherit.contracts import FinalAnswer, QuestionKey, RunRecord, Usage
@@ -213,7 +213,11 @@ def _held_arm_spec(root: Path, arm: str) -> dict:
     prods = spec.get("products", "all")
     if prods != "all" and not (isinstance(prods, list) and prods and all(isinstance(p, str) for p in prods)):
         raise RunStateError(f"arms.json: arm {arm} has a bad product list")
-    return {"products": None if prods == "all" else sorted(prods), "sub_cap_usd": spec.get("sub_cap_usd")}
+    inc = spec.get("include_families")
+    if inc not in (None, "multihop"):
+        raise RunStateError(f"arms.json: arm {arm} include_families must be 'multihop'")
+    return {"products": None if prods == "all" else sorted(prods), "sub_cap_usd": spec.get("sub_cap_usd"),
+            "include_families": inc}
 
 
 def run_arm(
@@ -267,8 +271,17 @@ def run_arm(
     if split == "held":  # the proxy's arm cap is cumulative; a held run's budget starts at the spend so far
         cap_base = read_manifest(run_dir).get("cap_base_usd") if mpath.exists() else spend_reader(arm)
     qs = list(questions) if questions is not None else load_questions(split)
+    family_added = 0
     if spec["products"] is not None:
-        qs = [q for q in qs if q.product in spec["products"]]
+        fams: set[str] = set()
+        if spec.get("include_families") == "multihop":
+            from eval import stats
+
+            fams = stats.read_multihop_families((root / "PREREG.md").read_text(encoding="utf-8"))
+        keep = [q for q in qs if q.product in spec["products"]
+                or (q.type != "unanswerable" and template(q.text, q.product) in fams)]
+        family_added = sum(q.product not in spec["products"] for q in keep)
+        qs = keep
         if not qs:
             raise RunStateError(f"arm {arm}: no held-out question in its arms.json products")
     if limit is not None:
@@ -279,7 +292,8 @@ def run_arm(
         "split_facts_hash": rc.facts_hash(root / "data" / "facts", sorted({q.product for q in qs})),
         "bundle_sha": env.bundle_sha, "prompt_versions": a.prompt_versions, "model": env.model,
         "limit": limit, "seed": seed, "cap_base_usd": cap_base,
-        "products": sorted({q.product for q in qs}) if split == "held" else None, "question_sha": snapshot_hash(qs), "slots": [str(q.key) for q in qs],
+        "products": sorted({q.product for q in qs}) if split == "held" else None,
+        "family_added": family_added if split == "held" else None, "question_sha": snapshot_hash(qs), "slots": [str(q.key) for q in qs],
     }
     if mpath.exists():
         old = read_manifest(run_dir)

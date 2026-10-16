@@ -361,6 +361,8 @@ ARMS_FILE = "arms.json"
 def load_arms(env: Env, inv: list[str], problems: list[str]) -> dict | None:
     """results/freeze/arms.json (written by the controller after the pilot decision):
     {"arms": {"A5": {"products": "all", "sub_cap_usd": 3.0}, "A2": {"products": [6 names]}, ...}}.
+    An entry may add "include_families": "multihop" (every held answerable question of the pre-registered multi-hop
+    families is also run, whatever its product).
     Returns {arm: {"products": [...], "sub_cap_usd": x}} for registered arms, or None."""
     raw = _read_json(env.out / ARMS_FILE)
     if raw is None or not raw.get("arms"):
@@ -378,7 +380,13 @@ def load_arms(env: Env, inv: list[str], problems: list[str]) -> dict | None:
         if not prods or [x for x in prods if x not in inv]:
             problems.append(f"{ARMS_FILE}: arm {name} has an empty or unknown product list")
             continue
-        out[name] = {"products": prods, "sub_cap_usd": spec.get("sub_cap_usd")}
+        entry = {"products": prods, "sub_cap_usd": spec.get("sub_cap_usd")}
+        if "include_families" in spec:
+            if spec["include_families"] != "multihop":
+                problems.append(f"{ARMS_FILE}: arm {name} include_families must be 'multihop'")
+                continue
+            entry["include_families"] = "multihop"
+        out[name] = entry
     return out
 
 

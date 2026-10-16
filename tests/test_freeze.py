@@ -440,3 +440,16 @@ def test_the_summary_never_supplies_a_log_path(frozen):
     assert not [x for x in seen if "ActionGenie" in x]
     assert freeze._access_log(frozen, "a/b") is None and freeze._access_log(frozen, "..") is None
     assert freeze._access_log(frozen, "r1").name == "extract-r1.jsonl"
+
+
+def test_arms_include_families_is_validated_and_enters_the_config_hash(frozen):
+    arms = json.loads((frozen.out / "arms.json").read_text())
+    h0 = freeze.collect(frozen)[0]["config_hash"]
+    arms["arms"]["A5"]["include_families"] = "multihop"
+    (frozen.out / "arms.json").write_text(json.dumps(arms))
+    st = freeze.collect(frozen)[0]
+    assert st["config_hash"] != h0 and st["arms"]["A5"]["include_families"] == "multihop"
+    assert st["config"]["arms"]["A5"]["include_families"] == "multihop"
+    arms["arms"]["A5"]["include_families"] = "everything"
+    (frozen.out / "arms.json").write_text(json.dumps(arms))
+    fails(frozen, "include_families must be 'multihop'")

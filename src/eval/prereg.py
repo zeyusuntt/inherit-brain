@@ -268,6 +268,8 @@ def arms_table(manifest: dict) -> str:
     lines = ["| Arm | Held-out products | Sub-cap USD |", "|---|---|---|"]
     for arm, a in sorted(manifest["arms"].items()):
         prods = "all 24" if sorted(a["products"]) == allp else ", ".join(a["products"])
+        if a.get("include_families") == "multihop":
+            prods += " plus every held question in the multi-hop families"
         cap = a.get("sub_cap_usd")
         lines.append(f"| {arm} | {prods} | {'default' if cap is None else cap} |")
     return "\n".join(lines)
