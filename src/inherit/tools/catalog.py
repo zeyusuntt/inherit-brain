@@ -203,9 +203,19 @@ def _area_key(text: str) -> str:
     return " ".join(re.sub(r"[^\w\s]", " ", fold(text).replace("&", " and ")).split())
 
 
+def _is_product_name(ctx: _Ctx, key: str) -> bool:
+    """The graph is already one product: its name, alias or Product id is not a filter value."""
+    for pid, name, aliases, prev in ctx.q("MATCH (p:Product) RETURN p.id, p.name, p.aliases, p.previous_names"):
+        own = {_area_key(x) for x in [pid, name, *(aliases or []), *(prev or [])] if isinstance(x, str)}
+        if key in own or (isinstance(pid, str) and key == _area_key(f"Product:{pid.split(':', 1)[-1]}")):
+            return True
+    return False
+
+
 def _resolve_companies(ctx: _Ctx, text: str | None) -> list[str] | None:
-    """None when no filter was asked; else the companies the text names (a company or a Customer id)."""
-    if text is None:
+    """None when no filter was asked (or the text is the product's own name); else the companies the text names (a
+    company or a Customer id)."""
+    if text is None or _is_product_name(ctx, _area_key(text)):
         return None
     f = fold(text)
     rows = ctx.q("MATCH (c:Customer) RETURN c.id, c.source_id, c.company")
@@ -217,11 +227,8 @@ def _resolve_components(ctx: _Ctx, text: str | None) -> list[str] | None:
     if text is None:
         return None
     key = _area_key(text)
-    # The graph is already one product: its name, alias or Product id is not a component and filters nothing.
-    for pid, name, aliases, prev in ctx.q("MATCH (p:Product) RETURN p.id, p.name, p.aliases, p.previous_names"):
-        own = {_area_key(x) for x in [pid, name, *(aliases or []), *(prev or [])] if isinstance(x, str)}
-        if key in own or (isinstance(pid, str) and key == _area_key(f"Product:{pid.split(':', 1)[-1]}")):
-            return None
+    if _is_product_name(ctx, key):
+        return None
     comps = [r[0] for r in ctx.q("MATCH (b:Bug) WHERE b.component IS NOT NULL RETURN DISTINCT b.component")]
     # The intake message sometimes names only part of a product area ("backend processing"): a stored area of two or
     # more words that the question's phrase contains is that area's partial name, and counts with the exact match.
@@ -1005,7 +1012,9 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           "'Market Research Report'); changes suggested by an Engineering Lead -> doc_people(document_type=..., "
           "role='Engineering Lead', return='suggestions').",
           {"document_type": _s(f"Document type, {_NAME_FORMS}."),
-           "scope": _enum("Which release's documents.", ("any", "current", "previous"), "any"),
+           "scope": _enum("Which release's documents. Leave at any (all documents of the type) and set current or previous "
+                          "only when the question says current release or previous release.", ("any", "current", "previous"),
+                          "any"),
            "role": _enum("Canonical directory role to keep (anonymous feedback never matches).", ROLES),
            "return": _enum("people, or suggestion texts.", ("people", "suggestions"), "people")},
           _doc_people, ("document_type",)),
@@ -1016,11 +1025,17 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
           "bugs). With status=reopened, resolver, dismisser and fix_pr_author must have acted before a later "
           "reopening. rank=max keeps every tie at the top. return=bugs lists the bugs themselves (title, impact "
           "text, component, companies) with no PR required. as_of (ISO date) gives the state on that date. "
-          "Example: which company has the most unresolved bugs? -> bug_board(status='unresolved', rank='max'); "
-          "unresolved issues reported by a company -> bug_board(status='unresolved', customer=..., return='bugs').",
+          "Example: worked examples. Companies or engineers affected by, or resolving, issues in <component>: "
+          "bug_board(status='any' for companies or 'resolved' for engineers, component=<the full phrase from the "
+          "question, never split on 'and'>, actor='company' or 'resolver', rank='all'), no customer filter. Which "
+          "company has the most <status> bugs: bug_board(status=<status>, actor='company', rank='max'). Which "
+          "engineer resolved or is assigned the most bugs: bug_board(status=..., actor='resolver' or 'assignee', "
+          "rank='max'). Unresolved issues reported by <company>: bug_board(status='unresolved', customer=<company>, "
+          "return='bugs'). customer is a reporting customer company (or Customer id), never the product name; a "
+          "value equal to the product's name is ignored as a filter.",
           {"status": _enum("Frozen bug predicate.", ("unresolved", "resolved", "active", "reopened", "no_fix_needed",
                                                       "any"), "any"),
-           "customer": _s(f"Customer company or Customer id, {_NAME_FORMS}."),
+           "customer": _s(f"Reporting customer company or Customer id, {_NAME_FORMS}. Never the product name."),
            "component": _s("Product area (component) of the bug as worded in the question, for example 'API Security'. "
                            "Never the product's own name: the graph is already one product, and the product name "
                            "(or its Product id) is ignored as a filter."),

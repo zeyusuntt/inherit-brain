@@ -4,7 +4,8 @@ Rows are typed (see catalog.py): `answer` is the graded value (employee id, comp
 `refs` are label-qualified node ids a row names, `evidence` are record ids (edge `src`). Rows nest; the category of a
 key is inherited by everything below it.
 
-1. `guard(text, ids, results)`: every proposed answer id must be exactly one of the rows' `answer` values; others are
+1. `guard(text, ids, results)`: every proposed answer id must be exactly one of the rows' answer values (`answer` and
+   the visible answer fields: companies, people eids, links); others are
    dropped and listed (a qualified id, a ref or an evidence id is not an answer).
 2. In the text, every ID-like token (employee eid, label-qualified node id, CUST- id, Slack record id, http(s) link)
    must equal a returned value or ref exactly, with complete token boundaries (no prefix or substring support). Complete
@@ -31,7 +32,11 @@ ID_RE = re.compile(
     r"|\b\d{8}-\d+-[0-9a-f]{5}\b")  # Slack record id
 _TRAIL = ".,;:!?"
 _SPLIT = re.compile(r"(?<=[.!?])\s+")
-_CATEGORY = {"answer": "answer", "refs": "refs", "evidence": "evidence"}
+# Fields that visibly answer on a row: company names (bug rows, Customer.company), employee eids in people fields and
+# links in link fields count as answer values, like `answer` itself.
+_ANSWER_FIELDS = ("answer", "companies", "company", "stated_by", "reporters", "sharers", "speaker", "author", "prs",
+                  "urls", "link", "links")
+_CATEGORY = {**dict.fromkeys(_ANSWER_FIELDS, "answer"), "refs": "refs", "evidence": "evidence"}
 
 
 def _rows(results) -> list[dict]:

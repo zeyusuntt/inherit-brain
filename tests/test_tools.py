@@ -779,3 +779,28 @@ def test_feature_phrases_resolve_by_stemmed_token_sets():
     rows2 = rows + [["Feature:p:predictive analytics ui", "Predictive analytics UI", "predictive analytics ui", [], []]]
     assert catalog._resolve_features(_Feats(rows2), "predictive analytics") == [
         "Feature:p:predictive analytics integration", "Feature:p:predictive analytics ui"]  # ties stay plural
+
+
+# ---------------------------------------------------------------- slice fixes: product-name customer, visible answers
+def test_customer_equal_to_the_product_name_is_no_filter(tg):
+    base = call(tg, "bug_board", status="any")
+    for name in (P, "Product:" + P, P.upper()):
+        assert counts(call(tg, "bug_board", status="any", customer=name)) == counts(base)
+    assert call(tg, "bug_board", status="any", customer="Nobody Inc").rows == []
+
+
+def test_company_names_on_bug_rows_are_answer_values(tg):
+    bugs = call(tg, "bug_board", status="unresolved", **{"return": "bugs"})
+    text, ids, dropped = guard("BlueWave is affected.", ["BlueWave", "CloudSync"], [bugs])
+    assert ids == ["BlueWave"] and [d["value"] for d in dropped] == ["CloudSync"]  # CloudSync has no unresolved bug
+    t = call(tg, "fix_trail", customer="TechCorp")
+    assert guard("x", ["TechCorp", pr(2), BOB], [t])[1] == ["TechCorp", pr(2), BOB]  # company, link and author fields
+    claims = call(tg, "who_said", subject="competitor", kind="feature", **{"return": "claims"})
+    assert guard("x", [ALICE, "Rival Corp"], [claims])[1] == [ALICE]  # stated_by is visible; a subject is not an answer
+    assert guard("x", [BOB], [claims])[1] == []
+
+
+def test_doc_people_scope_defaults_to_any_and_says_when_to_set_it():
+    sch = TOOLS["doc_people"].params_schema["properties"]["scope"]
+    assert sch["default"] == "any" and "only when the question says" in sch["description"]
+    assert "never split on 'and'" in TOOLS["bug_board"].description
