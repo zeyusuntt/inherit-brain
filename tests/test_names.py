@@ -399,3 +399,18 @@ def test_namesakes_among_the_attendees_are_still_scored_and_ties_kept():
     rec = records([meeting([("Ian Miller", "hello")], participants=("eid_qa", "eid_pm"))])
     r = resolve(rec)
     assert r.status == "ambiguous" and set(r.ids) == {"eid_qa", "eid_pm"}
+
+
+def test_a_late_joiner_whose_role_the_speaker_claims_reopens_the_name():
+    # the product manager attended; the QA Ian Miller did not but posted nearby, and the speaker talks as QA
+    posts = [msg("p1", "eid_qa", "2026-06-13T09:00:00", "QA notes")]
+    rec = records([meeting(QA_LINES, participants=("eid_pm", "eid_solo"))], messages=posts)
+    r = resolve(rec)
+    assert r.status == "ambiguous" and set(r.ids) == {"eid_pm", "eid_qa"}
+    assert r.scores == {"eid_pm": 0, "eid_qa": WEIGHTS["role_cue"]}
+
+
+def test_a_related_post_or_mention_alone_does_not_reopen_the_name():
+    posts = [msg("p1", "eid_pm", "2026-06-13T09:00:00", "Design Spec notes https://sf-internal.slack.com/archives/docs/spec1")]
+    rec = records([meeting([("Ian Miller", "I checked the export path.")], participants=("eid_qa", "eid_solo"))], messages=posts)
+    assert resolve(rec).ids == ["eid_qa"]

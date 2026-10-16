@@ -182,12 +182,23 @@ def resolve_speaker(name: str, meeting: Meeting, context: NameContext) -> Resolu
             near = any(abs(t - mdt) <= WINDOW for t, _ in context.posts.get(eid, []))
             if near or eid in mentioned:
                 cands.append(eid)
+    cue_roles = role_cue_hits("\n".join(context.lines.get((meeting.id, name), [])))
+    if cands and not any(context.employees[e].get("role") in cue_roles for e in cands):
+        # a same-name person who did not attend but is active nearby or mentioned, and whose role the speaker's own
+        # words match, reopens the name: attendance alone is no longer enough (a related post or mention does not)
+        late = [e for e in same_name if e not in cands and context.employees[e].get("role") in cue_roles
+                and (e in mentioned or any(abs(t - mdt) <= WINDOW for t, _ in context.posts.get(e, [])))]
+        if late:
+            ids = [*cands, *late]
+            ev = [f"{e} role cue: {context.employees[e].get('role')} ({cue_roles[context.employees[e].get('role')][0]!r}), "
+                  "not an attendee" for e in late]
+            return Resolution(ids, True, "ambiguous", ev + [f"attendees without the cue: {', '.join(cands)}"],
+                              {e: (WEIGHTS["role_cue"] if e in late else 0) for e in ids})
     if not cands:
         return Resolution([], False, "unresolved", [f"no candidate for {name!r}"], {})
     if len(cands) == 1:
         return Resolution(cands, False, "resolved", ["single candidate"], {})
 
-    cue_roles = role_cue_hits("\n".join(context.lines.get((meeting.id, name), [])))
     terms = [meeting.document_type.lower()] if meeting.document_type else []
     terms += context.doc_terms.get(meeting.document_type, [])
     scores: dict[str, int] = {}
