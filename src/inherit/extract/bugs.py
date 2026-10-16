@@ -149,8 +149,11 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
     for reason, n in bad.items():
         dropped["bugs"][reason] += n
     bugs = []
+    rejected: dict[str, str] = {}  # local id -> title of a bug the checks below turn down: its events keep the words
     for b in ok_bugs:
         title, mid = str(b.get("title") or "").strip(), b.get("message_id")
+        if title and isinstance(b.get("local_id"), str):
+            rejected[b["local_id"]] = title
         if not title or mid not in msgs:
             drop("bugs", "bad_title_or_message")
             continue
@@ -168,6 +171,7 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
         if comp and not area_in(comp, msgs[mid].text):
             drop("components", "not_in_message")
             comp = None
+        rejected.pop(b.get("local_id"), None)
         bugs.append({"local_id": f"x:{b.get('local_id')}", "title": title,
                      "aliases": [a for a in (b.get("aliases") or []) if isinstance(a, str) and a.strip()],
                      "component": comp,
@@ -210,13 +214,15 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
             local = ref
         elif isinstance(ref, str) and ref in hints:
             mention = hints[ref]["mention"]
+        elif isinstance(ref, str) and ref in rejected:
+            mention = rejected[ref]
         if local is None and not (isinstance(mention, str) and mention.strip()) and isinstance(ref, str) \
                 and len(ref.split()) >= 2:
             mention = ref  # the model wrote the bug's words where a ref belongs
         if local is None and not (isinstance(mention, str) and mention.strip()):
             drop("events", "no_bug_reference")
             continue
-        if local is None and normalise(mention) not in normalise(text) and ref not in hints:
+        if local is None and normalise(mention) not in normalise(text) and ref not in hints and ref not in rejected:
             drop("events", "mention_not_in_session")
             continue
         events.append({"type": typ, "message_id": mid, "mention": mention if local is None else None,
@@ -249,7 +255,7 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
         lid, comp = c.get("bug_ref"), c.get("component")
         if lid not in parse.no_area or not isinstance(comp, str) or not comp.strip():
             drop("components", "bad_ref_or_empty")
-        elif not area_in(comp, msgs[by_lid[lid]["message_id"]].text):
+        elif not area_in(comp, "\n".join(m.text for m in earlier_or_same(msgs, by_lid[lid]["message_id"]))):
             drop("components", "not_in_message")
         else:
             areas[lid] = comp.strip()
@@ -264,6 +270,16 @@ def canonical_areas(variants) -> dict[str, str]:
     for v in sorted(count, key=lambda v: (not v[:1].isupper(), -count[v], "&" not in v, v)):
         best.setdefault(br.area_key(v), v)
     return best
+
+
+def earlier_or_same(msgs: dict, message_id: str) -> list:
+    """The session's messages up to and including `message_id` (an area is often named in an earlier message)."""
+    out = []
+    for m in msgs.values():
+        out.append(m)
+        if m.id == message_id:
+            break
+    return out
 
 
 def area_in(component: str, text: str) -> bool:

@@ -226,3 +226,16 @@ def test_component_other_phrasings():
         == "Database Management & Replication"
     assert component_of("Customers are experiencing delays due to locking. This is impacting our database "
                         "performance, especially for CUST-0024.") is None
+
+
+def test_same_module_inherits_the_area_of_the_previous_bug_in_the_session():
+    p = _intake(
+        (fx.IAN, f"First up, we have 'Inefficient Database Query Optimization'. This affects Data Sync & Integration "
+                 f"Module. Customer CUST-0108. @{fx.EMMA}, can you take this one?"),
+        (fx.IAN, f"Next, we have 'Incorrect Data Transformation'. The formats are wrong, affecting the same module. "
+                 f"This is impacting CUST-0047. @{fx.BOB}, can you take this one?"),
+        (fx.IAN, f"Lastly, we have a 'Failed Data Backup Restoration' issue. Restores fail. CUST-0047. @{fx.BOB}, "
+                 f"can you take this one?"),
+    )
+    assert [b["component"] for b in p.bugs] == ["Data Sync & Integration Module", "Data Sync & Integration Module", None]
+    assert p.no_area == ["rb3"]

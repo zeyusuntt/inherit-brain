@@ -611,3 +611,34 @@ def test_reintroduced_title_that_contains_an_earlier_bug_is_the_same_bug(tmp_pat
     assert b.props["customer_ids"] == ["CUST-0047", "CUST-0108"]
     assert "Data Integrity Issue in Trend Reports" in b.props["aliases"]
     assert b.props["current_assignees"] == [fx.BOB]
+
+
+def test_events_of_a_rejected_model_bug_fall_back_to_its_title_as_the_mention(tmp_path):
+    # the model invents a "bug" for the reopened one and hangs the follow-up on it; the bug is rejected, the event stays
+    bad = {"local_id": "x9", "title": "Duplicate Log Entries for Manual Actions", "aliases": [], "component": None,
+           "impact_text": "", "customer_ids": [], "message_id": "20260125-0-g0001",
+           "citations": [fx.cite("20260125-0-g0001", "reopened the bug")]}
+    ev = dict(fx.REASSIGN_EVENT, bug_ref="x9")
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[fx.LEAK_BUG]),
+                                   "20260125-1-g0002": fx.session_json(bugs=[bad], events=[ev])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, tmp=tmp_path)
+    dup = bug_by_title(out.facts, "Duplicate Log Entries for Manual Actions").props
+    assert dup["event_types"] == ["REPORTED", "ASSIGNED", "RESOLVED", "REOPENED", "ASSIGNED"]
+    assert "events" not in out.report["dropped"]
+
+
+def test_area_named_in_an_earlier_message_of_the_session_is_accepted(tmp_path):
+    first = (f"First up, we have 'Duplicate Log Entries for Manual Actions'. Impacts the Billing Engine Core. "
+             f"Customer CUST-0047. @{fx.EMMA}, can you take this one?")
+    second = ("Next, we have 'Inefficient Database Query Optimization'. The slowdown hits that engine too. "
+              "Customer CUST-0108. Can you take this one?")
+    slack = [("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
+             ("20260111-1-b0002", fx.IAN, "2026-01-11T09:02:00", first),
+             ("20260111-2-b0003", fx.IAN, "2026-01-11T09:10:00", second),
+             ("20260111-3-b0004", fx.BOB, "2026-01-11T09:12:00", fx.B_ACK2)]
+    answer = {"bugs": [], "events": [], "external": [], "components": [
+        {"bug_ref": "rb2", "component": "Billing Engine Core", "citations": [fx.cite("20260111-2-b0003", "that engine too")]}]}
+    chat = fx.ScriptedChat(script={"20260111-2-b0003": json.dumps(answer)})
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    assert bug_by_title(out.facts, "Inefficient Database Query Optimization").props["component"] == "Billing Engine Core"

@@ -81,6 +81,7 @@ def slug(title: str) -> str:
 
 
 AFFECTS_RE = re.compile(rf"\b(?:affect(?:s|ing)?|impact(?:s|ing)?)\s+(?:the |our )?({_CAP}(?: {_CAP}){{0,4}})")
+SAME_AREA = re.compile(r"\b(?:the|this) same (?:module|area|component|system|layer|service|engine)\b", re.I)
 AREA_IS_RE = re.compile(rf"\baffected area is (?:the |our )?({_CAP}(?: {_CAP}){{0,4}})")
 IN_AREA_RE = re.compile(rf"\bin (?:the |our )({_CAP}(?: {_CAP}){{0,4}}) area\b")
 _NOT_COMPONENT = frozenset({"Customer", "Customers", "CUST", "Users", "Admins", "Sales", "Impacted", "Both", "Several"})
@@ -345,6 +346,11 @@ def parse_session(session, cat, customers) -> SessionParse:
                     claimed.add(r.id)
                     break
 
+    prev = None
+    for b in p.bugs:  # "affecting the same module": the area of the bug introduced just before
+        if not b["component"] and prev and SAME_AREA.search(b["impact_text"]):
+            b["component"] = prev
+        prev = b["component"] or prev
     p.no_area = [b["local_id"] for b in p.bugs if not b["component"]]
 
     # ---------------------------------------------------------------- dismissal: "I looked into the reported issue"
