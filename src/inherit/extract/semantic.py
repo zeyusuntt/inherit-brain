@@ -69,6 +69,10 @@ def completed(text: str) -> bool:
     return any(_COMPLETE.search(x) and not _NOT_DONE.search(x) for x in _SENTENCES.split(text or ""))
 
 
+# A document sentence that says the capability exists or was added is conflicting evidence for "not implemented".
+_EXISTS = re.compile(r"\b(?:has|have|had) been (?:added|implemented|introduced|integrated|delivered)\b|\bnow "
+                     r"(?:supports?|includes?|offers?|provides?)\b|\bincludes\b|\bwas (?:added|implemented|introduced)\b",
+                     re.I)
 _ROLLED_BACK = re.compile(r"\b(?:reverted|rolled back|backed out|was undone|were undone)\b", re.I)
 _REVIEW_CUE = re.compile(
     r"\b(?:should|could|would|add|include|consider|suggest|might|recommend|needs?|perhaps|maybe|expand|clarify|"
@@ -88,7 +92,8 @@ def quote_sentences(text: str, quote: str) -> str:
 
 def rolled_back(text: str) -> bool:
     """A sentence states a finished rollback: a reverted/rolled back word and no promise, plan, condition or negation."""
-    return any(_ROLLED_BACK.search(x) and not _NOT_DONE.search(x) for x in _SENTENCES.split(text or ""))
+    head = lambda x: re.sub(r"\b(?:after|before)\b.*", "", x, flags=re.I)  # noqa: E731  "...yesterday after the audit"
+    return any(_ROLLED_BACK.search(x) and not _NOT_DONE.search(head(x)) for x in _SENTENCES.split(text or ""))
 
 
 def _is_question(sentence: str) -> bool:
@@ -111,7 +116,7 @@ def _shape(arrays, required=()):
     field must be present, and a response with none of its fields at all is not an answer."""
     def check(data):
         for key in required:
-            if key not in data:
+            if key not in data or data[key] is None:
                 return f"{key} is missing"
         if arrays and not any(k in data for k in arrays):
             return "none of the expected fields is present"
@@ -129,7 +134,8 @@ def _shape(arrays, required=()):
     return check
 
 
-MEETING_SHAPE = _shape(("document_reviews", "features", "contributions", "development_links", "feature_events"))
+MEETING_SHAPE = _shape(("document_reviews", "features", "contributions", "development_links", "feature_events"),
+                       required=("features", "contributions", "development_links", "feature_events"))
 SESSION_SHAPE = _shape(("reviews", "claims", "pr_decisions"))
 DOCUMENT_SHAPE = _shape(("features", "claims"))
 MEMBERSHIP_SHAPE = _shape(("assignments",), required=("assignments",))
@@ -254,7 +260,12 @@ def _item_text(item: dict, supplied) -> str:
     own = " ".join(str(item.get(k) or "") for k in ("title", "text", "pr"))
     quotes = " ".join(str(c.get("quote") or "") for c in (item.get("citations") if isinstance(item.get("citations"), list)
                                                            else []) if isinstance(c, dict))
-    return own + " " + quotes
+    extra = ""
+    if item.get("kind") == "implemented":  # a record that states completed work names the feature it is about
+        ids = {c.get("record_id") for c in (item.get("citations") if isinstance(item.get("citations"), list) else [])
+               if isinstance(c, dict)}
+        extra = " ".join(x for r in supplied if r.id in ids for x in _SENTENCES.split(r.text) if completed(x))
+    return own + " " + quotes + " " + extra
 
 
 def _could_carry_implementation(item: dict, cat) -> bool:
@@ -844,6 +855,22 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             fm = re.fullmatch(r"F(\d+)", _str(fref))
             if not fm or not 1 <= int(fm.group(1)) <= len(feats):
                 drops["pr_membership"]["bad_feature_ref"] += 1
+                pm = rows[int(m.group(1)) - 1]["entry"]
+                if prs_raw[pm.link].merged is True:
+                    # a merged PR we could not file: it blocks the feature its task context names, else every feature
+                    ttl = normalise(pm.title)
+                    best: list[tuple[int, str]] = []
+                    for mt_ in rec.meetings:
+                        for k_, sg_ in enumerate(mt_.segments):
+                            if ttl in normalise(sg_.text):
+                                cx = (sg_.text, mt_.segments[k_ - 1].text if k_ else "")
+                                best += [(_context_score(cx, set(re.findall(r"[a-z0-9]{4,}", " ".join(
+                                    [e_["title"]]).casefold()))), f_) for f_, e_ in feature_info.items()]
+                    best.sort(reverse=True)
+                    if best and best[0][0] > 0 and (len(best) == 1 or best[0][0] > best[1][0]):
+                        note_loss(feature_info[best[0][1]]["title"] + " " + pm.title, impl=True)
+                    else:
+                        note_loss(pm.title, impl=True, everywhere=True)
                 continue
             p = rows[int(m.group(1)) - 1]["entry"]
             pr_src = [SourceRecord(prs_raw[p.link].id, "pr", "title", prs_raw[p.link].title),
@@ -930,7 +957,9 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             discusses.add((f"Message:{d['message']}", fid))
     # a completed rollback stated in Slack ("we reverted the rollout")
     for d in decisions:
-        if d["action"] == "revert" and not d["conditional"] and rolled_back(d["text"]):
+        spans = " ".join(quote_sentences(d["text"], c_["quote"]) for c_ in d["citations"])
+        about_pr = d["pr"] in spans or re.search(r"\bPRs?\s*#?\s*" + re.escape(prs_raw[d["pr"]].number) + r"\b", spans, re.I)
+        if d["action"] == "revert" and not d["conditional"] and rolled_back(spans) and about_pr:
             for fid in feat_of_pr.get(d["pr"], []):
                 fevents.append({"feature": fid, "kind": "reverted", "reason": d["reason"] or "other",
                                 "date": d["ts"], "record": d["message"], "citations": d["citations"],
@@ -1028,6 +1057,18 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 return False
         return True
 
+    doc_sentences = [(d.id, x) for d in rec.documents if d.id not in doc_prev
+                     for x in re.split(r"(?<=[.!?])\s+|\n+", d.content) if _EXISTS.search(x) and not _NOT_DONE.search(x)]
+
+    def document_conflicts(fid):
+        out = set()
+        for name in [feature_info[fid]["title"], *cat.features.entries[fid]["aliases"]]:
+            need = set(re.findall(r"[a-z0-9]{4,}", name.casefold()))
+            if not need:
+                continue
+            out |= {d_ for d_, x in doc_sentences if need <= set(re.findall(r"[a-z0-9]{4,}", x.casefold()))}
+        return sorted(out)
+
     fate: dict[str, dict] = {}
     for fid in feature_info:
         evs = [e for e in fevents if e["feature"] == fid]
@@ -1041,11 +1082,14 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                                 for (f_, l_) in implemented_pr if f_ == fid)
         discussed = bool(feature_info[fid]["sources"] - {"document"}) or kinds["discussed"] > 0
         rec_ok = reconciled(fid)
+        conflict = document_conflicts(fid) if not implemented else []
         fate[fid] = {"implemented": implemented, "reverted": reverted, "held": kinds["held"] > 0,
                      "resumed": kinds["resumed"] > 0,
                      "delayed_then_added": bool(held_dates and (positive_after or merged_after_hold)),
                      "discussed": discussed, "proposed": kinds["proposed"] > 0, "reconciled": rec_ok,
-                     "discussed_not_implemented": ((not implemented) if rec_ok else None) if discussed else False,
+                     "document_conflict": conflict,
+                     "discussed_not_implemented": (((not implemented) if rec_ok and not conflict else None)
+                                                   if discussed else False),
                      "derived_by": FATE_VERSION}
 
     # ---- facts

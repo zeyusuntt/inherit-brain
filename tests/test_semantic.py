@@ -1013,3 +1013,85 @@ def test_an_authors_routine_merge_request_after_review_is_not_a_decision(tmp_pat
     out, _ = run(chat, rec, tmp_path)
     assert not [e for e in edges(out.facts, "ABOUT") if e.src_id == "Message:20260506-1-z0008"]
     assert out.report["dropped"]["pr_decisions"]["routine_request"] == 1
+
+
+# ---------------------------------------------------------------- fix round 4
+
+def _rollback_run(tmp_path, text, quote):
+    extra = [("20260510-0-y0001", fx.BEN, "2026-05-10T09:00:00", text) + fx.DEV]
+    dec = [{"message_id": "20260510-0-y0001", "prs": ["3"], "action": "revert", "reason": None, "conditional": False,
+            "citations": [fx.cite("20260510-0-y0001", quote)]}]
+    chat = fx.standard_chat()
+    chat.script["[20260510-0-y0001]"] = fx.session_json(pr_decisions=dec)
+    return run(chat, fx.records(slack=_extra(extra)), tmp_path)[0]
+
+
+def test_slack_rollback_is_judged_in_the_sentence_about_the_target_pr(tmp_path):
+    out = _rollback_run(tmp_path, "The predictive model was rolled back yesterday. Please revert PR#3 tomorrow.",
+                        "Please revert PR#3 tomorrow")
+    assert nodes(out.facts, "Feature")[ALERTS].props["reverted"] is False
+    out2 = _rollback_run(tmp_path / "b", "We reverted PR#3 yesterday after the audit.", "We reverted PR#3 yesterday")
+    assert nodes(out2.facts, "Feature")[ALERTS].props["reverted"] is True
+    out3 = _rollback_run(tmp_path / "c", "The predictive model was rolled back yesterday. Please revert PR#3 tomorrow.",
+                         "The predictive model was rolled back yesterday")  # a rollback sentence that is not about PR 3
+    assert nodes(out3.facts, "Feature")[ALERTS].props["reverted"] is False
+
+
+def test_a_merged_pr_rejected_for_a_bad_feature_ref_blocks_the_negative_fate(tmp_path):
+    chat = fx.standard_chat()
+    good = chat.membership
+
+    def with_bad(user):
+        data = json.loads(good(user))
+        ref = next((ln.split(":")[0] for ln in user.splitlines() if ln.startswith("P") and "Unrelated Cleanup" in ln), None)
+        if ref:
+            data["assignments"].append({"pr": ref, "feature": "F99", "quote": "Remove dead code"})
+        return json.dumps(data)
+
+    chat.membership = with_bad
+    out, _ = run(chat, tmp=tmp_path)
+    assert out.report["dropped"]["pr_membership"]["bad_feature_ref"] == 1
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None  # product-level implementation loss
+
+
+def test_an_unresolved_implemented_event_naming_completed_work_blocks_that_feature(tmp_path):
+    m1 = json.loads(fx.M1_ANSWER)
+    m1["feature_events"].append({"feature_ref": "nope", "kind": "implemented", "reason": None, "pr": None,
+                                 "segment_ref": f"{fx.M1}#10",
+                                 "citations": [fx.cite(f"{fx.M1}#10", "The work is complete")]})
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+    out, _ = run(chat, _with_segment("The real-time alerts work is complete. Thanks all."), tmp_path)
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None
+    chat2 = fx.standard_chat()
+    m2 = json.loads(fx.M1_ANSWER)
+    m2["feature_events"].append(dict(m1["feature_events"][-1], citations=[fx.cite(f"{fx.M1}#10", "The work is complete")]))
+    chat2.script[f"MEETING: {fx.M1}"] = json.dumps(m2)
+    out2, _ = run(chat2, _with_segment("The unrelated cleanup work is complete. Thanks all."), tmp_path / "b")
+    assert nodes(out2.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True
+
+
+def test_null_required_arrays_are_invalid_shapes():
+    from inherit.extract.semantic import GROUP_SHAPE, MEETING_SHAPE, MEMBERSHIP_SHAPE
+    assert MEMBERSHIP_SHAPE({"assignments": None}) and MEMBERSHIP_SHAPE({})
+    assert GROUP_SHAPE({"groups": None}) and GROUP_SHAPE({"groups": []}) is None
+    assert MEETING_SHAPE({"document_reviews": []})  # the feature arrays are missing
+    assert MEETING_SHAPE({"features": [], "contributions": [], "development_links": None, "feature_events": []})
+    assert MEETING_SHAPE({"features": [], "contributions": [], "development_links": [], "feature_events": []}) is None
+
+
+def test_a_document_saying_the_capability_was_added_makes_the_negative_fate_unknown(tmp_path):
+    from dataclasses import replace
+    rec = fx.records()
+    d = rec.documents[1]
+    rec.documents[1] = replace(d, content=d.content + " Real-time alerts has been added to Mini in this release.")
+    out, _ = run(rec=rec, tmp=tmp_path)
+    a = nodes(out.facts, "Feature")[ALERTS].props
+    assert a["discussed_not_implemented"] is None and a["document_conflict"] == ["final_mini_market_research_report"]
+    out2, _ = run(rec=fx.records(), tmp=tmp_path / "b")
+    assert nodes(out2.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True
+    rec3 = fx.records()
+    d3 = rec3.documents[1]
+    rec3.documents[1] = replace(d3, content=d3.content + " Real-time alerts will be added next year.")
+    out3, _ = run(rec=rec3, tmp=tmp_path / "c")
+    assert nodes(out3.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True  # a plan is not evidence
