@@ -20,7 +20,7 @@ from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Any
 
-from inherit.config import MODEL, PRICES_PICO, load_settings
+from inherit.config import MODEL, PRICES_PICO
 
 PICO = 10**12  # pico-USD per USD
 PER_MESSAGE_TOKENS = 16
@@ -199,13 +199,13 @@ class Meter:
             if rec != (r.arm, r.amount, r.model):
                 raise ValueError(f"reservation {r.id} does not match the ledger")
             ev = {
+                **extra,
                 "type": "settle",
                 "id": r.id,
                 "arm": rec[0],
                 "cost": cost,
                 "prompt_tokens": pt,
                 "completion_tokens": ct,
-                **extra,
             }
             if cost > rec[1]:
                 ev["over_reservation"] = True
@@ -213,11 +213,39 @@ class Meter:
             self._refresh()
         return cost / PICO
 
-    def settle(self, r: Reservation, prompt_tokens: int, completion_tokens: int) -> float:
+    def settle(
+        self, r: Reservation, prompt_tokens: int, completion_tokens: int, **extra: Any
+    ) -> float:
         """Replace a reservation with the real cost (table price x real tokens). Returns USD."""
         pt, ct = _count(prompt_tokens, "prompt_tokens"), _count(completion_tokens, "completion_tokens")
         price_in, price_out = self.prices[r.model]
-        return self._settle(r, pt * price_in + ct * price_out, pt, ct)
+        return self._settle(r, pt * price_in + ct * price_out, pt, ct, **extra)
+
+    def cost_pu(self, model: str, prompt_tokens: int, completion_tokens: int) -> int:
+        price_in, price_out = self.prices[model]
+        return _count(prompt_tokens, "prompt_tokens") * price_in + _count(
+            completion_tokens, "completion_tokens"
+        ) * price_out
+
+    def snapshot(self) -> dict[str, Any]:
+        """Totals in USD for /spend."""
+        with self._locked():
+            arms = set(self._settled) | {a for a, _, _ in self._open.values()} | set(self.arm_caps)
+            return {
+                "cap_usd": self.cap / PICO,
+                "spent_usd": sum(self._settled.values()) / PICO,
+                "open_reserved_usd": sum(a for _, a, _ in self._open.values()) / PICO,
+                "open_reservations": len(self._open),
+                "committed_usd": self._total() / PICO,
+                "per_arm": {
+                    a: {
+                        "committed_usd": self._arm_total(a) / PICO,
+                        "cap_usd": self.arm_caps[a] / PICO if a in self.arm_caps else None,
+                    }
+                    for a in sorted(arms)
+                },
+                "corrupt_lines": self.corrupt_lines,
+            }
 
     def settle_full(self, r: Reservation) -> float:
         """Charge the whole reservation: the request may have been billed, outcome unknown."""

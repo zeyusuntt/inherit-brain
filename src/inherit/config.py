@@ -30,9 +30,10 @@ PRICES_PICO: dict[str, tuple[int, int]] = {
 
 @dataclass(frozen=True)
 class Settings:
-    nebius_api_key: str = field(repr=False)
     nebius_base_url: str
     budget_usd: float
+    proxy_port: int = 8787
+    default_max_tokens: int = 1024
     model: str = MODEL
     embed_model: str = EMBED_MODEL
     meter_path: Path = ROOT / "runs" / "meter.jsonl"
@@ -48,7 +49,13 @@ def load_settings() -> Settings:
     if not math.isfinite(budget) or budget < 0 or budget > PROJECT_CAP_USD:
         raise ValueError(f"NEBIUS_BUDGET_USD must be between 0 and {PROJECT_CAP_USD}")
     return Settings(
-        nebius_api_key=os.environ["NEBIUS_API_KEY"],
         nebius_base_url=os.environ.get("NEBIUS_BASE_URL", "https://api.tokenfactory.nebius.com/v1/"),
         budget_usd=budget,
+        proxy_port=int(os.environ.get("PROXY_PORT", "8787")),
     )
+
+
+def load_upstream_secret() -> str:
+    """The upstream provider key. Only inherit.proxy may call this."""
+    load_dotenv(ROOT / ".env")
+    return os.environ["NEBIUS_API_KEY"]
