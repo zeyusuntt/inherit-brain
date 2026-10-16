@@ -308,15 +308,60 @@ def test_cursor_must_belong_to_the_same_request(gm):
         e.neighbors(PRODUCT, "HAS", "out", where={"label": "Document"}, agg="count", cursor=env["cursor"])
 
 
-def test_an_oversize_single_card_is_still_returned(srv, load_facts):
+def test_an_oversize_single_card_is_refused_with_an_error(srv, load_facts):
     from conftest import fx_edge, fx_node
     from inherit.facts import Facts
     big = fx_node("Document", "huge", id="huge", type="Huge", content="z" * 60000)
     g = load(srv, card_facts(load_facts, extra=Facts([big], [fx_edge("HAS", "Product:mini", big.id)])))
     e = ep(g, strict=False)
     e.get_card(PRODUCT)
-    env = e.get_card("Document:huge")
-    assert ids(env) == ["Document:huge"] and env["truncated"] is False
+    with pytest.raises(ToolError, match="budget"):
+        e.get_card("Document:huge")
+    with pytest.raises(ToolError, match="budget"):
+        e.neighbors(PRODUCT, "HAS", "out", where={"id": "Document:huge"})
+    assert "Document:huge" not in e.received
+
+
+def test_groups_are_paged_under_both_caps(srv, load_facts):
+    from conftest import fx_edge, fx_node
+    from inherit.facts import Facts
+    nodes = [fx_node("Competitor", f"g{i:03d}", name=f"g{i:03d}") for i in range(260)]
+    edges = [fx_edge("HAS", "Product:mini", n.id) for n in nodes]
+    e = ep(load(srv, card_facts(load_facts, extra=Facts(nodes, edges))))
+    kw = dict(root_id=PRODUCT, edge_type="HAS", direction="out", where={"label": "Competitor"}, agg="group",
+              group_field="name")
+    env = e.neighbors(**kw)
+    assert len(env["groups"]) == 200 and env["truncated"] is True and env["cursor"]
+    env2 = e.neighbors(**kw, cursor=env["cursor"])
+    assert len(env2["groups"]) == 61 and env2["truncated"] is False and env2["cursor"] is None
+    assert e.stats()["calls"] == 2
+    assert not {g["value"] for g in env["groups"]} & {g["value"] for g in env2["groups"]}
+
+
+def test_an_oversized_group_value_is_refused(srv, load_facts):
+    from conftest import fx_edge, fx_node
+    from inherit.facts import Facts
+    big = fx_node("Document", "wide", id="wide", type="Wide", content="y" * 60000)
+    e = ep(load(srv, card_facts(load_facts, extra=Facts([big], [fx_edge("HAS", "Product:mini", big.id)]))))
+    with pytest.raises(ToolError, match="budget"):
+        e.neighbors(PRODUCT, "HAS", "out", where={"id": "Document:wide"}, agg="group", group_field="content")
+
+
+def test_max_hop_never_decreases_on_rediscovery_by_a_shorter_route(g):
+    e = ep(g, strict=False)
+    e.get_card(PRODUCT)
+    e.get_card("Bug:b1")  # hop 1
+    e.get_card(CUST)  # hop 2 via the bug
+    assert e.stats()["max_hop"] == 2
+    e.neighbors(PRODUCT, "HAS", "out", where={"id": PR101})  # PR101 hop 1
+    assert e.stats()["max_hop"] == 2
+    e2 = ep(g, "Find TechCorp", strict=False)
+    e2.get_card(PRODUCT)
+    e2.get_card("Bug:b1")
+    e2.get_card(CUST)  # received at hop 2
+    e2.resolve("TechCorp")  # now a root at hop 0
+    e2.get_card(CUST)  # re-received at hop 0
+    assert e2.stats()["max_hop"] == 2 and e2.received[CUST] == 0
 
 
 def test_the_13th_call_is_refused(g):

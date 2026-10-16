@@ -320,12 +320,12 @@ A card is a JSON object with a fixed key order: `id`, `label`, `name`, `props`, 
 - At most {depth1.CALL_CAP} calls per question, shared by `resolve`, `get_card` and `neighbors`; a refused call counts.
 - At most {depth1.ROW_CAP} rows and {depth1.RESPONSE_BUDGET_TOKENS:,} tokens (characters / 4) of serialised rows per
   response. Rows beyond that are not returned; the response says `truncated: true` and carries an opaque `cursor`.
-  Passing the cursor returns the next page and counts as a call. A single card larger than the budget is still
-  returned alone.
+  Passing the cursor returns the next page and counts as a call. A single card (or group value) larger than the
+  budget is refused with an explicit error, never returned; no card in the dev data comes close.
 - Response envelope: `{{rows, truncated, cursor}}`, plus `count` for `agg: "count"` or `groups` for `agg: "group"`.
   Neighbours are distinct nodes in id order. `where` filters on card fields only (`id`, `label`, `name` and the
   props above), by equality or membership in a list; a missing field never matches. `count` and `group` run over all
-  matches before paging. No further edge is followed.
+  matches before paging; groups are then paged under the same caps. No further edge is followed.
 
 ## Embeddings (Task 6)
 

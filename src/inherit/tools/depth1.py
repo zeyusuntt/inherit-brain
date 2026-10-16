@@ -178,6 +178,7 @@ class Episode:
         self.product_id = f"Product:{product}"
         self.roots: set[str] = {self.product_id}
         self.exposed: dict[str, int] = {self.product_id: 0}  # entity id -> discovery hop
+        self.max_hop = 0  # monotonic maximum over received cards; `received`/`exposed` keep minimum distances
         self.received: dict[str, int] = {}  # full cards the model has been given -> hop
         self.calls = 0
         self.trace: list[TraceOp] = []
@@ -185,7 +186,7 @@ class Episode:
     # ------------------------------------------------------------ accounting
     def stats(self) -> dict:
         return {"calls": self.calls, "distinct_cards": len(self.received),
-                "max_hop": max(self.received.values(), default=0)}
+                "max_hop": self.max_hop}
 
     def _call(self, tool: str, params: dict, fn):
         if self.calls >= self.max_calls:
@@ -220,6 +221,7 @@ class Episode:
                         + ("" if self.strict else " or a reference from a card you received"))
 
     def _receive(self, c: dict, hop: int) -> None:
+        self.max_hop = max(self.max_hop, hop)
         self.received[c["id"]] = min(self.received.get(c["id"], hop), hop)
         self.exposed[c["id"]] = min(self.exposed.get(c["id"], hop), hop)
         for e in c["neighbours"]:
@@ -254,12 +256,15 @@ class Episode:
         return size + add <= RESPONSE_BUDGET_TOKENS * 4
 
     def _page(self, total: int, offset: int, make, sig: str):
-        """Rows [offset:] from `make(i)` until the row cap or the budget; at least one row. -> (rows, truncated, cursor)"""
+        """Rows [offset:] from `make(i)` until the row cap or the budget; a row over the budget alone is refused."""
         rows: list = []
         i = offset
         while i < total and len(rows) < ROW_CAP:
             row = make(i)
-            if rows and not self._fits(rows, row):
+            if not self._fits(rows, row):
+                if not rows:
+                    raise ToolError(f"a single row exceeds the {RESPONSE_BUDGET_TOKENS:,}-token response budget "
+                                    "and is not returned")
                 break
             rows.append(row)
             i += 1
@@ -285,6 +290,9 @@ class Episode:
         def run():
             hop = self._authorised(node_id)
             c = cards.card(self._reader, node_id)
+            if not self._fits([], c):
+                raise ToolError(f"card {node_id} exceeds the {RESPONSE_BUDGET_TOKENS:,}-token response budget "
+                                "and is not returned")
             self._receive(c, hop)
             return {"rows": [c], "truncated": False, "cursor": None}
         return self._call("get_card", {"id": node_id}, run)
@@ -333,8 +341,8 @@ class Episode:
             hop = self._authorised(root_id)
             sig = self._sig("neighbors", root_id, edge_type, direction, where, agg, group_field)
             offset = self._offset(cursor, sig)
-            if cursor is not None and agg is not None:
-                raise ToolError("aggregates have no pages")
+            if cursor is not None and agg == "count":
+                raise ToolError("count has no pages")
 
             pat = f"-[:{edge_type}]->(m)" if direction == "out" else f"<-[:{edge_type}]-(m)"
             q = f"MATCH (r:{cards._label(root_id)} {{id: $id}}){pat} RETURN DISTINCT m.id"  # noqa: SLF001
@@ -365,7 +373,8 @@ class Episode:
                     v = self._field(build(i), group_field)
                     counts.setdefault(json.dumps(v, sort_keys=True, ensure_ascii=False), [v, 0])[1] += 1
                 groups = [{"value": v, "count": n} for _, (v, n) in sorted(counts.items(), key=lambda kv: (-kv[1][1], kv[0]))]
-                return {"rows": [], "truncated": False, "cursor": None, "groups": groups}
+                page, more, nxt = self._page(len(groups), offset, lambda i: groups[i], sig)
+                return {"rows": [], "truncated": more, "cursor": nxt, "groups": page}
             rows, more, nxt = self._page(len(matched), offset, lambda i: build(matched[i]), sig)
             for c in rows:
                 self._receive(c, hop + 1)
