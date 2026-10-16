@@ -201,6 +201,9 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
         if typ == "ASSIGNED" and HELP_REQUEST.search(msgs[mid].text):
             drop("events", "help_request")  # asking a colleague to assist does not hand over the bug
             continue
+        if typ == "ASSIGNED" and _answers_help_request(msgs, mid):
+            drop("events", "help_reply")  # the colleague who agrees to assist is a helper, not the assignee
+            continue
         if typ in EVIDENCE and not EVIDENCE[typ].search(msgs[mid].text):
             drop("events", "no_evidence_for_type")
             continue
@@ -277,6 +280,16 @@ def canonical_areas(variants) -> dict[str, str]:
     for v in sorted(count, key=lambda v: (not v[:1].isupper(), -count[v], "&" not in v, v)):
         best.setdefault(br.area_key(v), v)
     return best
+
+
+def _answers_help_request(msgs: dict, message_id: str) -> bool:
+    """True when the message before `message_id` asks its author (by @mention) to help or assist."""
+    prev = None
+    for m in msgs.values():
+        if m.id == message_id:
+            return bool(prev and HELP_REQUEST.search(prev.text) and msgs[message_id].user_id in prev.mentions)
+        prev = m
+    return False
 
 
 def earlier_or_same(msgs: dict, message_id: str) -> list:

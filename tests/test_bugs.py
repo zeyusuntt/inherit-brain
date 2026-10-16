@@ -688,3 +688,17 @@ def test_request_for_help_is_not_an_assignment(tmp_path):
     assert out.report["dropped"]["events"] == {"help_request": 1}
     dup = bug_by_title(out.facts, "Duplicate Log Entries for Manual Actions").props
     assert dup["current_assignees"] == [fx.EMMA]  # still the engineer assigned before the reopening
+
+
+def test_reply_accepting_a_request_for_help_is_not_an_assignment_either(tmp_path):
+    ask = f"Sure thing, I'll dive into the logs. @{fx.BOB}, could you assist me with this?"
+    slack = [r for r in fx.SLACK if r[0] != "20260125-1-g0002"] + [
+        ("20260125-1-g0002", fx.EMMA, "2026-01-25T14:03:00", ask),
+        ("20260125-2-g0003", fx.BOB, "2026-01-25T14:05:00", "Absolutely! I'll start by reviewing the recent deployments.")]
+    reply = {"type": "ASSIGNED", "bug_ref": "m1", "bug_mention": None, "actor_message_id": "20260125-2-g0003",
+             "assignee_eids": [fx.BOB], "fix_pr_links": [], "citations": [fx.cite("20260125-2-g0003", "I'll start by reviewing")]}
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[fx.LEAK_BUG]),
+                                   "20260125-1-g0002": fx.session_json(events=[reply])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    assert out.report["dropped"]["events"] == {"help_reply": 1}
