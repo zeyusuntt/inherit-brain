@@ -30,7 +30,7 @@ LIMIT = 262_144
 OUTPUT_HEADROOM = 2_048
 TOKENIZER_PATH = ROOT / "data" / "cache" / "tokenizer" / "tokenizer.json"
 TOKENIZER_REPO = "Qwen/Qwen3-30B-A3B-Instruct-2507"
-PROMPT_VERSION = "baselines/a1f/v1"
+PROMPT_VERSION = "baselines/a1f/v2"
 
 SYSTEM = ("You are a helpful AI assistant. Use the following product context to answer the given multi-hop question. "
           "Use reasoning to find the answer in the context. If the answer cannot be found in the context, say so "
