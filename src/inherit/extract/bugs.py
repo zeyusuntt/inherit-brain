@@ -368,10 +368,19 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
         lid, comp = c.get("bug_ref"), c.get("component")
         if lid not in parse.no_area or not isinstance(comp, str) or not comp.strip():
             drop("components", "bad_ref_or_empty")
+        elif c.get("_repointed") or (
+                not area_in(comp, "\n".join(m.text for m in earlier_or_same(msgs, by_lid[lid]["message_id"])))
+                and area_in(comp, "\n".join(m.text for m in acceptance_of(msgs, parse, by_lid[lid]["message_id"])))):
+            # a correction this layer used to drop (repaired citation, or a name found only in the acceptance): applied
+            # after the link calls (see run_bugs) so no request changes, with the acceptance citation kept
+            acc = acceptance_of(msgs, parse, by_lid[lid]["message_id"])
+            if acc and area_in(comp, acc[0].text):
+                keep = [x for x in c["citations"] if x.get("record_id") == acc[0].id]
+                late[lid] = (comp.strip(), keep)
+            else:
+                drop("components", "not_in_message")
         elif area_in(comp, "\n".join(m.text for m in earlier_or_same(msgs, by_lid[lid]["message_id"]))):
             areas[lid] = comp.strip()
-        elif area_in(comp, "\n".join(m.text for m in acceptance_of(msgs, parse, by_lid[lid]["message_id"]))):
-            late[lid] = comp.strip()  # named only in the acceptance: applied after the link calls (see run_bugs)
         else:
             drop("components", "not_in_message")
     return bugs, events, externals, areas, late
@@ -444,20 +453,24 @@ def place_assignments(events, msgs, pos, src_all, counts) -> None:
             if any(first_pos[k] <= p <= ai for p in intro_pos):
                 continue
             lo = first_pos[k]
-        same = [o for o in events if o is not e and id(o) not in gone and o["type"] == "ASSIGNED"
-                and o.get("bug_id") == e["bug_id"] and x in o["assignee_eids"] and lo <= pos[o["message_id"]] < ai]
-        if same:
-            gone.add(id(e))
-            counts["duplicate_dropped"] += 1
-            continue
+        mine = [o for o in events if o is not e and id(o) not in gone and o.get("bug_id") == e["bug_id"]]
         hand = next((msgs[p] for p in range(ai - 1, lo - 1, -1)
                      if not msgs[p].is_bot and msgs[p].user_id != x and x in br.assignees_in(msgs[p].text, msgs[p].user_id)),
                     None)
+        if hand is None:  # a hand-off the model saw by name: its ASSIGNED event on a message of someone else with a cue
+            named = [o for o in mine if o["type"] == "ASSIGNED" and x in o["assignee_eids"] and lo <= pos[o["message_id"]] < ai
+                     and msgs[pos[o["message_id"]]].user_id != x and br.ASSIGN_CUE.search(msgs[pos[o["message_id"]]].text)]
+            hand = msgs[max(pos[o["message_id"]] for o in named)] if named else None
         if hand is None:
+            continue  # nobody handed the bug over: the person took it, the event stays where they took it
+        if any(pos[hand.id] < pos[o["message_id"]] < ai
+               and (o["type"] not in ("REPORTED", "ASSIGNED") or (o["type"] == "ASSIGNED" and x not in o["assignee_eids"]))
+               for o in mine):
+            continue  # the bug changed state, or went to someone else, in between: not one assignment
+        if any(o["type"] == "ASSIGNED" and x in o["assignee_eids"] and o["message_id"] == hand.id for o in mine):
+            gone.add(id(e))  # the hand-off already has its event: this acceptance is the same assignment
+            counts["duplicate_dropped"] += 1
             continue
-        if any(o is not e and o.get("bug_id") == e["bug_id"] and o["type"] not in ("REPORTED", "ASSIGNED")
-               and pos[hand.id] <= pos[o["message_id"]] < ai for o in events):
-            continue  # the bug changed state in between: not a plain hand-off
         sent = _assignment_sentence(hand.text, x)
         good, _ = validate_items([{"citations": [{"record_id": hand.id, "quote": sent}]}], [src_all[hand.id]], ALLOWED) \
             if sent else ([], {})
@@ -481,9 +494,10 @@ def _repointed(c: dict, msgs: dict, parse, by_lid: dict, sess_src, rep) -> dict:
         return c
     fixed = [{**x, "record_id": acc[0].id} if normalise(x.get("quote")) and normalise(x["quote"]) in normalise(acc[0].text)
              else x for x in cites]
-    if fixed != cites:
-        rep["repaired_citations"] += 1
-    return {**c, "citations": fixed}
+    if fixed == cites:
+        return c
+    rep["repaired_citations"] += 1
+    return {**c, "citations": fixed, "_repointed": True}  # admitted only because of the repair: applied late
 
 
 def acceptance_of(msgs: dict, parse, message_id: str) -> list:
@@ -588,7 +602,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
         ch_events: list[dict] = []
         ch_externals: list[dict] = []
         pending: list[dict] = []
-        late_components: list[tuple[str, str]] = []
+        late_components: list[tuple[str, str, list]] = []
 
         def key_of(text):
             return br.norm_title(text, names)
@@ -655,7 +669,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                     bug_id = find_bug(b["title"], m.ts)[0] or f"Bug:{rec.product}:{channel_id}:{br.slug(b['title'])}"
                     local_bug[b["local_id"]] = bug_id
                     if not b["component"] and late_area.get(b["local_id"]):
-                        late_components.append((bug_id, late_area[b["local_id"]]))
+                        late_components.append((bug_id, *late_area[b["local_id"]]))
                     if bug_id in ch_bugs:
                         tgt = ch_bugs[bug_id]
                         tgt["customer_ids"] += [c for c in b["customer_ids"] if c not in tgt["customer_ids"]]
@@ -667,7 +681,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                     ch_bugs[bug_id] = {"id": bug_id, "title": b["title"], "aliases": [], "component": b["component"],
                                        "impact_text": b["impact_text"], "customer_ids": list(b["customer_ids"]),
                                        "first_ts": m.ts, "message_id": m.id, "channel_id": channel_id,
-                                       "channel_name": cname}
+                                       "channel_name": cname, "component_citations": []}
                     register(bug_id, b["title"])
                     for a in b["aliases"]:
                         if a != b["title"] and register(bug_id, a):
@@ -755,8 +769,9 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
                                                    "messages": [q.get("message_id") for q in pending],
                                                    "reason": "exception", "error": f"{type(exc).__name__}: {exc}"})
         # applied after the link call: the link request lists each bug's component, and these must not change it
-        for bug_id, comp in late_components:
-            ch_bugs[bug_id]["component"] = ch_bugs[bug_id]["component"] or comp
+        for bug_id, comp, cites in late_components:
+            if not ch_bugs[bug_id]["component"]:
+                ch_bugs[bug_id]["component"], ch_bugs[bug_id]["component_citations"] = comp, cites
         place_assignments(ch_events, msgs, pos, src_all, rep["placement"])
         all_bugs.update(ch_bugs)
         all_events += [dict(e, msg_pos=pos[e["message_id"]], channel_id=channel_id) for e in ch_events]
@@ -816,6 +831,7 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
         companies = sorted({(rec.customers.get(c) or {}).get("company") for c in b["customer_ids"]} - {None})
         nodes[bug_id] = Node("Bug", bug_id, {
             "id": bug_id, "title": b["title"], "aliases": b["aliases"], "component": b["component"],
+            "component_citations": b["component_citations"],
             "impact_text": b["impact_text"], "customer_ids": b["customer_ids"], "companies": companies,
             "channel_id": b["channel_id"], "channel_name": b["channel_name"], "first_reported": b["first_ts"],
             "product": rec.product, **derived})

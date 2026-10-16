@@ -191,3 +191,75 @@ def test_a_component_read_from_the_acceptance_does_not_change_the_link_request(t
     b = next(n for n in with_c.facts.nodes if n.label == "Bug" and n.props["title"] == "Inefficient Database Query Optimization")
     assert b.props["component"] == "Query Planner Core"
     assert [c["user"] for c in chat_c.link_calls] == [c["user"] for c in chat_n.link_calls] and chat_c.link_calls
+
+
+# ---------------------------------------------------------------- fix round 1
+
+def test_a_second_take_after_resolve_and_reopen_is_a_new_assignment_not_a_duplicate(tmp_path):
+    msgs = [M_INTRO, M_B1,
+            ("20260111-2-a0003", fx.EMMA, "2026-01-11T09:05:00", "Got it! I'll start on the memory leak right away."),
+            ("20260111-3-a0004", fx.EMMA, "2026-01-11T09:30:00", "I've fixed it and merged the patch."),
+            ("20260111-4-a0005", fx.IAN, "2026-01-11T09:40:00", "The Memory Leak in Suggestion Rendering is still happening for CUST-0064."),
+            ("20260111-5-a0006", fx.EMMA, "2026-01-11T09:45:00", "I'll take it again and dig into the cache.")]
+    ev = [assigned("x1", "20260111-2-a0003", fx.EMMA, "I'll start on the memory leak"),
+          {"type": "RESOLVED", "bug_ref": "x1", "bug_mention": None, "actor_message_id": "20260111-3-a0004",
+           "assignee_eids": [], "fix_pr_links": [], "citations": [fx.cite("20260111-3-a0004", "fixed it and merged the patch")]},
+          {"type": "REOPENED", "bug_ref": "x1", "bug_mention": None, "actor_message_id": "20260111-4-a0005",
+           "assignee_eids": [], "fix_pr_links": [], "citations": [fx.cite("20260111-4-a0005", "is still happening")]},
+          assigned("x1", "20260111-5-a0006", fx.EMMA, "I'll take it again")]
+    out, _ = run(events=ev, slack=msgs, tmp=tmp_path)
+    got = assigned_events(out, "memory-leak-in-suggestion-rendering")
+    assert got == [(M_B1[0], (fx.EMMA,)), ("20260111-5-a0006", (fx.EMMA,))]  # hand-off, then the second take stays
+    assert out.report["assignment_placement"]["duplicate_dropped"] == 0
+
+
+def test_a_takers_own_earlier_event_is_not_a_handoff(tmp_path):
+    # nobody hands the bug over; the person takes it twice: two events, both on his messages
+    intro = ("20260111-1-a0002", fx.IAN, "2026-01-11T09:02:00",
+             "First up, we have an issue with Memory Leak in Suggestion Rendering. It hits customer CUST-0064.")
+    msgs = [M_INTRO, intro, ("20260111-2-a0003", fx.EMMA, "2026-01-11T09:05:00", "I'll start on the memory leak."),
+            ("20260111-3-a0004", fx.EMMA, "2026-01-11T09:20:00", "I'll start on the memory leak again, now with traces.")]
+    ev = [assigned("x1", "20260111-2-a0003", fx.EMMA, "I'll start on the memory leak"),
+          assigned("x1", "20260111-3-a0004", fx.EMMA, "I'll start on the memory leak again")]
+    b1 = dict(BUGS[0], message_id=intro[0], citations=[fx.cite(intro[0], "Memory Leak in Suggestion Rendering")],
+              impact_text=intro[3])
+    chat = fx.ScriptedChat(script={intro[0]: fx.session_json(bugs=[b1], events=ev)}, link=fx.link_json())
+    out = bugs.run_bugs(fx.records(slack=msgs), chat=chat, cache_root=tmp_path)
+    assert assigned_events(out, "memory-leak-in-suggestion-rendering") == [
+        ("20260111-2-a0003", (fx.EMMA,)), ("20260111-3-a0004", (fx.EMMA,))]
+
+
+def _component_case(components, tmp, repoint_earlier=False):
+    first = (f"First up, we have 'Misconfigured Export Permissions'. Users of the Data Export Module export more than "
+             f"they may. Customer CUST-0047. @{fx.EMMA}, you're on this one too." if repoint_earlier else
+             f"First up, we have 'Misconfigured Export Permissions'. Customer CUST-0047. @{fx.EMMA}, you're on this one too.")
+    slack = [("20260111-0-b0001", fx.IAN, "2026-01-11T09:00:00", fx.B_INTRO),
+             ("20260111-1-b0002", fx.IAN, "2026-01-11T09:02:00", first),
+             ("20260111-2-b0003", fx.EMMA, "2026-01-11T09:05:00", "Understood. I'll check the Data Export Module and fix it."),
+             ("20260117-0-e0001", fx.EMMA, "2026-01-17T12:00:00", fx.E_RES),
+             ("20260117-1-e0002", fx.EMMA, "2026-01-17T12:03:00", fx.E_LINK)]
+    miscited = [fx.cite("20260111-1-b0002", "I'll check the Data Export Module and fix it")]
+    answer = {"bugs": [], "events": [], "external": [],
+              "components": [{"bug_ref": "rb1", "component": "Data Export Module", "citations": miscited}] if components else []}
+    chat = fx.ScriptedChat(script={"20260111-2-b0003": json.dumps(answer)}, link=fx.link_json(("I1", "B1")))
+    recs = fx.records(slack=slack)
+    return bugs.run_bugs(recs, chat=chat, cache_root=tmp), chat
+
+
+def test_a_repaired_component_named_earlier_in_the_session_is_still_applied_after_the_link_call(tmp_path):
+    # the old code dropped this item (its quote is not on the record it cites); admitting it must not change any request
+    with_c, chat_c = _component_case(True, tmp_path / "a", repoint_earlier=True)
+    without, chat_n = _component_case(False, tmp_path / "b", repoint_earlier=True)
+    b = next(n for n in with_c.facts.nodes if n.label == "Bug" and n.props["title"] == "Misconfigured Export Permissions")
+    assert b.props["component"] == "Data Export Module"
+    assert [c["user"] for c in chat_c.calls] == [c["user"] for c in chat_n.calls] and chat_c.link_calls
+
+
+def test_the_acceptance_citation_is_kept_with_the_component(tmp_path):
+    out, _ = _component_case(True, tmp_path)
+    b = next(n for n in out.facts.nodes if n.label == "Bug" and n.props["title"] == "Misconfigured Export Permissions")
+    cites = b.props["component_citations"]
+    assert [c["record_id"] for c in cites] == ["20260111-2-b0003"]
+    assert cites[0]["quote"].startswith("I'll check the Data Export Module") and cites[0]["span"]
+    assert all(n.props["component_citations"] == [] for n in out.facts.nodes
+               if n.label == "Bug" and n.props["title"] != "Misconfigured Export Permissions")
