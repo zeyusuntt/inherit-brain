@@ -1,0 +1,9 @@
+services:
+  falkor422:
+    image: falkordb/falkordb:v4.22.1
+    ports:
+      - "6379:6379"
+  falkor60:
+    image: falkordb/falkordb:6.0.2
+    ports:
+      - "6380:6379"
