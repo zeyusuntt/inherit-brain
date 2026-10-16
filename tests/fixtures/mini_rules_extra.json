@@ -1,0 +1,529 @@
+{
+ "slack": [
+  {
+   "Channel": {
+    "name": "planning-minipro",
+    "channelID": "ch-mini-plan2"
+   },
+   "Message": {
+    "User": {
+     "userId": "slack_admin_bot",
+     "timestamp": "2026-07-01T00:00:00",
+     "text": "@eid_e5000005 created this channel on 2026-07-01 00:00:00. This is the very beginning of the planning-minipro channel.",
+     "utterranceID": "20260701-0-p0001"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260701-0-p0001"
+  },
+  {
+   "Channel": {
+    "name": "planning-minipro",
+    "channelID": "ch-mini-plan2"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_e5000005",
+     "timestamp": "2026-07-02T09:00:00",
+     "text": "Kick-off for mini. Let's start by reviewing the documents from the last release. Here are the <https://sf-internal.slack.com/archives/docs/oldmini_product_vision_document_final|oldmini_product_vision_document_final> and <https://sf-internal.slack.com/archives/docs/latest_minipro_product_vision_document|latest_minipro_product_vision_document>.",
+     "utterranceID": "20260702-0-p0002"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260702-0-p0002"
+  },
+  {
+   "Channel": {
+    "name": "planning-minipro",
+    "channelID": "ch-mini-plan2"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_a1000001",
+     "timestamp": "2026-07-02T09:10:00",
+     "text": "I will read the requirements too: <https://sf-internal.slack.com/archives/docs/oldmini_product_requirements_document_final|oldmini_product_requirements_document_final>.",
+     "utterranceID": "20260702-1-p0003"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260702-1-p0003"
+  },
+  {
+   "Channel": {
+    "name": "planning-minipro",
+    "channelID": "ch-mini-plan2"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_e5000005",
+     "timestamp": "2026-07-10T09:00:00",
+     "text": "Here is the updated <https://sf-internal.slack.com/archives/docs/new_minipro_product_vision_document|Product Vision>, thank you everyone!",
+     "utterranceID": "20260710-0-p0004"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260710-0-p0004"
+  },
+  {
+   "Channel": {
+    "name": "planning-minipro",
+    "channelID": "ch-mini-plan2"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_c3000003",
+     "timestamp": "2026-07-12T10:00:00",
+     "text": "Hi team, QA team found some issues in the last release of minipro. The QA specialist, eid_d4000004, reported that exports time out on large files.",
+     "utterranceID": "20260712-0-p0005"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260712-0-p0005"
+  },
+  {
+   "Channel": {
+    "name": "planning-minipro",
+    "channelID": "ch-mini-plan2"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_a1000001",
+     "timestamp": "2026-07-13T10:00:00",
+     "text": "Ask eid_b2000002 about the retry change.",
+     "utterranceID": "20260713-0-p0006"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260713-0-p0006"
+  },
+  {
+   "Channel": {
+    "name": "planning-minipro",
+    "channelID": "ch-mini-plan2"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_a1000001",
+     "timestamp": "2026-07-13T10:05:00",
+     "text": "Hi team, QA team found issues. The report came from QA Specialist eid_99999999.",
+     "utterranceID": "20260713-1-p0007"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260713-1-p0007"
+  },
+  {
+   "Channel": {
+    "name": "develop-bobray-mini",
+    "channelID": "ch-mini-dev2"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_b2000002",
+     "timestamp": "2026-07-15T10:00:00",
+     "text": "@here check full demo of our latest release https://sf-internal.slack.com/archives/oldmini/demo_1",
+     "utterranceID": "20260715-0-q0001"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260715-0-q0001"
+  },
+  {
+   "Channel": {
+    "name": "develop-bobray-mini",
+    "channelID": "ch-mini-dev2"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_b2000002",
+     "timestamp": "2026-07-16T10:00:00",
+     "text": "@here take a look at our product demo, available here https://sf-internal.slack.com/archives/mini/demo_1",
+     "utterranceID": "20260716-0-q0002"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260716-0-q0002"
+  },
+  {
+   "Channel": {
+    "name": "develop-bobray-mini",
+    "channelID": "ch-mini-dev2"
+   },
+   "Message": {
+    "User": {
+     "userId": "eid_a1000001",
+     "timestamp": "2026-07-17T10:00:00",
+     "text": "@here see how RivalCo works: https://www.rivalco.com/demo",
+     "utterranceID": "20260717-0-q0003"
+    },
+    "Reactions": []
+   },
+   "ThreadReplies": [],
+   "id": "20260717-0-q0003"
+  }
+ ],
+ "documents": [
+  {
+   "content": "Product Vision Document body for oldmini_product_vision_document_final.",
+   "date": "2025-01-10T09:00:00",
+   "author": "eid_e5000005",
+   "document_link": "https://sf-internal.slack.com/archives/docs/oldmini_product_vision_document_final",
+   "type": "Product Vision Document",
+   "id": "oldmini_product_vision_document_final"
+  },
+  {
+   "content": "Product Vision Document body for latest_minipro_product_vision_document.",
+   "date": "2025-02-10T09:00:00",
+   "author": "eid_a1000001",
+   "document_link": "https://sf-internal.slack.com/archives/docs/latest_minipro_product_vision_document",
+   "type": "Product Vision Document",
+   "id": "latest_minipro_product_vision_document"
+  },
+  {
+   "content": "Product Requirements Document body for oldmini_product_requirements_document_final.",
+   "date": "2025-01-12T09:00:00",
+   "author": "eid_c3000003",
+   "document_link": "https://sf-internal.slack.com/archives/docs/oldmini_product_requirements_document_final",
+   "type": "Product Requirements Document",
+   "id": "oldmini_product_requirements_document_final"
+  },
+  {
+   "content": "Product Vision Document body for new_minipro_product_vision_document.",
+   "date": "2026-07-09T09:00:00",
+   "author": "eid_f6000006",
+   "document_link": "https://sf-internal.slack.com/archives/docs/new_minipro_product_vision_document",
+   "type": "Product Vision Document",
+   "id": "new_minipro_product_vision_document"
+  }
+ ],
+ "urls": [
+  {
+   "link": "https://sf-internal.slack.com/archives/oldmini/demo_1",
+   "description": "A demo video of oldmini.",
+   "id": "sf-internal_slack_com_archives_oldmini_demo_1"
+  },
+  {
+   "link": "https://sf-internal.slack.com/archives/mini/demo_1",
+   "description": "A demo video of mini.",
+   "id": "sf-internal_slack_com_archives_mini_demo_1"
+  },
+  {
+   "link": "https://www.rivalco.com/demo",
+   "description": "A demo showing how RivalCo works.",
+   "id": "www_rivalco_com_demo"
+  }
+ ],
+ "prs": [
+  {
+   "title": "Add SSO login",
+   "summary": "Adds single sign-on.",
+   "link": "https://github.com/mini/mini-server/pull/104",
+   "mergeable": "True",
+   "merged": "True",
+   "number": "104",
+   "state": "closed",
+   "user": {
+    "login": "eid_b2000002"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [
+    {
+     "state": "APPROVED",
+     "user": {
+      "login": "eid_a1000001"
+     },
+     "comment": "Looks good.",
+     "submitted_at": "2026-07-21T09:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_104"
+  },
+  {
+   "title": "Revert PR# 104: Add SSO login",
+   "summary": "This revert is necessary due to a change in product direction. Security notes were also discussed in review.",
+   "link": "https://github.com/mini/mini-server/pull/105",
+   "mergeable": "True",
+   "merged": "True",
+   "number": "105",
+   "state": "closed",
+   "user": {
+    "login": "eid_b2000002"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [
+    {
+     "state": "APPROVED",
+     "user": {
+      "login": "eid_a1000001"
+     },
+     "comment": "Fine.",
+     "submitted_at": "2026-07-22T09:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_105"
+  },
+  {
+   "title": "Add audit log",
+   "summary": "Adds an audit log.",
+   "link": "https://github.com/mini/mini-server/pull/106",
+   "mergeable": "True",
+   "merged": "True",
+   "number": "106",
+   "state": "closed",
+   "user": {
+    "login": "eid_b2000002"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [
+    {
+     "state": "APPROVED",
+     "user": {
+      "login": "eid_a1000001"
+     },
+     "comment": "Good.",
+     "submitted_at": "2026-07-21T10:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_106"
+  },
+  {
+   "title": "Revert PR#106: Add audit log",
+   "summary": "This reverts PR# 106 due to application crashes and significant performance degradation. The title mentions Enhance Security only as history.",
+   "link": "https://github.com/mini/mini-server/pull/107",
+   "mergeable": "True",
+   "merged": "False",
+   "number": "107",
+   "state": "open",
+   "user": {
+    "login": "eid_b2000002"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [
+    {
+     "state": "APPROVED",
+     "user": {
+      "login": "eid_a1000001"
+     },
+     "comment": "Ok.",
+     "submitted_at": "2026-07-23T09:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_107"
+  },
+  {
+   "title": "Revert PR# 999: Missing target",
+   "summary": "This revert is necessary due to security risks.",
+   "link": "https://github.com/mini/mini-server/pull/108",
+   "mergeable": "True",
+   "merged": "True",
+   "number": "108",
+   "state": "closed",
+   "user": {
+    "login": "eid_b2000002"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [],
+   "id": "github_com_mini_mini-server_pull_108"
+  },
+  {
+   "title": "Retry settings",
+   "summary": "Adds retry settings.",
+   "link": "https://github.com/mini/mini-server/pull/109",
+   "mergeable": "True",
+   "merged": "False",
+   "number": "109",
+   "state": "closed",
+   "user": {
+    "login": "eid_b2000002"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [
+    {
+     "state": "CHANGES_REQUESTED",
+     "user": {
+      "login": "eid_a1000001"
+     },
+     "comment": "Needs tests.",
+     "submitted_at": "2026-07-24T09:00:00"
+    },
+    {
+     "state": "COMMENTED",
+     "user": {
+      "login": "eid_f6000006"
+     },
+     "comment": "Agree.",
+     "submitted_at": "2026-07-24T10:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_109"
+  },
+  {
+   "title": "Retry settings",
+   "summary": "Adds retry settings.",
+   "link": "https://github.com/mini/mini-server/pull/110",
+   "mergeable": "True",
+   "merged": "True",
+   "number": "110",
+   "state": "closed",
+   "user": {
+    "login": "eid_a1000001"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [
+    {
+     "state": "APPROVED",
+     "user": {
+      "login": "eid_f6000006"
+     },
+     "comment": "LGTM",
+     "submitted_at": "2026-07-25T09:00:00"
+    },
+    {
+     "state": "PENDING",
+     "user": {
+      "login": "eid_c3000003"
+     },
+     "comment": "Approved!",
+     "submitted_at": "2026-07-25T10:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_110"
+  },
+  {
+   "title": "Cache tuning",
+   "summary": "Tunes the cache.",
+   "link": "https://github.com/mini/mini-server/pull/111",
+   "mergeable": "True",
+   "merged": "False",
+   "number": "111",
+   "state": "open",
+   "user": {
+    "login": "eid_b2000002"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [
+    {
+     "state": "APPROVED",
+     "user": {
+      "login": "eid_a1000001"
+     },
+     "comment": "Good.",
+     "submitted_at": "2026-07-26T09:00:00"
+    },
+    {
+     "state": "CHANGES_REQUESTED",
+     "user": {
+      "login": "eid_f6000006"
+     },
+     "comment": "Please revisit the TTL.",
+     "submitted_at": "2026-07-26T12:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_111"
+  },
+  {
+   "title": "Export paging",
+   "summary": "Pages exports.",
+   "link": "https://github.com/mini/mini-server/pull/112",
+   "mergeable": "True",
+   "merged": "False",
+   "number": "112",
+   "state": "open",
+   "user": {
+    "login": "eid_b2000002"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [
+    {
+     "state": "CHANGES_REQUESTED",
+     "user": {
+      "login": "eid_f6000006"
+     },
+     "comment": "Add tests.",
+     "submitted_at": "2026-07-27T09:00:00"
+    },
+    {
+     "state": "APPROVED",
+     "user": {
+      "login": "eid_a1000001"
+     },
+     "comment": "Tests added, good.",
+     "submitted_at": "2026-07-27T15:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_112"
+  },
+  {
+   "title": "Log rotation",
+   "summary": "Rotates logs.",
+   "link": "https://github.com/mini/mini-server/pull/113",
+   "mergeable": "True",
+   "merged": "False",
+   "number": "113",
+   "state": "open",
+   "user": {
+    "login": "eid_a1000001"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [
+    {
+     "state": "PENDING",
+     "user": {
+      "login": "eid_c3000003"
+     },
+     "comment": "Approved! Ship it.",
+     "submitted_at": "2026-07-28T09:00:00"
+    }
+   ],
+   "id": "github_com_mini_mini-server_pull_113"
+  },
+  {
+   "title": "Plain PR",
+   "summary": "No reviews yet.",
+   "link": "https://github.com/mini/mini-server/pull/114",
+   "mergeable": "True",
+   "merged": "False",
+   "number": "114",
+   "state": "open",
+   "user": {
+    "login": "eid_a1000001"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [],
+   "id": "github_com_mini_mini-server_pull_114"
+  },
+  {
+   "title": "Retry settings",
+   "summary": "Adds retry settings to the tensorflow client.",
+   "link": "https://github.com/tensorflow/tensorflow/pull/777",
+   "mergeable": "True",
+   "merged": "True",
+   "number": "777",
+   "state": "closed",
+   "user": {
+    "login": "EMP_555000333"
+   },
+   "created_at": "2026-07-20T09:00:00",
+   "reviews": [
+    {
+     "state": "APPROVED",
+     "user": {
+      "login": "EMP_555000444"
+     },
+     "comment": "OK",
+     "submitted_at": "2026-07-29T09:00:00"
+    }
+   ],
+   "id": "github_com_tensorflow_tensorflow_pull_777"
+  }
+ ]
+}
