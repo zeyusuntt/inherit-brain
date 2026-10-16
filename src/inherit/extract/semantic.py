@@ -257,7 +257,15 @@ def _item_text(item: dict, supplied) -> str:
     return own + " " + quotes
 
 
-def _validated(kind, items, supplied, allowed, drops, note_loss, ref_text=None) -> list[dict]:
+def _could_carry_implementation(item: dict, cat) -> bool:
+    """A rejected event of kind implemented or reverted, or a link to a merged PR, could have carried evidence."""
+    if item.get("kind") in ("implemented", "reverted"):
+        return True
+    t = _str(item.get("pr"))
+    return bool(t) and any(p.merged is True for p in cat.prs if p.title == t or p.link == t)
+
+
+def _validated(kind, items, supplied, allowed, drops, note_loss, ref_text=None, impl=None) -> list[dict]:
     """validate_items item by item: valid items are returned, each lost item is counted and noted (R8). `ref_text`
     names the feature an item refers to, so the loss counts against that feature."""
     ok = []
@@ -268,7 +276,8 @@ def _validated(kind, items, supplied, allowed, drops, note_loss, ref_text=None) 
         else:
             for reason, n in bad.items():
                 drops[kind][reason] += n
-            note_loss(_item_text(it, supplied) + " " + (ref_text(it) if ref_text else ""))
+            note_loss(_item_text(it, supplied) + " " + (ref_text(it) if ref_text else ""),
+                      impl=bool(impl and impl(it)))
     return ok
 
 
@@ -360,9 +369,10 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
     state = {"unresolved_feature_refs": 0, "split_sessions": 0, "scope_downgraded": 0}
     units_lost: list[dict] = []  # R8: failed units and validation losses, each with the text it speaks about
 
-    def note_loss(text, *, kind="loss", unit=None, everywhere=False):
+    def note_loss(text, *, kind="loss", unit=None, everywhere=False, impl=False):
+        """`impl`: the lost item could have carried implementation evidence (it can flip "not implemented")."""
         units_lost.append({"kind": kind, "unit": unit, "raw": normalise(text), "flat": _topic(text),
-                           "everywhere": everywhere})
+                           "everywhere": everywhere, "impl": impl})
 
     unresolved_reviews: list[dict] = []
 
@@ -478,7 +488,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             fid = local.get(_str(ref)) or (cat.resolve_feature(_str(ref)) if _str(ref) else None)
             if fid is None:
                 state["unresolved_feature_refs"] += 1
-                note_loss(_item_text(item or {}, supplied))
+                note_loss(_item_text(item or {}, supplied), impl=_could_carry_implementation(item or {}, cat))
             return fid
 
         ok = []
@@ -493,7 +503,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             else:
                 lose("features", bad)
                 state["unresolved_feature_refs"] += 1
-                note_loss(_item_text(f, supplied))
+                note_loss(_item_text(f, supplied), impl=True)  # the feature itself is missing: its evidence is too
         for f in ok:
             title = _str(f.get("title"))
             if not title:
@@ -527,7 +537,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                                   "ref": ref, "record": record_of[ref], "speaker": sp, "citations": c["citations"],
                                   "meeting": mt.id})
 
-        ok = _validated("development_links", _items(data, "development_links"), supplied, MEETING_ALLOWED, drops, note_loss, ref_text)
+        ok = _validated("development_links", _items(data, "development_links"), supplied, MEETING_ALLOWED, drops, note_loss, ref_text,
+                        lambda it: _could_carry_implementation(it, cat))
         for lk in ok:
             fid = feature_ref(lk.get("feature_ref"), lk)
             if fid is None:
@@ -542,7 +553,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 dev_links[p.link].append({"feature": fid, "basis": "meeting_title", "citations": lk["citations"],
                                           "record": mt.id, "context": ctx, "date": mt.date})
 
-        ok = _validated("feature_events", _items(data, "feature_events"), supplied, MEETING_ALLOWED, drops, note_loss, ref_text)
+        ok = _validated("feature_events", _items(data, "feature_events"), supplied, MEETING_ALLOWED, drops, note_loss, ref_text,
+                        lambda it: _could_carry_implementation(it, cat))
         for ev in ok:
             fid = feature_ref(ev.get("feature_ref"), ev)
             ref = _str(ev.get("segment_ref"))
@@ -558,15 +570,15 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                              for c in ev["citations"])
             if ev["kind"] == "implemented" and not completed(spans):
                 drops["feature_events"]["not_completed_work"] += 1  # a promise, plan, condition or negation (C1)
-                note_loss(ref_text(ev) + " " + spans)
+                note_loss(ref_text(ev) + " " + spans, impl=True)
                 continue
             if ev["kind"] == "reverted" and not rolled_back(spans):
                 drops["feature_events"]["not_completed_rollback"] += 1
-                note_loss(ref_text(ev) + " " + spans)
+                note_loss(ref_text(ev) + " " + spans, impl=True)
                 continue
             if ev["kind"] in EVENT_CUES and not EVENT_CUES[ev["kind"]].search(cited):
                 drops["feature_events"]["no_evidence_for_kind"] += 1
-                note_loss(ref_text(ev) + " " + spans)
+                note_loss(ref_text(ev) + " " + spans, impl=ev["kind"] == "reverted")
                 continue
             reason_ = ev.get("reason") if ev.get("reason") in REASONS else None
             if reason_ is None and ev["kind"] in ("held", "reverted"):
@@ -840,7 +852,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             r = validate_citation(cite, pr_src, PR_ALLOWED)
             if not r.ok:
                 drops["pr_membership"][r.reason] += 1
-                note_loss(feats[int(fm.group(1)) - 1]["title"] + " " + prs_raw[p.link].title + " " + p.link)
+                note_loss(feats[int(fm.group(1)) - 1]["title"] + " " + prs_raw[p.link].title + " " + p.link,
+                          impl=prs_raw[p.link].merged is True)
                 continue
             dev_links[p.link].append({"feature": feats[int(fm.group(1)) - 1]["id"], "basis": "batch",
                                       "citations": [{**cite, "field": r.record.field, "span": list(r.span)}],
@@ -864,7 +877,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         elif len(fs) > 1:
             ev["feature"] = None
             events_unattached += 1
-            note_loss(" ".join(ev["prs"]), kind="loss")
+            note_loss(" ".join(ev["prs"]), kind="loss", impl=ev["kind"] in ("implemented", "reverted"))
     implemented_pr = {k_: v_ for k_, v_ in implemented_pr.items() if v_ != "meeting_event"}
     for ev in fevents:
         if ev["kind"] == "implemented" and ev["feature"] and ev["source"] == "meeting":
@@ -1002,6 +1015,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
     def reconciled(fid):
         topics = [fid.split(":", 2)[2], *(_topic(a) for a in cat.features.entries[fid]["aliases"])]
         for u in units_lost:
+            if u["kind"] == "loss" and not u["impl"]:
+                continue  # a lost contribution, review, discussion or observation cannot flip "not implemented"
             if u["everywhere"] or any(t and t in u["flat"] for t in topics):
                 return False
             for link, number, title in pr_ids[fid]:

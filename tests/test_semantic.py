@@ -877,20 +877,48 @@ def test_a_completed_rollback_in_a_meeting_is_a_reverted_event_and_a_plan_is_not
         assert nodes(out.facts, "Feature")[ALERTS].props["reverted"] is expect
 
 
-def test_rejected_membership_quote_makes_the_feature_predicate_unknown(tmp_path):
-    chat = fx.standard_chat()
+def _bad_quote(chat, start):
     good = chat.membership
 
     def bad(user):
         data = json.loads(good(user))
         for a in data["assignments"]:
-            if a["quote"].startswith("Push alerts"):
+            if a["quote"].startswith(start):
                 a["quote"] = "not in the pull request"
         return json.dumps(data)
 
     chat.membership = bad
-    out, _ = run(chat, tmp=tmp_path)
+
+
+def test_rejected_membership_of_a_merged_pr_makes_the_predicate_unknown_an_unmerged_one_does_not(tmp_path):
+    prs = [fx.pr(4, "Alert Throttling", merged=True, state="closed", summary="Limit how often one alert can fire.")
+           ] + [p for p in fx.PRS if p.number != "4"]
+    chat = fx.standard_chat()
+    _bad_quote(chat, "Limit how often")
+    out, _ = run(chat, fx.records(prs=prs), tmp_path)
     assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None
+    chat2 = fx.standard_chat()
+    _bad_quote(chat2, "Push alerts")  # PR 3 is open and unmerged: it could not have carried implementation
+    out2, _ = run(chat2, tmp=tmp_path / "b")
+    assert nodes(out2.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True
+
+
+def test_a_rejected_contribution_does_not_null_the_predicate_but_a_rejected_implemented_event_does(tmp_path):
+    m1 = json.loads(fx.M1_ANSWER)
+    m1["contributions"].append({"feature_ref": "f1", "segment_ref": f"{fx.M1}#6", "kind": "support",
+                                "citations": [fx.cite(f"{fx.M1}#6", "quote that was never said about real-time alerts")]})
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+    out, _ = run(chat, tmp=tmp_path)
+    assert out.report["dropped"]["contributions"] == {"quote_not_found": 1}
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True
+    m2 = json.loads(fx.M1_ANSWER)
+    m2["feature_events"].append({"feature_ref": "f1", "kind": "implemented", "reason": None, "pr": None,
+                                 "segment_ref": f"{fx.M1}#6", "citations": [fx.cite(f"{fx.M1}#6", "alerts were never said done")]})
+    chat2 = fx.standard_chat()
+    chat2.script[f"MEETING: {fx.M1}"] = json.dumps(m2)
+    out2, _ = run(chat2, tmp=tmp_path / "b")
+    assert nodes(out2.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None
 
 
 def test_events_follow_the_corrected_feature_of_all_their_prs_or_stay_unattached(tmp_path):
