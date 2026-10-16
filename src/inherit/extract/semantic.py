@@ -1588,14 +1588,17 @@ _RULE_CUE = re.compile(
     r"\b(?:consider\w{0,3}|(?:add|adds|added|adding)|includ\w{0,3}|highlight\w{0,3}|detail\w{0,3}|specif\w{1,4}"
     r"|emphasi[sz]\w{0,3}|elaborat\w{0,3}|mention\w{0,3}|outlin\w{0,4}|defin\w{0,3}|cover\w{0,3}|explain\w{0,3}"
     r"|clarif\w+|expand\w{0,3}|replac\w{0,3}|remov\w{0,3}|improv\w{0,3}|incorporat\w{0,3})\b"
-    r"(?=\s+\w+\s+\w+|\s+(?:a|an|the|our|some|more)\b|\s+\w+\s*\?)", re.I)
-_EVALUATIVE = re.compile(r"\badd(?:s|ed)? (?:a lot of |much |great |real |some )?value\b|\bsounds? (?:good|great|like)\b|"
+    r"(?=\s+\w+\s+\w+|\s+(?:a|an|the|our|some|more)\b|\s+\w+\s*\?)"
+    # a section proposed, a concrete requirement, "think about how to ...", "not forget about ..."
+    r"|\b(?:(?:start|begin) with (?:a|an|the) section|a section (?:on|about|for)|(?:don'?t|not|never|do not) forget about"
+    r"|think(?:ing)? about how to|(?:needs?|has) to be \w+|should (?:support|allow|provide|handle)\b)", re.I)
+_EVALUATIVE = re.compile(r"\badd(?:s|ed)? (?:a lot of |much |great |real |some |more )?(?:value|credibility|weight|trust)\b|\bsounds? (?:good|great|like)\b|"
                          r"\b(?:great|solid|good) (?:plan|idea|call|suggestions?)\b|\bon the right track\b", re.I)
 # Not document content: deadlines, review requests, invitations, coordination, timelines, progress, staffing, building.
 _RULE_NOT = re.compile(
     r"\bdeadline\b|\bfeel free\b|\bonce i'?m done\b|\breview (?:it|this|that)\b|\bby (?:early |late |the |mid-?)?(?:next|end|tomorrow|"
     r"week|monday|tuesday|wednesday|thursday|friday)\b|\bnext (?:week|friday|monday)\b|\blet me know\b|\bsync\b|"
-    r"\bcoordinat\w+|\btimelines?\b|\bprogress\b|\bstaff\w*|\bimplement(?:ed|ation|ing)?\b|\blet'?s get\b", re.I)
+    r"\bready\b|\bfinali[sz]\w*|\bcoordinat\w+|\btimelines?\b|\bprogress\b|\bstaff\w*|\bimplement(?:ed|ation|ing)?\b|\blet'?s get\b", re.I)
 # The opener must start a discussion of the document or share it, and not call it off.
 _OPEN_DISCUSSION = re.compile(r"\b(?:discuss\w*|review\w*|feedback|brainstorm\w*|thoughts|shar(?:e|ed|ing)|go(?:ing)? (?:over|through)"
                               r"|talk(?:ing)? about|walk(?:ing)? through)\b", re.I)
@@ -1610,8 +1613,9 @@ def type_level_reviews(data, chunk, cat, doc_prev, reviews, discusses) -> int:
     reads the session first; this rule only adds the replies it did not return a review for: a reply whose own sentence
     proposes an identifiable change to the content (never work allocation, coordination, scheduling, an evaluation or an
     opener, and not a sentence that turns to another document type) is a review of every document of that type, marked
-    by the caller as version_ambiguous. A message the model did address (kept or dropped) is never re-read, so a ruling
-    on its cited remark stands. Returns the number added."""
+    by the caller as version_ambiguous. A message with an accepted review of this document type is left as it is; one whose
+    remarks were all rejected is read again sentence by sentence, so an allocation sentence stays rejected while a separate
+    content proposal of the same message is accepted. Returns the number added."""
     real = [m for m in chunk if not m.is_bot]
     if len(real) < 2 or not DOC_TYPE_RE.search(real[0].text) or not _OPEN_DISCUSSION.search(real[0].text) \
             or _OPEN_CANCEL.search(real[0].text):
@@ -1620,7 +1624,10 @@ def type_level_reviews(data, chunk, cat, doc_prev, reviews, discusses) -> int:
     if not docs:
         return 0  # no document of ours (a competitor's, or a type we have none of)
     target = normalise(docs[0].type)
-    modelled = {_str(r.get("message_id")) for r in _items(data, "reviews")}
+    target_ids = {d_.id for d_ in docs}
+    # a message is left to the model only when a review of it was accepted for this document type; a message the model
+    # answered with rejected remarks (or for other purposes) is read here, sentence by sentence, under the same checks
+    modelled = {r["record"] for r in reviews if target_ids & set(r["docs"])}
     added = 0
     for m in real[1:]:
         if m.id in modelled or "http" in m.text or m.text.lstrip().startswith("@here"):

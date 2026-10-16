@@ -516,7 +516,7 @@ def test_a_brainstorm_about_a_document_type_reviews_every_version_for_replies_wi
     assert out.report["type_level_rule_reviews"] == 2
 
 
-def test_the_opener_and_a_message_the_model_addressed_are_not_added_by_the_rule(tmp_path):
+def test_a_rejected_allocation_sentence_stays_rejected_while_its_content_proposal_is_accepted(tmp_path):
     rec = _brainstorm("Hi team, we need to nail down the key sections of the Market Research Report for Mini. Thoughts?", [
         (fx.BEN, "I'll handle the roadmap section. We need to outline the dates and owners.")])
     chat = fx.standard_chat()
@@ -524,7 +524,21 @@ def test_the_opener_and_a_message_the_model_addressed_are_not_added_by_the_rule(
         "message_id": "20260601-1-q0001", "document_ref": "Market Research Report", "kind": "suggestion", "section": None,
         "text": "Handle the roadmap section", "citations": [fx.cite("20260601-1-q0001", "I'll handle the roadmap section")]}])
     out, _ = run(chat, rec, tmp_path)
-    assert _suggested_in(out) == set()  # the model's cited remark was work allocation; the rule does not re-read the message
+    es = [e for e in edges(out.facts, "SUGGESTED") if e.key == "20260601-1-q0001"]
+    assert {e.dst_id for e in es} == {f"Document:{d}" for d in BOTH}
+    assert {e.props["text"] for e in es} == {"We need to outline the dates and owners."}  # not the allocation sentence
+    assert all(e.props["review_origin"] == "type_level_rule" for e in es)
+
+
+def test_a_message_with_an_accepted_model_review_is_not_read_again(tmp_path):
+    rec = _brainstorm(OPEN, [(fx.BEN, "We should add a pricing section. We should also include a roadmap section.")])
+    chat = fx.standard_chat()
+    chat.script["[20260601-1-q0001]"] = fx.session_json(reviews=[{
+        "message_id": "20260601-1-q0001", "document_ref": "Market Research Report", "kind": "suggestion", "section": "Pricing",
+        "text": "Add a pricing section", "citations": [fx.cite("20260601-1-q0001", "We should add a pricing section")]}])
+    out, _ = run(chat, rec, tmp_path)
+    es = [e for e in edges(out.facts, "SUGGESTED") if e.key == "20260601-1-q0001"]
+    assert es and all(e.props["review_origin"] == "model" for e in es)
     assert out.report["type_level_rule_reviews"] == 0
 
 
@@ -549,6 +563,7 @@ OPEN = "Hi team, I want to discuss the Market Research Report for Mini. Let's br
     "Thanks, George! I'll update everyone on the QA progress by mid-week. Let's do this!",
     "Sounds like a solid plan, @Bob Garcia. Let's get these changes implemented and ensure Mini is on the right track.",
     "Those suggestions will add value.",
+    "It will add credibility to our vision.",
     "We should make sure everyone is staffed for the work.",
 ])
 def test_workflow_and_evaluative_replies_are_not_read_as_reviews(tmp_path, reply):
@@ -586,3 +601,34 @@ def test_edges_carry_their_origin(tmp_path):
     assert rule and all(e.props["review_origin"] == "type_level_rule" for e in rule)
     model = [e for e in edges(out.facts, "SUGGESTED") if e.key == "20260305-1-a0002"]
     assert model and all(e.props["review_origin"] == "model" for e in model)
+
+
+R4_ACCEPT = [
+    "@eid_469598db Sounds good, Hannah! I think we should start with defining the core functionalities of the AI engine. "
+    "What exactly do we want it to recommend based on customer conversations?",
+    "Agreed, George. We should also consider how the AI will integrate with existing CRM systems. That could be a key section in the PRD.",
+    "From a QA perspective, we need to ensure we have clear testing criteria for the recommendations. Maybe we can include a section on performance metrics?",
+    "Hey all, don't forget about the user experience! We need to make sure the recommendations are easily accessible and actionable for the sales reps. I'll draft some initial thoughts on the UX part.",
+    "Good point, Charlie! We should also think about how to handle edge cases where the AI might not have enough data to make a recommendation.",
+    "From a UX perspective, the 'User Experience' section is solid, but I think we should emphasize user testing. Adding a line about iterative testing with sales teams could highlight our focus on usability and continuous improvement.",
+    "Hey, sounds good! I think we should start with a section on the current market landscape for AI-driven productivity tools. What do you think?",
+    "For the technical section, we should explain how the AI suggests actions in Slack. Maybe a flowchart or diagram would help? Thoughts?",
+    "Let's also include a section on potential use cases and benefits for different user personas. This will help in marketing the product effectively.",
+    "Let's not forget about potential risks and how we plan to mitigate them. It's always good to be prepared.",
+]
+R4_REJECT = [
+    "Great idea, George! A visual representation will definitely make it clearer. I'll draft something and share it here for feedback.",
+    "I can help draft the section on competitive analysis. It'll be important to show how we stand out from other lead scoring solutions.",
+]
+
+
+@pytest.mark.parametrize("reply", R4_ACCEPT)
+def test_round_4_content_proposals_are_read_at_type_level(tmp_path, reply):
+    out, _ = run(None, _brainstorm(OPEN, [(fx.BEN, reply)]), tmp_path)
+    assert {k for k, _ in _suggested_in(out)} == {"20260601-1-q0001"}
+
+
+@pytest.mark.parametrize("reply", R4_REJECT)
+def test_round_4_allocation_and_endorsement_stay_unextracted(tmp_path, reply):
+    out, _ = run(None, _brainstorm(OPEN, [(fx.BEN, reply)]), tmp_path)
+    assert _suggested_in(out) == set()
