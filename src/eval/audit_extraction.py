@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Callable
 
 from inherit.config import ROOT
-from inherit.data.records import ProductRecords, load_records
+from inherit.data.records import ProductRecords, load_records, parse_mentions
 from inherit.data.split import SEED as SPLIT_SEED
 from inherit.data.split import split
 from inherit.extract.sessions import sessions
@@ -355,22 +355,38 @@ def review_packets(sources: dict[str, Source], n: int, rng: random.Random) -> tu
 
 
 def candidate_records(src: Source, row: dict) -> list[dict]:
-    """One evidence record per directory person with the speaker's exact name: the three eligibility tests of the frozen
-    rule (in the meeting, active in the product Slack within +-3 days, @-mentioned in the meeting chat)."""
+    """Evidence for the frozen rule, for every directory person with the speaker's exact name: in the meeting, @-mentioned
+    in the meeting (transcript or chat), and posts within +-3 days with their full sessions. A post is related when its
+    session text names the meeting's document type or the link of a document of that type (names.py)."""
     m = src.meeting[row["meeting_id"]]
     mdt = datetime.fromisoformat(m.date)
     chats = [c for c in src.records.chats if c.meeting_id == m.id]
+    mentioned_eids = {e for sg in m.segments for e in parse_mentions(sg.text)} | {e for c in chats for e in c.mentions}
+    terms = ([m.document_type.lower()] if m.document_type else []) + [d.link.lower() for d in src.records.documents
+                                                                         if d.type == m.document_type]
     out = []
     for eid, e in sorted(src.records.employees.items()):
         if e["name"].casefold().strip() != row["name"].casefold().strip():
             continue
-        posts = [x for x in src.records.messages if x.user_id == eid and abs(datetime.fromisoformat(x.ts) - mdt) <= WINDOW]
-        mentioned = any(eid in c.mentions for c in chats)
-        lines = "".join(f"\n    [{x.id}] {x.ts} #{x.channel_name}: {x.text}" for x in posts)
+        posts = [x for x in src.records.messages if x.user_id == eid and not x.is_bot
+                 and abs(datetime.fromisoformat(x.ts) - mdt) <= WINDOW]
+        sess = message_session_records(src, [x.id for x in posts])
+        hit = None
+        for x in posts:
+            for sx in sessions(src.channel[x.channel_id]):
+                if x.id in {y.id for y in sx}:
+                    text = "\n".join(y.text for y in sx).lower()
+                    hit = hit or next((t for t in terms if t in text), None)
+        listing = "; ".join(f"[{x.id}] {x.ts} #{x.channel_name}" for x in posts) or "none"
         out.append({"id": f"candidate:{eid}", "text": (
             f"Candidate {e['name']} ({eid}), directory role {e['role']}. In the meeting's participants: "
-            f"{'yes' if eid in m.participants else 'no'}. @-mentioned in this meeting's chat: {'yes' if mentioned else 'no'}. "
-            f"Slack posts within 3 days of {m.date}: {len(posts)}.{lines}")})
+            f"{'yes' if eid in m.participants else 'no'}. @-mentioned in this meeting: {'yes' if eid in mentioned_eids else 'no'}. "
+            f"Slack posts within 3 days of {m.date}: {len(posts)} ({listing}); the full session of each post follows below. "
+            f"Related post under the rule: {'yes' if hit else 'no'}"
+            + (f" (the session names '{hit}')" if hit else "")
+            + f". Terms checked: document type '{m.document_type}' and the links of documents of that type: "
+              f"{', '.join(terms[1:]) or 'none'}.")})
+        out += sess
     return out
 
 
@@ -662,9 +678,11 @@ records and the directory in the packet. Be complete and do not invent items. Ou
 Do not add text outside the JSON."""
 
 RECALL_RULES = {
-    "recall_bug": """Each item: {"bug": "<id of the message where this bug was first reported>", "type": "REPORTED|ASSIGNED|RESOLVED|DISMISSED|REOPENED", "actor": "<eid or name of who
+    "recall_bug": """Each item: {"bug": "<id of the message where this bug was first reported>", "bug_title": "<optional title, ignored>", "type": "REPORTED|ASSIGNED|RESOLVED|DISMISSED|REOPENED", "actor": "<eid or name of who
 performed it>", "time": "<message timestamp>", "message_id": "<id>", "bug": "<bug title>"}. List one item per bug per
-event. A bug is reported once when it is introduced; it is assigned when someone is asked to take it or takes it; resolved
+event. The "bug" field is always the id of the message where the bug was first reported, never a title.
+Example item: {"bug": "20261117-1-a77c3", "bug_title": "Duplicate Log Entries", "type": "ASSIGNED", "actor": "eid_0ac476e4", "time": "2026-11-17T07:06:00", "message_id": "20261117-1-a77c3"}
+A bug is reported once when it is introduced; it is assigned when someone is asked to take it or takes it; resolved
 when reported fixed or closed; dismissed when judged not a bug; reopened when it returns after resolution.""",
     "recall_reviewer": """Each item: {"reviewer": "<name as written in the record, or the eid>", "source": "<source record
 id>"}. A reviewer is a person who gives a suggestion, a requested change or a review question about the document (or its
@@ -733,13 +751,21 @@ def write_round(packets: list[dict], sizes: dict, round_n: int, bundle_sha: str 
 
 
 def load_packets(round_n: int, root: Path = AUDIT_DIR) -> dict[str, dict]:
-    pdir = round_dir(round_n, root) / "packets"
-    return {p["id"]: p for p in (json.loads(f.read_text(encoding="utf-8")) for f in sorted(pdir.glob("*.json")))}
+    rd = round_dir(round_n, root)
+    mf = rd / "manifest.json"
+    listed = {e["id"] for e in json.loads(mf.read_text(encoding="utf-8"))["packets"]} if mf.exists() else None
+    out = {}
+    for f in sorted((rd / "packets").glob("*.json")):  # strays outside the manifest are an integrity problem, not input
+        if listed is None or f.stem in listed:
+            out[f.stem] = json.loads(f.read_text(encoding="utf-8"))
+    return out
 
 
 def integrity_problems(round_n: int, root: Path = AUDIT_DIR) -> list[str]:
     """Differences between the manifest and the packet files on disk, and missing auditor metadata."""
     rd = round_dir(round_n, root)
+    if not (rd / "manifest.json").exists():
+        return ["manifest missing"]
     manifest = json.loads((rd / "manifest.json").read_text(encoding="utf-8"))
     want = {e["id"]: e["sha256"] for e in manifest["packets"]}
     problems = []
@@ -756,6 +782,11 @@ def integrity_problems(round_n: int, root: Path = AUDIT_DIR) -> list[str]:
         if not isinstance(m, dict) or any(not isinstance(m.get(k), str) or not m[k].strip() for k in AUDITOR_KEYS):
             problems.append(f"auditor metadata missing or incomplete for {who} (needs {', '.join(AUDITOR_KEYS)})")
     return problems
+
+
+def _verdict_hashes(rd: Path) -> dict:
+    return {w: sha256_text("".join(sha256_text(f.read_text(encoding="utf-8")) for f in sorted((rd / "verdicts" / w).glob("*.json"))))
+            if (rd / "verdicts" / w).exists() else None for w in ("codex", "claude", "third")}
 
 
 def is_recall(kind: str) -> bool:
@@ -914,6 +945,15 @@ def extracted_keys(packet: dict, src: Source) -> Counter:
                     for e in src.rows("semantic", type="SUGGESTED") if e["dst_id"] == dst for rid in e["src"]})
 
 
+def shared_report_messages(src: Source, channel_id: str) -> int:
+    """First-report messages of the channel that carry more than one bug in the extraction."""
+    first = {}
+    evs = [e["props"] for e in src.rows("bugs", label="BugEvent") if e["props"]["channel_id"] == channel_id]
+    for e in sorted((e for e in evs if e["type"] == "REPORTED"), key=lambda e: (e["ts"], e.get("seq") or 0)):
+        first.setdefault(e["bug"], e["message_id"])
+    return sum(1 for n in Counter(first.values()).values() if n > 1)
+
+
 def compare_recall(truth: Counter, extracted: Counter) -> dict:
     matched = sum(min(n, extracted[k]) for k, n in truth.items())
     missed = sorted("|".join(k) for k, n in truth.items() for _ in range(n - min(n, extracted[k])))
@@ -987,6 +1027,9 @@ def collect(round_n: int, sources: dict[str, Source], root: Path = AUDIT_DIR) ->
         if is_recall(kind):
             r = recall.setdefault(kind, {"packets": 0, "truth": 0, "matched": 0, "pending": 0, "lists_equal": 0, "detail": []})
             r["packets"] += 1
+            if kind == "recall_bug":
+                r["shared_report_messages"] = r.get("shared_report_messages", 0) + shared_report_messages(
+                    sources[p["product"]], p["meta"]["channel_id"])
             a, b, t = (v[w][0].get(pid) for w in ("codex", "claude", "third"))
             if t is None:
                 r["pending"] += 1
@@ -1022,8 +1065,7 @@ def collect(round_n: int, sources: dict[str, Source], root: Path = AUDIT_DIR) ->
         r["recall"] = round(r["matched"] / r["truth"], 4) if r["truth"] else None
     pend = len(pending_third(round_n, root))
     problems = integrity_problems(round_n, root)
-    rdirs = {w: sha256_text("".join(sha256_text(f.read_text(encoding="utf-8")) for f in sorted((rd / "verdicts" / w).glob("*.json"))))
-             if (rd / "verdicts" / w).exists() else None for w in ("codex", "claude", "third")}
+    rdirs = _verdict_hashes(rd)
     aud = rd / "auditors.json"
     summary = {"round": round_n, "complete": pend == 0 and not problems, "pending_third": pend,
                "integrity_problems": problems, "sample_hash": manifest["sample_hash"],
@@ -1073,6 +1115,11 @@ def render_report(s: dict) -> str:
     L += ["", "## Recall", "", "| kind | matched/truth | recall | packets | auditor lists equal |", "|---|---|---|---|---|"]
     for k, r in sorted(s["recall"].items()):
         L.append(f"| {k} | {r['matched']}/{r['truth']} | {r['recall']} | {r['packets']} | {r['lists_equal']} |")
+    sh = (s["recall"].get("recall_bug") or {}).get("shared_report_messages")
+    L += ["", f"Disclosure: {sh} first-report messages carrying more than one bug in the extraction are in the bug recall "
+          "packets; those bugs share one identity key in the comparison.",
+          "Disclosure: later sessions that refer to a bug only by anaphora (\"this one\"), with no title, customer "
+          "company or PR link, are not in the bug precision packets."]
     L += ["", "## Prompt hashes", ""] + [f"- {k}: {h}" for k, h in s["prompt_hashes"].items() if k != "version"]
     return "\n".join(L) + "\n"
 
@@ -1100,6 +1147,17 @@ def gates(summary: dict) -> list[tuple[str, bool, str]]:
                   for g in _gate_rows(summary)]
 
 
+def current_problems(rd: Path, summary: dict) -> list[str]:
+    """Completeness recomputed from the files now, never from the cached summary: packets against the manifest, auditor
+    metadata, pending third passes, and the verdict files against the hashes the summary recorded."""
+    n, root = int(rd.name.split("-")[1]), rd.parent
+    out = integrity_problems(n, root)
+    out += [f"third pass missing: {i}" for i in pending_third(n, root)]
+    now = _verdict_hashes(rd)
+    out += [f"verdict files changed since collect: {w}" for w in now if now[w] != (summary.get("verdict_hashes") or {}).get(w)]
+    return [x + " (re-run collect)" for x in out]
+
+
 def gates_report(round_dir: Path) -> dict:
     """The one entry point for the acceptance report: gate rows, completeness and the disclosure fields of a round."""
     round_dir = Path(round_dir)
@@ -1110,7 +1168,9 @@ def gates_report(round_dir: Path) -> dict:
     raw = sf.read_text(encoding="utf-8")
     summary = json.loads(raw)
     rows = _gate_rows(summary)
-    return {"complete": bool(summary["complete"]), "gates": rows, "pass": bool(summary["complete"] and all(g["pass"] for g in rows)),
+    reasons = current_problems(round_dir, summary)
+    complete = not reasons
+    return {"complete": complete, "reasons": reasons, "gates": rows, "pass": complete and all(g["pass"] for g in rows),
             "auditors": summary.get("auditors"), "prompt_hashes": summary.get("prompt_hashes"),
             "sample_hash": summary.get("sample_hash"), "summary_sha256": sha256_text(raw),
             "report_md": str(round_dir / "report.md")}

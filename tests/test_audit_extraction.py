@@ -338,7 +338,7 @@ def test_gates(tmp_path):
     (d / "summary.json").write_text(json.dumps(summ(prec=0.5)))
     assert ae.main(["gates", "--round", "3"], root=tmp_path) == 1
     (d / "summary.json").write_text(json.dumps(summ()))
-    assert ae.main(["gates", "--round", "3"], root=tmp_path) == 0
+    assert ae.main(["gates", "--round", "3"], root=tmp_path) == 1  # no manifest or verdicts on disk: not complete
     assert ae.main(["gates", "--round", "4"], root=tmp_path) == 1
 
 
@@ -529,7 +529,7 @@ def test_gates_report_is_the_acceptance_interface(tmp_path, sources):
     s = ae.collect(1, sources, tmp_path)
     rd = tmp_path / "round-1"
     rep = ae.gates_report(rd)
-    assert set(rep) == {"complete", "gates", "pass", "auditors", "prompt_hashes", "sample_hash", "summary_sha256", "report_md"}
+    assert set(rep) == {"complete", "reasons", "gates", "pass", "auditors", "prompt_hashes", "sample_hash", "summary_sha256", "report_md"}
     assert rep["complete"] and rep["pass"] and len(rep["gates"]) == 8
     assert set(rep["gates"][0]) == {"name", "numerator", "denominator", "threshold", "pass"}
     assert rep["auditors"] == AUD and rep["sample_hash"] == s["sample_hash"]
@@ -539,3 +539,101 @@ def test_gates_report_is_the_acceptance_interface(tmp_path, sources):
     (rd / "packets" / f"{packets[0]['id']}.json").unlink()
     ae.collect(1, sources, tmp_path)
     assert ae.gates_report(rd)["complete"] is False and ae.gates_report(rd)["pass"] is False
+
+
+# ---------------------------------------------------------------- fix round 2
+def passing_round(tmp_path, sources):
+    packets = write_round(tmp_path, sources)
+    prec = [p for p in packets if not ae.is_recall(p["kind"])]
+    put(tmp_path, "codex", "a", [v(p["id"], "correct") for p in prec])
+    put(tmp_path, "claude", "a", [v(p["id"], "correct") for p in prec])
+    for p in packets:
+        if ae.is_recall(p["kind"]):
+            for w in ("codex", "claude", "third"):
+                put(tmp_path, w, "r" + p["id"], [{"packet_id": p["id"], "items": recall_items(p, None)}])
+    # one disagreement settled by the third pass, so a third verdict file is required
+    put(tmp_path, "claude", "a", [v(prec[0]["id"], "incorrect")] + [v(p["id"], "correct") for p in prec[1:]])
+    put(tmp_path, "third", "a", [v(prec[0]["id"], "correct")])
+    ae.collect(1, sources, tmp_path)
+    return packets, tmp_path / "round-1"
+
+
+def test_gates_report_recomputes_completeness(tmp_path, sources):
+    packets, rd = passing_round(tmp_path, sources)
+    assert ae.gates_report(rd)["pass"] is True
+
+    def run(mutate):
+        import shutil
+        d = tmp_path / "copy"
+        shutil.rmtree(d, ignore_errors=True)
+        shutil.copytree(tmp_path / "round-1", d / "round-1")
+        mutate(d / "round-1")
+        return ae.gates_report(d / "round-1")
+
+    pdir = lambda r: r / "packets"  # noqa: E731
+    first = f"{packets[0]['id']}.json"
+
+    def delete_packet(r): (pdir(r) / first).unlink()
+
+    def change_packet(r): (pdir(r) / first).write_text((pdir(r) / first).read_text() + " ")
+
+    def extra_packet(r): (pdir(r) / "stray-1.json").write_text("{}")
+
+    def delete_primary(r): next((r / "verdicts" / "claude").glob("*.json")).unlink()
+
+    def delete_third(r): next((r / "verdicts" / "third").glob("a.json")).unlink()
+
+    def delete_auditors(r): (r / "auditors.json").unlink()
+
+    def edit_verdict(r):
+        f = r / "verdicts" / "codex" / "a.json"
+        f.write_text(f.read_text() + " ")
+
+    for mut in (delete_packet, change_packet, extra_packet, delete_primary, delete_third, delete_auditors, edit_verdict):
+        rep = run(mut)
+        assert rep["complete"] is False and rep["pass"] is False and rep["reasons"], mut.__name__
+        assert any("re-run collect" in x for x in rep["reasons"])
+
+
+def test_recall_prompt_example_parses_and_matches(sources):
+    import re
+    packets, _ = ae.build_packets(sources, 1, wi_fn, SMALL)
+    rb = next(p for p in packets if p["kind"] == "recall_bug")
+    ex = re.search(r"Example item: (\{.*\})", ae.RECALL_RULES["recall_bug"]).group(1)
+    item = json.loads(ex)
+    assert "bug_title" in item and ae.validate_verdict({"packet_id": rb["id"], "items": [item]}, rb) is None
+    src = sources[rb["product"]]
+    key = next(iter(ae.truth_keys("recall_bug", [item], src)))
+    assert key == (item["bug"], item["type"], item["message_id"])
+    assert "never a title" in ae.RECALL_RULES["recall_bug"]
+
+
+def test_report_discloses_shared_report_messages_and_anaphora(tmp_path, sources):
+    src = sources["P1"]
+    extra = dict(ev("P1", 9, "REPORTED", "m1", "2026-01-01T10:00:00"))
+    extra["props"] = {**extra["props"], "bug": "Bug:P1:ch-bug:other"}
+    src.facts["bugs"].append(extra)
+    assert ae.shared_report_messages(src, "ch-bug") == 1
+    assert ae.shared_report_messages(sources["P2"], "ch-bug") == 0
+    packets, rd = passing_round(tmp_path, sources)
+    s = json.loads((rd / "summary.json").read_text())
+    rep = (rd / "report.md").read_text()
+    assert "first-report messages carrying more than one bug" in rep and "anaphora" in rep
+    assert "shared_report_messages" in s["recall"]["recall_bug"]
+
+
+def test_name_candidates_carry_sessions_and_related_evidence():
+    d = data("P1")
+    d["slack"] += [slack("w1", f"Reviewing the Design Doc today", "2026-01-03T09:00:00", ch="ch-dev", name="develop-x-{P}",
+                         user="eid_b"),
+                   slack("w2", "ok, will do", "2026-01-03T09:10:00", ch="ch-dev", name="develop-x-{P}", user="eid_a")]
+    f, names = facts("P1")
+    src = ae.Source("P1", build_records(d, EMP, CUST, "P1"), f, names)
+    recs = ae.candidate_records(src, names[0])
+    ids = {r["id"] for r in recs}
+    assert {"candidate:eid_b", "candidate:eid_c", "w1", "w2"} <= ids  # the full session of the window post
+    b = next(r for r in recs if r["id"] == "candidate:eid_b")["text"]
+    assert "Related post under the rule: yes" in b and "design doc" in b.lower()
+    c = next(r for r in recs if r["id"] == "candidate:eid_c")["text"]
+    assert "Related post under the rule: no" in c
+    assert "document type 'Design Doc'" in b
