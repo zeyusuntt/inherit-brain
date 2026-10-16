@@ -47,16 +47,24 @@ def build_questions(products: list[str], types: list[str] | None = None, sample:
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--arm", required=True)
-    ap.add_argument("--products", required=True, help="comma-separated dev products")
+    ap.add_argument("--products", default=",".join(DEV_PRODUCTS), help="comma-separated dev products")
     ap.add_argument("--types", help="comma-separated question types")
     ap.add_argument("--sample", type=int)
     ap.add_argument("--seed", type=int, default=R.SEED)
     ap.add_argument("--run-id")
+    ap.add_argument("--pilot-sample", action="store_true", help="use the pinned pilot list (results/pilot/sample.json)")
+    ap.add_argument("--arm-cap", type=float, help="cumulative arm cap in USD (default 2.5)")
+    ap.add_argument("--judge-cap", type=float, help="cumulative judge cap in USD (default 0.5)")
     a = ap.parse_args(argv)
-    qs = build_questions(a.products.split(","), a.types.split(",") if a.types else None, a.sample, a.seed)
+    if a.pilot_sample:
+        from eval import pilot
+
+        qs = pilot.load_pinned()
+    else:
+        qs = build_questions(a.products.split(","), a.types.split(",") if a.types else None, a.sample, a.seed)
     run_id = a.run_id or f"{a.arm}-dev-{'+'.join(sorted({q.product for q in qs}))}"
-    R._push_cap("judge", JUDGE_CAP_USD)
-    R._push_cap(a.arm, ARM_CAP_USD)
+    R._push_cap("judge", a.judge_cap or JUDGE_CAP_USD)
+    R._push_cap(a.arm, a.arm_cap or ARM_CAP_USD)
     run_dir = R.run_arm(a.arm, "dev", questions=qs, run_id=run_id)
     judge = G.Judge(run_dir / "judge_cache.jsonl")
     token = llm.ATTEMPT_TAG.set(f"{run_id}/judge/1")  # judge spend lands under the run's ledger tag
