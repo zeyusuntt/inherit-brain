@@ -104,7 +104,7 @@ def test_event_without_the_wording_of_its_kind_is_dropped(tmp_path):
     chat = fx.standard_chat()
     chat.script[f"MEETING: {fx.M1}"] = json.dumps(bad)
     out, _ = run(chat, tmp=tmp_path)
-    assert out.report["dropped"]["feature_events"] == {"no_evidence_for_kind": 1}
+    assert out.report["dropped"]["feature_events"] == {"not_completed_work": 1}
     assert nodes(out.facts, "Feature")[ALERTS].props["implemented"] is False
 
 
@@ -348,30 +348,48 @@ def test_fate_predicates(res):
     assert p["implemented"] is True and p["reverted"] is True and p["delayed_then_added"] is False
     assert p["discussed_not_implemented"] is False and p["derived_by"] == "feature_fate/v1"
     a = f[ALERTS].props
-    assert a["implemented"] is False and a["held"] is True and a["delayed_then_added"] is True
+    assert a["implemented"] is False and a["held"] is True and a["resumed"] is True
+    assert a["delayed_then_added"] is False  # resumed, but no implementation evidence after the hold (C2)
     assert a["discussed_not_implemented"] is True
 
 
-def test_discussed_not_implemented_needs_a_complete_manifest(tmp_path):
+def test_failed_meeting_blocks_only_features_it_mentions(tmp_path):
     chat = fx.standard_chat()
-    chat.script[f"MEETING: {fx.M2}"] = "this is not json"
+    chat.script[f"MEETING: {fx.M2}"] = "this is not json"  # the Market Research Report review: names no feature
     out, _ = run(chat, tmp=tmp_path)
-    assert out.report["manifest"]["meetings"]["failed"] == [fx.M2]
-    assert out.report["manifest"]["complete"] is False
-    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None
+    assert out.report["manifest"]["meetings"]["failed"] == [fx.M2] and out.report["manifest"]["complete"] is False
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True
+    chat2 = fx.standard_chat()
+    chat2.script[f"MEETING: {fx.M2}"] = "this is not json"
+    rec = fx.records()
+    segs = [(n, sp, tx + (" It also covers real-time alerts." if n == 6 else "")) for n, sp, tx in fx.M2_SEGS]
+    rec.meetings[1] = fx.meeting(fx.M2, "2026-03-02T10:00:00", "Market Research Report", [fx.ANN, fx.DEE, fx.BEN], segs)
+    out2, _ = run(chat2, rec, tmp_path / "b")
+    a = nodes(out2.facts, "Feature")[ALERTS].props
+    assert a["discussed_not_implemented"] is None and a["reconciled"] is False  # unresolved stays unknown
 
 
-def test_failed_session_blocks_only_features_it_mentions(tmp_path):
+def test_failed_session_blocks_only_features_it_mentions_or_whose_prs_it_names(tmp_path):
     chat = fx.standard_chat()
-    chat.script["[20260310-0-b0001]"] = "not json"  # the RivalCo session: no feature mentioned there
+    chat.script["[20260310-0-b0001]"] = "not json"  # the RivalCo session: no feature, no PR
     out, _ = run(chat, tmp=tmp_path)
     assert out.report["manifest"]["sessions"]["failed"] == [{"first_message": "20260310-0-b0001",
                                                               "reason": "invalid_json"}]
     assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True
     chat2 = fx.standard_chat()
-    chat2.script["[20260320-0-d0001]"] = "not json"  # PR#3 session: its text does not name a feature either
+    chat2.script["[20260320-0-d0001]"] = "not json"  # the PR#3 session; PR 3 is linked to real-time alerts
     out2, _ = run(chat2, tmp=tmp_path / "b")
-    assert nodes(out2.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True
+    assert nodes(out2.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None
+    assert nodes(out2.facts, "Feature")[PRED].props["discussed_not_implemented"] is False  # implemented anyway
+
+
+def test_failed_membership_call_leaves_every_negative_predicate_unknown(tmp_path):
+    chat = fx.standard_chat()
+    chat.membership = lambda user: "not json"
+    out, _ = run(chat, tmp=tmp_path)
+    assert [f["kind"] for f in out.report["extraction_failures"]] == ["membership"]
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None
+    assert out.report["manifest"]["complete"] is False
 
 
 # ---------------------------------------------------------------- routing, manifest, splitting
@@ -409,10 +427,10 @@ def test_competitor_registry_is_passed_to_later_sessions(res):
 
 def test_rerun_with_cache_makes_no_calls(tmp_path):
     out1, chat1 = run(tmp=tmp_path)
-    assert len(chat1.calls) == 13
+    assert len(chat1.calls) == 15
     out2, chat2 = run(tmp=tmp_path)
     assert chat2.calls == []
-    assert out2.report["calls"]["live"] == 0 and out2.report["calls"]["cached"] == 13
+    assert out2.report["calls"]["live"] == 0 and out2.report["calls"]["cached"] == 15
     assert sorted(out1.facts.nodes, key=lambda n: n.id) == sorted(out2.facts.nodes, key=lambda n: n.id)
 
 
@@ -634,3 +652,207 @@ def test_a_feature_lost_to_validation_does_not_block_the_fate_of_others(tmp_path
     out, _ = run(chat, tmp=tmp_path)
     assert out.report["manifest"]["complete"] is False and out.report["manifest"]["unresolved_feature_refs"] >= 1
     assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is True
+
+
+# ---------------------------------------------------------------- fix round 1
+
+def _m1(**changes):
+    d = json.loads(fx.M1_ANSWER)
+    d.update(changes)
+    return json.dumps(d)
+
+
+def _with_segment(text, n=10):
+    rec = fx.records()
+    segs = list(fx.M1_SEGS) + [(n, "Ben Ray", text)]
+    rec.meetings[0] = fx.meeting(fx.M1, "2026-03-01T10:00:00", "product-planning",
+                                 [fx.ANN, fx.BEN, fx.CY, fx.SAM1, fx.SAM2, fx.EVE], segs)
+    return rec
+
+
+@pytest.mark.parametrize("text", [
+    "I will deploy the alerts next week.",
+    "I'll be implementing this task, and the deployment will follow once QA signs off.",
+    "The alerts are not deployed yet.",
+    "If the tests pass the alerts will be merged.",
+])
+def test_future_work_is_not_implementation(tmp_path, text):
+    m1 = json.loads(fx.M1_ANSWER)
+    m1["feature_events"].append({"feature_ref": "f1", "kind": "implemented", "reason": None, "pr": "Add Metrics Export",
+                                 "segment_ref": f"{fx.M1}#10", "citations": [fx.cite(f"{fx.M1}#10", text.split(".")[0])]})
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+    out, _ = run(chat, _with_segment(text), tmp_path)
+    assert out.report["dropped"]["feature_events"] == {"not_completed_work": 1}
+    assert not [e for e in nodes(out.facts, "FeatureEvent").values() if e.props["record_id"] == f"{fx.M1}#10"]
+    assert nodes(out.facts, "Feature")[ALERTS].props["implemented"] is False
+
+
+def test_completed_work_is_still_implementation():
+    from inherit.extract.semantic import completed
+    assert completed("The PR is complete and merged.") and completed("It went live. Thanks!")
+    assert not completed("I will deploy it next week.") and not completed("It is not done yet.")
+    assert not completed("Once it is merged we ship.")
+
+
+def test_revert_of_a_pr_without_implementation_evidence_reverts_nothing(tmp_path):
+    prs = [fx.pr(1, "Integrate LSTM Forecasting", merged=False, state="closed")] + [p for p in fx.PRS if p.number != "1"]
+    out, _ = run(rec=fx.records(prs=prs), tmp=tmp_path)
+    p = nodes(out.facts, "Feature")[PRED].props
+    assert p["reverted"] is False
+    assert not [e for e in nodes(out.facts, "FeatureEvent").values() if e.props["kind"] == "reverted"]
+
+
+def test_delayed_then_added_needs_implementation_after_the_hold(tmp_path):
+    prs = [fx.pr(4, "Alert Throttling", merged=True, state="closed", summary="Limit how often one alert can fire.")] + [p for p in fx.PRS if p.number != "4"]
+    out, _ = run(rec=fx.records(prs=prs), tmp=tmp_path)
+    a = nodes(out.facts, "Feature")[ALERTS].props
+    assert a["held"] and a["resumed"] and a["implemented"] and a["delayed_then_added"] is True
+    assert a["discussed_not_implemented"] is False
+
+
+def test_pr_named_under_two_features_keeps_the_task_context_and_cites_both(tmp_path):
+    m1 = json.loads(fx.M1_ANSWER)
+    m1["development_links"].append({"feature_ref": "f1", "pr": "Add Metrics Export",
+                                    "citations": [fx.cite(f"{fx.M1}#8", "'Add Metrics Export' PR")]})
+    m1["feature_events"].append({"feature_ref": "f1", "kind": "implemented", "reason": None, "pr": "Add Metrics Export",
+                                 "segment_ref": f"{fx.M1}#8", "citations": [fx.cite(f"{fx.M1}#8", "is complete and merged")]})
+    chat = fx.standard_chat()
+    chat.script[f"MEETING: {fx.M1}"] = json.dumps(m1)
+    out, _ = run(chat, tmp=tmp_path)
+    about = {(e.src_id, e.dst_id) for e in edges(out.facts, "ABOUT") if e.src_id == f"PR:{P}2"}
+    assert about == {(f"PR:{P}2", PRED)}  # segment 7 (predictive analytics) is the task context
+    assert out.report["pr_conflicts"][0]["kept"] == PRED and out.report["pr_conflicts"][0]["dropped"] == [ALERTS]
+    assert len(out.report["pr_conflicts"][0]["citations"]) == 2  # both associations are cited
+    ib = pairs(out.facts, "IMPLEMENTED_BY")
+    assert (PRED, f"PR:{P}2") in ib and (ALERTS, f"PR:{P}2") not in ib
+    assert [e for e in nodes(out.facts, "FeatureEvent").values() if e.props["kind"] == "implemented"
+            and e.props["feature"] == ALERTS] == []
+
+
+def test_wrong_shapes_are_unit_failures_not_silent_success_or_crashes(tmp_path):
+    chat = fx.standard_chat()
+    chat.membership = lambda user: json.dumps({"assignments": "wrong shape"})
+    chat.script["[20260305-1-a0002]"] = json.dumps({"reviews": [{"message_id": "x", "citations": ["bad shape"]}]})
+    out, _ = run(chat, tmp=tmp_path)
+    reasons = {(f["kind"], f["reason"]) for f in out.report["extraction_failures"]}
+    assert ("membership", "invalid_shape") in reasons and ("session", "invalid_shape") in reasons
+    assert out.report["manifest"]["complete"] is False
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed_not_implemented"] is None  # the membership failure
+
+
+def _extra(msgs):
+    return fx.SLACK + msgs
+
+
+def test_review_with_several_fitting_documents_stays_unresolved(tmp_path):
+    extra = [("20260501-0-z0001", fx.ANN, "2026-05-01T09:00:00", "Let's review the Market Research Report today.") + fx.PLAN,
+             ("20260501-1-z0002", fx.BEN, "2026-05-01T09:05:00", "Add a roadmap section with dates.") + fx.PLAN]
+    chat = fx.standard_chat()
+    chat.script["[20260501-1-z0002]"] = fx.session_json(reviews=[{
+        "message_id": "20260501-1-z0002", "document_ref": "Market Research Report", "kind": "suggestion",
+        "section": "Roadmap", "text": "Add a roadmap section", "citations": [fx.cite("20260501-1-z0002", "Add a roadmap section")]}])
+    out, _ = run(chat, fx.records(slack=_extra(extra)), tmp_path)
+    assert not [e for e in edges(out.facts, "SUGGESTED") if e.key == "20260501-1-z0002"]
+    ur = [u for u in out.report["unresolved_reviews"] if u["record"] == "20260501-1-z0002"]
+    assert ur and ur[0]["why"] == "several_documents_fit"
+
+
+def test_review_naming_the_product_stem_resolves_only_to_a_single_document_or_stays_open():
+    from inherit.extract.catalog import build_catalog
+    from inherit.extract.semantic import resolve_review_doc
+    cat = build_catalog(fx.records())
+    assert resolve_review_doc(cat, [f"see {fx.FINAL_LINK}"], "")[0].id == "final_mini_market_research_report"
+    assert resolve_review_doc(cat, ["the Market Research Report of X-Genie"], "")[0] is None
+    assert resolve_review_doc(cat, ["the Market Research Report"], "final_mini_market_research_report")[0] is None  # not supported by the text
+    assert resolve_review_doc(cat, ["Review the Market Research Report", "ref " + fx.DOC_LINK], "mini_market_research_report")[1] == "link"
+
+
+def test_competitor_claim_needs_a_grounding_in_the_cited_discussion(tmp_path):
+    extra = [("20260502-0-z0003", fx.EVE, "2026-05-02T09:00:00", "A generic blog on outlier detection: https://x.example/blog") + fx.PLAN]
+    claim = dict(fx.RIVAL_CLAIMS[0], message_id="20260502-0-z0003", text="RivalCo has outlier detection",
+                 citations=[fx.cite("20260502-0-z0003", "A generic blog on outlier detection")])
+    chat = fx.standard_chat()
+    chat.script["[20260502-0-z0003]"] = fx.session_json(claims=[claim])
+    out, _ = run(chat, fx.records(slack=_extra(extra)), tmp_path)
+    assert out.report["dropped"]["claims"]["subject_not_grounded"] == 1
+    assert "Observation:Mini:20260502-0-z0003:0" not in nodes(out.facts, "Observation")
+
+
+@pytest.mark.parametrize("text,action", [
+    ("Should we consider reverting PR#3 given the new direction?", "revert"),
+    ("Should we hold PR#3 until next week?", "withhold"),
+])
+def test_questions_are_not_effective_decisions(tmp_path, text, action):
+    extra = [("20260503-0-z0004", fx.EVE, "2026-05-03T09:00:00", text) + fx.DEV]
+    dec = [{"message_id": "20260503-0-z0004", "prs": ["3"], "action": action, "reason": None, "conditional": False,
+            "citations": [fx.cite("20260503-0-z0004", text.split("?")[0].replace("Should we ", "", 0)[:30])]}]
+    chat = fx.standard_chat()
+    chat.script["[20260503-0-z0004]"] = fx.session_json(pr_decisions=dec)
+    out, _ = run(chat, fx.records(slack=_extra(extra)), tmp_path)
+    e = [x for x in edges(out.facts, "ABOUT") if x.src_id == "Message:20260503-0-z0004"]
+    assert e and e[0].props["action"] == "question"
+    assert nodes(out.facts, "PR")[f"PR:{P}3"].props["pending_action"] == "need_close"  # still the earlier real hold
+
+
+def test_polite_request_and_conditional_keep_their_mood():
+    from inherit.extract.semantic import ACTION_CUES, sentence_mood
+    c = ACTION_CUES["withhold"]
+    assert sentence_mood("Could you please ensure that PR# 8 is not merged? If it is, revert it.", c) == "plain"
+    assert sentence_mood("If it is ready we could hold it.", c) == "conditional"
+    assert sentence_mood("Should we hold it?", c) == "question"
+
+
+def test_grouping_moves_implementation_evidence_and_leaves_no_dangling_reference(tmp_path):
+    chat = fx.standard_chat()
+
+    def groups(user):
+        ref = {ln.split(": ")[1].split(" |")[0]: ln.split(":")[0] for ln in user.splitlines() if ln.startswith("F")}
+        return json.dumps({"groups": [{"title": ref["real-time alerts"],
+                                       "members": [ref["real-time alerts"], ref["predictive analytics"]]}]})
+
+    chat.groups = groups
+    out, _ = run(chat, tmp=tmp_path)
+    assert set(nodes(out.facts, "Feature")) == {ALERTS}
+    ib = pairs(out.facts, "IMPLEMENTED_BY")
+    assert (ALERTS, f"PR:{P}1") in ib and not [x for x in ib if x[0] == PRED]
+    ids = {n.id for n in out.facts.nodes}
+    for e in out.facts.edges:
+        if e.type in ("IMPLEMENTED_BY", "CONTRIBUTED", "HAS_EVENT", "DISCUSSES", "ABOUT") and "Feature:" in e.src_id + e.dst_id:
+            assert (e.src_id in ids or not e.src_id.startswith("Feature:")) and (e.dst_id in ids or not e.dst_id.startswith("Feature:"))
+
+
+def test_document_content_gives_proposed_features_and_competitor_claims(tmp_path):
+    doc = "mini_market_research_report"
+    chat = fx.standard_chat()
+    chat.script[f"DOCUMENT: {doc}"] = json.dumps({
+        "features": [{"title": "offline mode", "details": ["sync later"], "citations": [fx.cite(doc, "Mini is a product")]},
+                     {"title": "real-time alerts", "details": [], "citations": [fx.cite(doc, "Mini is a product")]}],
+        "claims": [{"kind": "competitor_feature", "subject_ref": "RivalCo", "text": "RivalCo offers live dashboards",
+                    "citations": [fx.cite(doc, "RivalCo offers live dashboards")]},
+                   {"kind": "competitor_feature", "subject_ref": "Ghost", "text": "x",
+                    "citations": [fx.cite(doc, "Mini is a product")]}]})
+    out, _ = run(chat, tmp=tmp_path)
+    off = nodes(out.facts, "Feature")["Feature:Mini:offline mode"].props
+    assert off["discussed"] is False and off["proposed"] is True and off["discussed_not_implemented"] is False
+    ev = [e for e in nodes(out.facts, "FeatureEvent").values() if e.props["kind"] == "proposed"]
+    assert {e.props["feature"] for e in ev} == {"Feature:Mini:offline mode", ALERTS}
+    assert nodes(out.facts, "Feature")[ALERTS].props["discussed"] is True  # meetings discussed it
+    o = nodes(out.facts, "Observation")[f"Observation:Mini:{doc}:0"]
+    assert o.props["kind"] == "competitor_feature" and o.props["subject"] == "RivalCo"
+    assert (o.id, "Competitor:RivalCo") in pairs(out.facts, "ABOUT")
+    assert not [e for e in edges(out.facts, "STATED") if e.dst_id == o.id]
+    assert out.report["dropped"]["doc_claims"]["subject_not_grounded"] == 1
+    assert out.report["manifest"]["documents"]["content_extracted"] == 2
+
+
+def test_demo_link_whose_message_names_a_known_competitor_gets_that_subject(tmp_path):
+    from inherit.data.records import UrlRecord
+    rec = fx.records(slack=_extra([("20260504-0-z0005", fx.EVE, "2026-05-04T09:00:00",
+                                    "RivalCo recorded this walkthrough: https://clips.example/gamma/demo") + fx.DEV]))
+    rec.urls.append(UrlRecord("clips_example_gamma_demo", "https://clips.example/gamma/demo",
+                              ("https://clips.example/gamma/demo",), ("A walkthrough demo.",), (5,)))
+    out, _ = run(fx.standard_chat(), rec, tmp_path)
+    e = [x for x in edges(out.facts, "ABOUT") if x.src_id == "Url:https://clips.example/gamma/demo"]
+    assert e and e[0].dst_id == "Competitor:RivalCo" and e[0].props["basis"] == "message"
+    assert e[0].src == ("20260504-0-z0005",) and "RivalCo" in e[0].props["quote"]

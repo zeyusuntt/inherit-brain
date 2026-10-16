@@ -23,7 +23,8 @@ from inherit.extract.cite import SourceRecord, normalise, validate_citation, val
 from inherit.extract.llm_extract import Caller
 from inherit.extract.names import chat_lines, lookup, resolve_meeting_names
 from inherit.extract.rules import named_qa_eids, parse_revert_title, pr_approval, run_rules
-from inherit.extract.semantic_prompts import FEATURE_GROUP_SYSTEM, MEETING_SYSTEM, PR_MEMBERSHIP_SYSTEM, SEMANTIC_PROMPT_VERSION, SESSION_SYSTEM
+from inherit.extract.semantic_prompts import (DOCUMENT_SYSTEM, FEATURE_GROUP_SYSTEM, MEETING_SYSTEM, PR_MEMBERSHIP_SYSTEM,
+                                              SEMANTIC_PROMPT_VERSION, SESSION_SYSTEM)
 from inherit.extract import semantic_rules as sr
 from inherit.extract.sessions import sessions
 from inherit.extract.structural import _links
@@ -41,7 +42,7 @@ SESSION_ALLOWED = {("message", "text")}
 PR_ALLOWED = {("pr", "title"), ("pr", "summary")}
 REVIEW_KINDS = {"suggestion", "review_question"}
 CONTRIB_KINDS = {"lead", "assigned", "design", "support"}
-EVENT_KINDS = {"discussed", "implemented", "held", "resumed", "reverted"}
+EVENT_KINDS = {"discussed", "implemented", "held", "resumed", "reverted"}  # the model's; documents add "proposed"
 REASONS = {"security", "product_direction", "introduced_bugs", "other"}
 COMPETITOR_KINDS = {"competitor_feature", "competitor_weakness"}
 CLAIM_KINDS = COMPETITOR_KINDS | {"customer_issue", "customer_strength", "qa_issue"}
@@ -50,10 +51,63 @@ ACTIONS = {"withhold", "resume", "merge", "revert", "question"}
 CUST_RE = re.compile(r"\bCUST-\d+\b")
 DOC_TYPE_RE = re.compile(sr.DOC_WORDS, re.IGNORECASE)
 PRODUCT_PLANNING = "product-planning"
+DOC_ALLOWED = {("document", "content")}
+# Completed-action evidence (C1): a completion word in a sentence with no promise, plan, condition or negation.
+_COMPLETE = re.compile(r"\b(?:completed?|merged|finished|done|shipped|delivered|deployed|launched|implemented|released"
+                       r"|resolved|wrapped up|went live|is live|are live|now live|in production)\b", re.I)
+_NOT_DONE = re.compile(r"\b(?:will|shall|going to|plan(?:s|ning|ned)? to|to be|should|would|could|can|need(?:s)? to|want"
+                       r" to|hope|aim|next (?:week|sprint|month)|soon|once|when|if|after|before|until|unless|yet|never"
+                       r"|not|ready for)\b|'ll\b|n't\b", re.I)
+_SENTENCES = re.compile(r"(?<=[.!?])\s+")
+_POLITE = re.compile(r"^\W*(?:and |so |but )?(?:could|can|would|will) you\b", re.I)
+_Q_START = re.compile(r"^\W*(?:and |so |but )?(?:should|shall|do|does|did|is|are|what|how|why|any|has|have|"
+                      r"(?:can|could|would) we|is there)\b", re.I)
+
+
+def completed(text: str) -> bool:
+    """True when a sentence states finished work: a completion word and no promise, plan, condition or negation."""
+    return any(_COMPLETE.search(x) and not _NOT_DONE.search(x) for x in _SENTENCES.split(text or ""))
+
+
+def _is_question(sentence: str) -> bool:
+    x = sentence.strip()
+    return False if _POLITE.match(x) else (x.endswith("?") or bool(_Q_START.match(x)))
+
+
+def sentence_mood(text: str, cue) -> str:
+    """plain, question or conditional for the sentences of `text` that carry `cue` (I4). Any plain sentence makes it plain;
+    a polite request ("could you please ensure it is not merged?") is plain."""
+    moods = set()
+    for x in _SENTENCES.split(text or ""):
+        if cue.search(x):
+            moods.add("question" if _is_question(x) else "conditional" if re.search(r"\bif\b", x, re.I) else "plain")
+    return "plain" if "plain" in moods or not moods else ("question" if "question" in moods else "conditional")
+
+
+def _shape(arrays):
+    """A response check (I1): each named field is a list of objects whose citations are lists of objects."""
+    def check(data):
+        for key in arrays:
+            v = data.get(key)
+            if v is None:
+                continue
+            if not isinstance(v, list) or any(not isinstance(i, dict) for i in v):
+                return f"{key} is not a list of objects"
+            for i in v:
+                c = i.get("citations")
+                if c is not None and (not isinstance(c, list) or any(not isinstance(x, dict) for x in c)):
+                    return f"{key} citations are malformed"
+        return None
+    return check
+
+
+MEETING_SHAPE = _shape(("document_reviews", "features", "contributions", "development_links", "feature_events"))
+SESSION_SHAPE = _shape(("reviews", "claims", "pr_decisions"))
+DOCUMENT_SHAPE = _shape(("features", "claims"))
+MEMBERSHIP_SHAPE = _shape(("assignments",))
+GROUP_SHAPE = _shape(("groups",))
 # Wording a cited record must contain for a model feature event of that kind (the model over-reads plans as results).
 EVENT_CUES = {
-    "implemented": re.compile(r"complet|\bmerged\b|finish|\bdone\b|shipp|deliver|deploy|launch|implemented|released"
-                              r"|wrapped up|resolved|went live|in production", re.I),
     "held": re.compile(r"\bhold\b|on hold|delay|postpon|paus|put off|defer|\bdrop|shelve|halt|cancel|scrap|\bstop"
                        r"|not (?:to )?(?:merge|proceed|move forward|go ahead)|won't|hold off", re.I),
     "resumed": re.compile(r"resum|move forward|proceed|go ahead|restart|reinstat|back on|pick (?:it )?back|continue"
@@ -147,6 +201,12 @@ def build_session_request(chunk, rec, cat, competitors, anchors) -> tuple[list[d
             min(4000, 800 + 80 * len(real)))
 
 
+def build_document_request(d, rec, cat) -> tuple[list[dict], int]:
+    lines = _header(rec, cat) + [f"DOCUMENT: {d.id}", f"TYPE: {d.type}", f"DATE: {d.date}", "", "CONTENT:", d.content]
+    return ([{"role": "system", "content": DOCUMENT_SYSTEM}, {"role": "user", "content": "\n".join(lines)}],
+            min(4000, 800 + len(d.content) // 4))
+
+
 def build_membership_request(batch, features, examples=()) -> tuple[list[dict], int]:
     lines = ["FEATURES:"]
     for i, f in enumerate(features, 1):
@@ -159,6 +219,75 @@ def build_membership_request(batch, features, examples=()) -> tuple[list[dict], 
         lines.append(f"P{i}: {p['title']} | {' '.join(p['summary'].split())[:200]}")
     return ([{"role": "system", "content": PR_MEMBERSHIP_SYSTEM}, {"role": "user", "content": "\n".join(lines)}],
             min(3000, 400 + 90 * len(batch)))
+
+
+def _item_text(item: dict, supplied) -> str:
+    """Text a lost item (failed validation, unresolved reference) speaks about: its own words and the cited records."""
+    own = " ".join(str(item.get(k) or "") for k in ("title", "text", "pr"))
+    quotes = " ".join(str(c.get("quote") or "") for c in (item.get("citations") if isinstance(item.get("citations"), list)
+                                                           else []) if isinstance(c, dict))
+    return own + " " + quotes
+
+
+def _validated(kind, items, supplied, allowed, drops, note_loss) -> list[dict]:
+    """validate_items item by item: valid items are returned, each lost item is counted and noted (R8)."""
+    ok = []
+    for it in items:
+        good, bad = validate_items([it], supplied, allowed)
+        if good:
+            ok += good
+        else:
+            for reason, n in bad.items():
+                drops[kind][reason] += n
+            note_loss(_item_text(it, supplied))
+    return ok
+
+
+def _title_context(mt, title: str) -> str:
+    """The segment where a PR title is spoken plus the two before it: the task the title is discussed under (C4)."""
+    t = normalise(title)
+    for i, sg in enumerate(mt.segments):
+        if t and t in normalise(sg.text):
+            return " ".join(x.text for x in mt.segments[max(0, i - 2):i + 1])
+    return ""
+
+
+def _names_in(text: str, names) -> set[str]:
+    t = " " + normalise(text) + " "
+    return {n for n in names if re.search(r"(?<![a-z0-9])" + re.escape(normalise(n)) + r"(?![a-z0-9])", t)}
+
+
+def resolve_review_doc(cat, texts_upto: list[str], ref: str):
+    """(DocEntry or None, why) for a review (I2). A document link in the session wins; then a document the model's
+    reference names that the text also supports; then the only document of the type the text names, or the only one of
+    that type whose product stem the text names. Several versions that fit and none identified stay unresolved."""
+    doc = None
+    for t in texts_upto:
+        for link in sorted(_links(t)):
+            doc = cat.doc_by_link(link) or doc
+    if doc is not None:
+        return doc, "link"
+    text = " ".join(texts_upto)
+    cand = cat.doc(ref) if ref else None
+    if cand is not None and (cand.id in text or cand.link in text):
+        return cand, "reference"
+    dtype = None
+    for t in reversed(texts_upto):
+        hit = list(DOC_TYPE_RE.finditer(t))
+        if hit:
+            dtype = hit[-1].group(0)
+            break
+    if dtype is None:
+        return None, "no_document_named"
+    cands = [d for d in cat.documents if normalise(d.type) == normalise(dtype)]
+    if len(cands) == 1:
+        return cands[0], "only_document_of_type"
+    low = " " + normalise(text) + " "
+    named = {d.stem for d in cands if d.stem and re.search(r"(?<![a-z0-9])" + re.escape(d.stem) + r"(?![a-z0-9])", low)}
+    narrowed = [d for d in cands if d.stem in named]
+    if len(narrowed) == 1:
+        return narrowed[0], "type_and_product"
+    return None, "several_documents_fit"
 
 
 # ---------------------------------------------------------------- the run
@@ -174,13 +303,6 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
     own_keys = {normalise(n) for n in own_names}
     doc_prev = {n.id.split(":", 1)[1] for n in rules_facts.nodes
                 if n.label == "Document" and n.props.get("release_scope") == "previous"}
-    doc_feedback = {d.id for d in rec.documents if d.feedback}
-
-    def pick_doc(type_name):
-        """One document of a type named in a session: not the previous release's, then one that has feedback."""
-        c = [d for d in cat.documents if normalise(d.type) == normalise(type_name)]
-        c = [d for d in c if d.id not in doc_prev] or c
-        return ([d for d in c if d.id in doc_feedback] or c or [None])[0]
 
     prs_raw = {p.link: p for p in rec.prs}
 
@@ -192,6 +314,13 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
     people: set[str] = set()
     customers_seen: set[str] = set()
     state = {"unresolved_feature_refs": 0, "split_sessions": 0, "scope_downgraded": 0}
+    units_lost: list[dict] = []  # R8: failed units and validation losses, each with the text it speaks about
+
+    def note_loss(text, *, kind="loss", unit=None, everywhere=False):
+        units_lost.append({"kind": kind, "unit": unit, "raw": normalise(text), "flat": _topic(text),
+                           "everywhere": everywhere})
+
+    unresolved_reviews: list[dict] = []
 
     def edge(type_, src, dst, ids, key="", **props):
         e = Edge(type_, src, dst, props, tuple(ids), EXTRACTOR, key)
@@ -250,9 +379,11 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             chats_of[c.meeting_id].append(c)
     meeting_failed: list[str] = []
 
-    def register_feature(title, details, cites, record):
+    def register_feature(title, details, cites, record, source):
         fid = cat.register_feature(title, citations=cites)
-        e = feature_info.setdefault(fid, {"title": cat.features.entries[fid]["title"], "details": [], "records": []})
+        e = feature_info.setdefault(fid, {"title": cat.features.entries[fid]["title"], "details": [], "records": [],
+                                          "sources": set()})
+        e["sources"].add(source)
         for dt in details:
             if dt not in e["details"]:
                 e["details"].append(dt)
@@ -275,10 +406,12 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         mchats = chats_of.get(mt.id, [])
         known = [e["title"] for e in cat.features.entries.values()]
         req, mt_tokens = build_meeting_request(mt, rec, cat, mchats, known)
-        data, reason = caller.json_call("meeting", req, mt_tokens)
+        data, reason = caller.json_call("meeting", req, mt_tokens, check=MEETING_SHAPE)
         if data is None:
             failures.append({"kind": "meeting", "id": mt.id, "reason": reason})
             meeting_failed.append(mt.id)
+            note_loss(" ".join(sg.text for sg in mt.segments) + " " + " ".join(c.text for c in mchats),
+                      kind="meeting", unit=mt.id)
             continue
         supplied = [SourceRecord(s.id, "segment", "text", s.text) for s in mt.segments]
         supplied += [SourceRecord(c.id, "chat", "text", c.text) for c in mchats]
@@ -291,10 +424,11 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         text_norm = normalise(" ".join(r.text for r in supplied))
         local: dict[str, str] = {}
 
-        def feature_ref(ref):
+        def feature_ref(ref, item=None):
             fid = local.get(_str(ref)) or (cat.resolve_feature(_str(ref)) if _str(ref) else None)
             if fid is None:
                 state["unresolved_feature_refs"] += 1
+                note_loss(_item_text(item or {}, supplied))
             return fid
 
         ok = []
@@ -309,21 +443,21 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             else:
                 lose("features", bad)
                 state["unresolved_feature_refs"] += 1
+                note_loss(_item_text(f, supplied))
         for f in ok:
             title = _str(f.get("title"))
             if not title:
                 drops["features"]["no_title"] += 1
                 continue
             details = [_str(x) for x in _list(f.get("details")) if _str(x)]
-            fid = register_feature(title, details, f["citations"], mt.id)
+            fid = register_feature(title, details, f["citations"], mt.id, "meeting")
             if _str(f.get("local_id")):
                 local[_str(f["local_id"])] = fid
             discusses.add((f"Meeting:{mt.id}", fid))
 
-        ok, bad = validate_items(_items(data, "contributions"), supplied, MEETING_ALLOWED)
-        lose("contributions", bad)
+        ok = _validated("contributions", _items(data, "contributions"), supplied, MEETING_ALLOWED, drops, note_loss)
         for c in ok:
-            fid = feature_ref(c.get("feature_ref"))
+            fid = feature_ref(c.get("feature_ref"), c)
             ref = _str(c.get("segment_ref"))
             if c.get("kind") not in CONTRIB_KINDS or ref not in speaker_of:
                 drops["contributions"]["bad_kind_or_segment"] += 1
@@ -343,10 +477,9 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                                   "ref": ref, "record": record_of[ref], "speaker": sp, "citations": c["citations"],
                                   "meeting": mt.id})
 
-        ok, bad = validate_items(_items(data, "development_links"), supplied, MEETING_ALLOWED)
-        lose("development_links", bad)
+        ok = _validated("development_links", _items(data, "development_links"), supplied, MEETING_ALLOWED, drops, note_loss)
         for lk in ok:
-            fid = feature_ref(lk.get("feature_ref"))
+            fid = feature_ref(lk.get("feature_ref"), lk)
             if fid is None:
                 drops["development_links"]["feature_unresolved"] += 1
                 continue
@@ -354,14 +487,14 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             if not entries:
                 drops["development_links"][why] += 1
                 continue
+            ctx = _title_context(mt, _str(lk.get("pr")))
             for p in entries:
                 dev_links[p.link].append({"feature": fid, "basis": "meeting_title", "citations": lk["citations"],
-                                          "record": mt.id})
+                                          "record": mt.id, "context": ctx, "date": mt.date})
 
-        ok, bad = validate_items(_items(data, "feature_events"), supplied, MEETING_ALLOWED)
-        lose("feature_events", bad)
+        ok = _validated("feature_events", _items(data, "feature_events"), supplied, MEETING_ALLOWED, drops, note_loss)
         for ev in ok:
-            fid = feature_ref(ev.get("feature_ref"))
+            fid = feature_ref(ev.get("feature_ref"), ev)
             ref = _str(ev.get("segment_ref"))
             if ev.get("kind") not in EVENT_KINDS:
                 drops["feature_events"]["bad_kind"] += 1
@@ -370,6 +503,9 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 drops["feature_events"]["feature_unresolved"] += 1
                 continue
             cited = " ".join(r.text for r in supplied if r.id in {c["record_id"] for c in ev["citations"]} | {record_of.get(ref)})
+            if ev["kind"] == "implemented" and not completed(cited):
+                drops["feature_events"]["not_completed_work"] += 1  # a promise, plan, condition or negation (C1)
+                continue
             if ev["kind"] in EVENT_CUES and not EVENT_CUES[ev["kind"]].search(cited):
                 drops["feature_events"]["no_evidence_for_kind"] += 1
                 continue
@@ -387,16 +523,11 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 for p in prs_:
                     implemented_pr.setdefault((fid, p.link), "meeting_event")
 
-        ok, bad = validate_items(_items(data, "document_reviews"), supplied, MEETING_ALLOWED)
-        lose("document_reviews", bad)
-        doc = None
-        for c in mchats:
-            for link in sorted(_links(c.text)):
-                doc = doc or cat.doc_by_link(link)
-        if doc is None and mt.document_type and mt.document_type != PRODUCT_PLANNING:
-            types = cat.docs_of_type(mt.document_type)
-            doc = types[0] if types else None
-        if doc is not None and mt.document_type != PRODUCT_PLANNING:
+        ok = _validated("document_reviews", _items(data, "document_reviews"), supplied, MEETING_ALLOWED, drops, note_loss)
+        doc, why_doc = None, "no_document"
+        if mt.document_type and mt.document_type != PRODUCT_PLANNING:
+            doc, why_doc = resolve_review_doc(cat, [c.text for c in mchats] + [mt.document_type], "")
+        if doc is not None:
             discusses.add((f"Meeting:{mt.id}", f"Document:{doc.id}"))
         for rv in ok:
             ref = _str(rv.get("segment_ref"))
@@ -405,6 +536,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 continue
             if doc is None:
                 drops["document_reviews"]["document_unresolved"] += 1
+                unresolved_reviews.append({"record": record_of.get(ref), "why": why_doc, "text": _str(rv.get("text"))})
                 continue
             sp = speaker_of[ref]
             res = lookup(name_rows, mt.id, sp) if sp else None
@@ -437,10 +569,11 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         lines = [f"F{i}: {feature_info[f]['title']}" + (" | " + "; ".join(feature_info[f]["details"][:5])
                                                        if feature_info[f]["details"] else "") for i, f in enumerate(fl, 1)]
         req = [{"role": "system", "content": FEATURE_GROUP_SYSTEM}, {"role": "user", "content": "\n".join(lines)}]
-        data, reason = caller.json_call("feature_group", req, min(3000, 300 + 60 * len(fl)))
+        data, reason = caller.json_call("feature_group", req, min(3000, 300 + 60 * len(fl)), check=GROUP_SHAPE)
         if data is None:
             failures.append({"kind": "feature_group", "id": product, "reason": reason})
             state["unresolved_feature_refs"] += 1
+            note_loss("", kind="feature_group", unit=product, everywhere=True)
         else:
             for g in _items(data, "groups"):
                 refs = [m_ for m_ in _list(g.get("members")) if isinstance(m_, str) and re.fullmatch(r"F\d+", m_)]
@@ -459,6 +592,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                 if dt not in dst["details"]:
                     dst["details"].append(dt)
             dst["records"] += [r_ for r_ in src["records"] if r_ not in dst["records"]]
+            dst["sources"] |= src["sources"]
             ent = cat.features.entries[new]
             for a in (src["title"], *cat.features.entries[old]["aliases"]):
                 if a != ent["title"] and a not in ent["aliases"]:
@@ -476,6 +610,47 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         for ev in fevents:
             ev["feature"] = remap(ev["feature"])
         discusses = {(a, remap(b)) for a, b in discusses}
+        remapped: dict[tuple[str, str], str] = {}
+        for (f_, l_), basis in implemented_pr.items():  # I5: implementation evidence follows the merge
+            remapped.setdefault((remap(f_), l_), basis)
+            if basis == "merged":
+                remapped[(remap(f_), l_)] = basis
+        implemented_pr = remapped
+    # integrity after grouping: no structure may point at a feature that no longer exists
+    live = set(feature_info)
+    for name, rows, key in (("contributions", contributions, "feature"), ("feature_events", fevents, "feature")):
+        bad_rows = [r_ for r_ in rows if r_[key] not in live]
+        if bad_rows:
+            drops["after_grouping"][name] += len(bad_rows)
+            rows[:] = [r_ for r_ in rows if r_[key] in live]
+    for l_, ls_ in list(dev_links.items()):
+        ls_[:] = [x for x in ls_ if x["feature"] in live]
+    implemented_pr = {k_: v_ for k_, v_ in implemented_pr.items() if k_[0] in live}
+    discusses = {(a, b) for a, b in discusses if not b.startswith("Feature:") or b in live}
+
+    # C4: a PR named under several features keeps the one whose task context fits its title best; both are cited
+    conflicts = []
+    winner_of: dict[str, str] = {}
+    for link, ls_ in dev_links.items():
+        if len({x["feature"] for x in ls_}) < 2:
+            continue
+        ctx_words = lambda x: set(re.findall(r"[a-z0-9]{4,}", x["context"].casefold()))  # noqa: E731
+        ftoks = lambda fid: set(re.findall(r"[a-z0-9]{4,}", " ".join(  # noqa: E731
+            [feature_info[fid]["title"], *cat.features.entries[fid]["aliases"]]).casefold()))
+        best = max(ls_, key=lambda x: (len(ctx_words(x) & ftoks(x["feature"])), x["date"]))
+        others = [x for x in ls_ if x["feature"] != best["feature"]]
+        conflicts.append({"pr": link, "kept": best["feature"], "dropped": sorted({x["feature"] for x in others}),
+                          "citations": [c for x in ls_ for c in x["citations"]]})
+        best["also_cited"] = [c for x in others for c in x["citations"]]
+        dev_links[link] = [best]
+        winner_of[link] = best["feature"]
+    for key_, basis in list(implemented_pr.items()):
+        if key_[1] in winner_of and key_[0] != winner_of[key_[1]]:
+            del implemented_pr[key_]
+            implemented_pr.setdefault((winner_of[key_[1]], key_[1]), basis)
+    for ev in fevents:
+        if ev["source"] == "meeting" and len(ev["prs"]) == 1 and ev["prs"][0] in winner_of:
+            ev["feature"] = winner_of[ev["prs"][0]]
 
     # ---- 3. Slack sessions: planning channels always, other channels routed by rules
     by_channel: dict[str, list] = defaultdict(list)
@@ -508,15 +683,39 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         for chunk in chunks:
             comps = [e["name"] for e in cat.competitors.entries.values()]
             req, tokens = build_session_request(chunk, rec, cat, comps, anchors)
-            data, reason = caller.json_call("session", req, tokens)
+            data, reason = caller.json_call("session", req, tokens, check=SESSION_SHAPE)
             if data is None:
                 failures.append({"kind": "session", "id": chunk[0].id, "reason": reason})
                 failed_sessions.append({"first_message": chunk[0].id, "reason": reason,
                                         "text": _topic(" ".join(m.text for m in chunk))})
+                note_loss(" ".join(m.text for m in chunk), kind="session", unit=chunk[0].id)
                 continue
             session_sums[group]["extracted"] += 1
             _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, reviews, observations,
-                             decisions, discusses, competitor_alias, pick_doc)
+                             decisions, discusses, competitor_alias, note_loss, unresolved_reviews)
+
+    # ---- demo links whose cited message names a known competitor (rule, after competitor discovery)
+    done_links = {d_["link"] for d_ in demo_links}
+    comp_names = {e["name"]: cid_ for cid_, e in cat.competitors.entries.items()}
+    for u in rec.urls:
+        looks_demo = any("demo" in x.lower() for x in u.descriptions) or any("/demo" in x for x in u.links)
+        for link in u.links:
+            if link in done_links or not looks_demo or _names_in(" ".join(u.descriptions), own_names):
+                continue
+            for m in rec.messages:
+                if link not in m.text or m.is_bot:
+                    continue
+                hit = _names_in(m.text, comp_names)
+                if len(hit) == 1:
+                    name = next(iter(hit))
+                    cid = comp_names[name]
+                    quote = next((x for x in _SENTENCES.split(m.text) if _names_in(x, [name])), m.text)[:200]
+                    nodes.append(Node("Url", f"Url:{link}", {"link": link, "kind": "demo", "subject": cid,
+                                                             "source_competitor": name}))
+                    edge("ABOUT", f"Url:{link}", cid, [m.id], kind="demo", basis="message", quote=quote)
+                    demo_links.append({"link": link, "competitor": cid})
+                    done_links.add(link)
+                    break
 
     # ---- 5. PR association: meeting titles first, then batches of the unmatched
     bugfix = {m_.group(0) for m in rec.messages if m.bug_channel_owner for m_ in sr.PR_LINK.finditer(m.text)}
@@ -534,9 +733,11 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         examples = [(prs_raw[link].title, fidx[ls[0]["feature"]]) for link, ls in dev_links.items()
                     if ls[0]["basis"] == "meeting_title" and ls[0]["feature"] in fidx][:12]
         req, tokens = build_membership_request(rows, feats, examples)
-        data, reason = caller.json_call("membership", req, tokens)
+        data, reason = caller.json_call("membership", req, tokens, check=MEMBERSHIP_SHAPE)
         if data is None:
             failures.append({"kind": "membership", "id": batch[0].link, "reason": reason})
+            note_loss(" ".join(p.title + " " + prs_raw[p.link].summary for p in batch), kind="membership",
+                      unit=batch[0].link, everywhere=True)  # which feature those PRs belong to is unknown (R8)
             continue
         for a in _items(data, "assignments"):
             pref, fref = _str(a.get("pr")), a.get("feature")
@@ -619,9 +820,54 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             continue
         rpr = prs_raw.get(rv["revert"])
         for fid in feat_of_pr.get(rv["original"], []):
+            if (fid, rv["original"]) not in implemented_pr:
+                continue  # reverting work that was never implemented reverts nothing (C2)
             fevents.append({"feature": fid, "kind": "reverted", "reason": rv["reason"], "reason_text": rv["clause"],
                             "date": rpr.created_at, "record": rpr.id, "citations": [], "prs": [rv["original"]],
                             "source": "revert"})
+
+    # ---- documents: features and competitor claims in the content (one call per document); a feature found only here
+    # is "proposed", never "discussed"
+    doc_calls_failed: list[str] = []
+    doc_obs_n: Counter = Counter()
+    doc_observations: list[dict] = []
+    for d in rec.documents:
+        req = build_document_request(d, rec, cat)
+        data, reason = caller.json_call("document", req[0], req[1], check=DOCUMENT_SHAPE)
+        if data is None:
+            failures.append({"kind": "document", "id": d.id, "reason": reason})
+            doc_calls_failed.append(d.id)
+            note_loss(d.content, kind="document", unit=d.id)
+            continue
+        supplied = [SourceRecord(d.id, "document", "content", d.content)]
+        for f in _validated("doc_features", _items(data, "features"), supplied, DOC_ALLOWED, drops, note_loss):
+            title = _str(f.get("title"))
+            if not title:
+                drops["doc_features"]["no_title"] += 1
+                continue
+            fid = register_feature(title, [_str(x) for x in _list(f.get("details")) if _str(x)], f["citations"],
+                                   d.id, "document")
+            fevents.append({"feature": fid, "kind": "proposed", "reason": None, "date": d.date, "record": d.id,
+                            "citations": f["citations"], "prs": [], "source": "document"})
+        for n_, c in enumerate(_validated("doc_claims", _items(data, "claims"), supplied, DOC_ALLOWED, drops, note_loss)):
+            kind, subject = c.get("kind"), _str(c.get("subject_ref"))
+            if kind not in COMPETITOR_KINDS or not _str(c.get("text")) or not subject:
+                drops["doc_claims"]["bad_kind_or_text"] += 1
+                continue
+            cited = " ".join(x["quote"] for x in c["citations"])
+            if normalise(subject) in own_keys or not _names_in(cited, [subject]) or not COMP_CUE.search(d.content):
+                drops["doc_claims"]["subject_not_grounded"] += 1
+                continue
+            cid = cat.register_competitor(subject, citations=c["citations"])
+            competitor_alias[cid].add(subject)
+            doc_observations.append({
+                "id": f"Observation:{product}:{d.id}:{doc_obs_n[d.id]}", "kind": kind, "text": _str(c["text"]),
+                "release_scope": "previous" if d.id in doc_prev else "unknown",
+                "scope_basis": "document_scope" if d.id in doc_prev else "none",
+                "subject": cat.competitors.entries[cid]["name"], "record": d.id, "customer_ids": [],
+                "citations": c["citations"], "author": None, "target": cid, "reporters": []})
+            doc_obs_n[d.id] += 1
+    observations += doc_observations
 
     # number events per record (R13) and build event nodes
     per_record: Counter = Counter()
@@ -630,26 +876,49 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         per_record[ev["record"]] += 1
         ev["id"] = f"FeatureEvent:{product}:{ev['record']}:{ev['n']}"
 
-    # fate predicates
-    feature_text = {fid: [fid.split(":", 2)[2], *(_topic(a) for a in cat.features.entries[fid]["aliases"])]
-                    for fid in feature_info}
-    meetings_ok = not meeting_failed
-    refs_ok = state["unresolved_feature_refs"] == 0
+    # fate predicates (C2, C3)
+    pr_ids = defaultdict(set)  # feature -> {(link, number, normalised title)} of the PRs linked to it
+    for link, fl_ in feat_of_pr.items():
+        for fid_ in fl_:
+            pr_ids[fid_].add((link, prs_raw[link].number, normalise(prs_raw[link].title)))
+    held_prs = defaultdict(set)  # PR link -> dates of a hold followed by a resume or merge decision
+    seen_hold: dict[str, str] = {}
+    for d in decisions:
+        if d["conditional"]:
+            continue
+        if d["action"] == "withhold":
+            seen_hold.setdefault(d["pr"], d["ts"])
+        elif d["action"] in ("resume", "merge") and d["pr"] in seen_hold:
+            held_prs[d["pr"]].add(seen_hold[d["pr"]])
+
+    def reconciled(fid):
+        topics = [fid.split(":", 2)[2], *(_topic(a) for a in cat.features.entries[fid]["aliases"])]
+        for u in units_lost:
+            if u["everywhere"] or any(t and t in u["flat"] for t in topics):
+                return False
+            for link, number, title in pr_ids[fid]:
+                if link in u["raw"] or title in u["raw"] or re.search(r"\bpr\s*#?\s*" + number + r"\b", u["raw"]):
+                    return False
+        return True
+
     fate: dict[str, dict] = {}
     for fid in feature_info:
         evs = [e for e in fevents if e["feature"] == fid]
         kinds = Counter(e["kind"] for e in evs)
         implemented = kinds["implemented"] > 0 or any(f == fid for (f, _) in implemented_pr)
-        reverted = kinds["reverted"] > 0
+        # reverted: an applied revert of a PR that implemented this feature (those are the only revert events kept)
+        reverted = any(e["kind"] == "reverted" and e["source"] == "revert" for e in evs)
         held_dates = sorted(e["date"] for e in evs if e["kind"] == "held")
-        later = [e for e in evs if held_dates and e["kind"] in ("resumed", "implemented") and e["date"] > held_dates[0]]
-        blocked_by_session = any(any(t and t in fs["text"] for t in feature_text[fid]) for fs in failed_sessions)
-        # a feature lost to a validation failure is absent, so its own unresolved items cannot affect another feature
-        complete = meetings_ok and not blocked_by_session
+        positive_after = [e for e in evs if held_dates and e["kind"] == "implemented" and e["date"] > held_dates[0]]
+        merged_after_hold = any(prs_raw[l_].merged is True and l_ in held_prs
+                                for (f_, l_) in implemented_pr if f_ == fid)
+        discussed = bool(feature_info[fid]["sources"] - {"document"}) or kinds["discussed"] > 0
+        rec_ok = reconciled(fid)
         fate[fid] = {"implemented": implemented, "reverted": reverted, "held": kinds["held"] > 0,
-                     "resumed": kinds["resumed"] > 0, "delayed_then_added": bool(held_dates and later),
-                     "discussed": True,
-                     "discussed_not_implemented": (not implemented) if complete else None,
+                     "resumed": kinds["resumed"] > 0,
+                     "delayed_then_added": bool(held_dates and (positive_after or merged_after_hold)),
+                     "discussed": discussed, "proposed": kinds["proposed"] > 0, "reconciled": rec_ok,
+                     "discussed_not_implemented": ((not implemented) if rec_ok else None) if discussed else False,
                      "derived_by": FATE_VERSION}
 
     # ---- facts
@@ -679,7 +948,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         for eid in r["eids"]:
             edge("SUGGESTED", person(eid), f"Document:{r['doc']}", [r["record"]],
                  r["record"] if n == 0 else f"{r['record']}#{n + 1}", section=r["section"], text=r["text"],
-                 kind=r["kind"], ambiguous=r["ambiguous"], source_text=r["source_text"])
+                 kind=r["kind"], ambiguous=r["ambiguous"], source_text=r["source_text"], doc_basis=r.get("doc_basis"))
     for link, fl in feat_of_pr.items():
         for fid in fl:
             first = next(x for x in dev_links[link] if x["feature"] == fid)
@@ -701,7 +970,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             "id": oid, "kind": o["kind"], "text": o["text"], "release_scope": o["release_scope"],
             "scope_basis": o["scope_basis"], "subject": o["subject"], "record_id": o["record"], "product": product,
             "customer_ids": o["customer_ids"], "citations": o["citations"]}))
-        edge("STATED", person(o["author"]), oid, [o["record"]])
+        if o["author"]:
+            edge("STATED", person(o["author"]), oid, [o["record"]])
         edge("ABOUT", oid, o["target"], [o["record"]])
         for cid in o["customer_ids"]:
             edge("REPORTED_BY", oid, customer(cid), [o["record"]])
@@ -719,7 +989,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
     sessions_failed_planning = sum(1 for f in failed_sessions if f["first_message"] in
                                    {m.id for m in rec.messages if m.channel_name.startswith("planning-")})
     manifest = {
-        "documents": {"total": len(rec.documents), "with_feedback": n_feedback_docs, "content_calls": 0},
+        "documents": {"total": len(rec.documents), "with_feedback": n_feedback_docs,
+                      "content_extracted": len(rec.documents) - len(doc_calls_failed), "content_failed": doc_calls_failed},
         "meetings": {"total": len(rec.meetings), "extracted": len(rec.meetings) - len(meeting_failed),
                      "failed": meeting_failed},
         "sessions": {
@@ -730,7 +1001,10 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
                       "extracted": session_sums["other"]["routed"] - (len(failed_ids) - sessions_failed_planning)},
             "failed": failed_ids, "split_sessions": state["split_sessions"]},
         "unresolved_feature_refs": state["unresolved_feature_refs"],
-        "complete": meetings_ok and refs_ok and not failed_ids,
+        "validation_losses": sum(1 for u in units_lost if u["kind"] == "loss"),
+        "failed_units": [{"kind": u["kind"], "unit": u["unit"]} for u in units_lost if u["kind"] != "loss"],
+        "features_not_reconciled": [f for f, v in fate.items() if not v["reconciled"]],
+        "complete": not [u for u in units_lost if u["kind"] != "loss"] and state["unresolved_feature_refs"] == 0,
     }
     report = {
         "product": product, "prompt_version": PROMPT_VERSION, "fate_version": FATE_VERSION,
@@ -738,6 +1012,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         "feature_events": dict(Counter(e["kind"] for e in fevents)),
         "contributions": dict(Counter(c["kind"] for c in contributions)),
         "contributors": len({e for c in contributions for e in c["eids"]}),
+        "pr_conflicts": conflicts, "unresolved_reviews": unresolved_reviews,
         "pr_membership": {"bugfix_prs_excluded": len(bugfix), "by_basis": dict(Counter(l_["basis"] for ls in dev_links.values() for l_ in ls[:1])),
                           "unassigned": unassigned, "features_with_prs": len({f for fl in feat_of_pr.values() for f in fl})},
         "pr_decisions": {"by_action": dict(decision_prs), "unresolved_prs": state.get("unresolved_prs", [])},
@@ -753,7 +1028,7 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         "dropped": {k: dict(v) for k, v in drops.items()},
         "manifest": manifest,
         "features_merged": len(merged_features),
-        "calls": {"meeting": caller.calls["meeting"], "feature_group": caller.calls["feature_group"], "session": caller.calls["session"],
+        "calls": {"meeting": caller.calls["meeting"], "document": caller.calls["document"], "feature_group": caller.calls["feature_group"], "session": caller.calls["session"],
                   "membership": caller.calls["membership"], "live": sum(caller.calls.values()),
                   "cached": sum(caller.cached.values())},
         "usage": {"prompt_tokens": caller.prompt_tokens, "completion_tokens": caller.completion_tokens,
@@ -779,7 +1054,7 @@ def estimate_semantic(rec, *, cache_root=None) -> dict:
 # ---------------------------------------------------------------- one Slack session chunk
 
 def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, reviews, observations, decisions,
-                     discusses, competitor_alias, pick_doc) -> None:
+                     discusses, competitor_alias, note_loss, unresolved_reviews) -> None:
     msgs = {m.id: m for m in chunk if not m.is_bot}
     supplied = [SourceRecord(m.id, "message", "text", m.text) for m in msgs.values()]
     text_all = "\n".join(m.text for m in msgs.values())
@@ -793,30 +1068,23 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
             drops[kind][reason] += n
 
     # reviews
-    ok, bad = validate_items(_items(data, "reviews"), supplied, SESSION_ALLOWED)
-    lose("reviews", bad)
+    ok = _validated("reviews", _items(data, "reviews"), supplied, SESSION_ALLOWED, drops, note_loss)
     for rv in ok:
         mid = _str(rv.get("message_id"))
         if mid not in msgs or rv.get("kind") not in REVIEW_KINDS:
             drops["reviews"]["bad_message_or_kind"] += 1
             continue
-        doc = None
-        upto = [m for m in msgs.values() if order[m.id] <= order[mid]]
-        for m in upto:  # the document shared in this session, latest at or before the remark
-            for link in sorted(_links(m.text)):
-                doc = cat.doc_by_link(link) or doc
-        if doc is None:  # else the document type named closest before the remark
-            for m in reversed(upto):
-                hit = list(DOC_TYPE_RE.finditer(m.text))
-                if hit:
-                    doc = pick_doc(hit[-1].group(0))
-                    break
+        upto = [m.text for m in msgs.values() if order[m.id] <= order[mid]]
+        doc, why = resolve_review_doc(cat, upto, _str(rv.get("document_ref")))
         if doc is None:
             drops["reviews"]["document_unresolved"] += 1
+            unresolved_reviews.append({"record": mid, "why": why, "text": _str(rv.get("text")),
+                                       "document_ref": _str(rv.get("document_ref")) or None})
             continue
         reviews.append({"doc": doc.id, "eids": [msgs[mid].user_id], "ambiguous": False, "kind": rv["kind"],
                         "section": _str(rv.get("section")) or None, "text": _str(rv.get("text")), "record": mid,
-                        "citations": rv["citations"], "speaker": None, "source_text": msgs[mid].text[:600]})
+                        "citations": rv["citations"], "speaker": None, "source_text": msgs[mid].text[:600],
+                        "doc_basis": why})
         discusses.add((f"Message:{mid}", f"Document:{doc.id}"))
 
     # claims
@@ -824,8 +1092,7 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
     for c in _items(data, "claims"):  # R13: n is the claim's position in its record's output, dropped ones included
         raw_claims.append({**c, "_n": pos[_str(c.get("message_id"))]})
         pos[_str(c.get("message_id"))] += 1
-    ok, bad = validate_items(raw_claims, supplied, SESSION_ALLOWED)
-    lose("claims", bad)
+    ok = _validated("claims", raw_claims, supplied, SESSION_ALLOWED, drops, note_loss)
     for c in ok:
         mid, kind = _str(c.get("message_id")), c.get("kind")
         if mid not in msgs or kind not in CLAIM_KINDS or not _str(c.get("text")):
@@ -847,6 +1114,16 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
             if sr.URL_IN_TEXT.search(msgs[mid].text) and "demo" in msgs[mid].text.lower():
                 drops["claims"]["demo_share_message"] += 1  # sharing a demo link states no feature or weakness
                 continue
+            # I3: the cited discussion must name the competitor; a thread reply may rely on the opener when the
+            # session names exactly one competitor
+            names = {n for e in cat.competitors.entries.values() for n in [e["name"]]}
+            names |= {a for al in competitor_alias.values() for a in al}
+            cited_msgs = " ".join(msgs[r_["record_id"]].text for r_ in c["citations"] if r_["record_id"] in msgs)
+            if not _names_in(cited_msgs + " " + msgs[mid].text, [subject]):
+                before = " ".join(m.text for m in msgs.values() if order[m.id] <= order[mid])
+                if not _names_in(before, [subject]) or len({normalise(n) for n in _names_in(text_all, names)}) > 1:
+                    drops["claims"]["subject_not_grounded"] += 1
+                    continue
             cid = cat.register_competitor(subject, citations=c["citations"])
             competitor_alias[cid].add(subject)
             target, subj = cid, cat.competitors.entries[cid]["name"]
@@ -889,8 +1166,7 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
                              "target": target, "reporters": reporters})
 
     # PR decisions
-    ok, bad = validate_items(_items(data, "pr_decisions"), supplied, SESSION_ALLOWED)
-    lose("pr_decisions", bad)
+    ok = _validated("pr_decisions", _items(data, "pr_decisions"), supplied, SESSION_ALLOWED, drops, note_loss)
     unresolved = state.setdefault("unresolved_prs", [])
     for d in ok:
         mid = _str(d.get("message_id"))
@@ -901,6 +1177,13 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
         if act in ACTION_CUES and not ACTION_CUES[act].search(msgs[mid].text):
             drops["pr_decisions"]["no_evidence_for_action"] += 1
             continue
+        conditional = bool(d.get("conditional"))
+        if act in ACTION_CUES:  # I4: a question or a condition is not an effective decision
+            mood = sentence_mood(msgs[mid].text, ACTION_CUES[act])
+            if mood == "question":
+                act = "question"
+            elif mood == "conditional":
+                conditional = True
         reason = d.get("reason") if d.get("reason") in REASONS else None
         if reason in REASON_CUES and not REASON_CUES[reason].search(
                 " ".join(m.text for m in msgs.values() if order[m.id] <= order[mid])):
@@ -915,6 +1198,6 @@ def _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, rev
             if not num_ok:
                 drops["pr_decisions"]["pr_not_in_session"] += 1
                 continue
-            decisions.append({"message": mid, "pr": p.link, "action": d["action"], "reason": reason,
-                              "conditional": bool(d.get("conditional")), "ts": msgs[mid].ts, "idx": idx,
+            decisions.append({"message": mid, "pr": p.link, "action": act, "reason": reason,
+                              "conditional": conditional, "ts": msgs[mid].ts, "idx": idx,
                               "citations": d["citations"]})

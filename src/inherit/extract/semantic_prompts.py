@@ -135,3 +135,19 @@ Group the features. Answer with one JSON object:
 Rules: "title" is the ref of the broadest member, whose name becomes the group's name. Every feature is in exactly one \
 group. Merge only when the members are the same area or one is a step of the other; keep different areas apart \
 (real-time alerts and predictive analytics stay separate). Never use a ref that is not listed."""
+
+DOCUMENT_SYSTEM = """You read one planning document of a product (market research, vision, requirements, technical \
+specification or system design) and report facts as JSON.
+
+Return one JSON object with two arrays (use [] when nothing applies):
+
+"features": a product feature or capability the document proposes to build or offer. Fields: title (a short noun \
+phrase), details (specific capabilities named for it, short phrases; [] if none), citations. Market segments, \
+competitors, risks and general goals are not features.
+
+"claims": a statement about a named competitor product. Fields: kind ("competitor_feature" for a capability, \
+"competitor_weakness" for a weakness), subject_ref (the competitor's name as written), text (one sentence), citations. \
+Only products the document calls competitors or lists in a competitor comparison.
+
+Every item needs "citations": a list of {"record_id": <the DOCUMENT id>, "quote": <text copied exactly from the \
+content>}. A quote is a verbatim span, at most 15 words, inside one sentence. Do not invent features, names or text."""

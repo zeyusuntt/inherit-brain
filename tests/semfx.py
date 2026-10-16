@@ -153,7 +153,7 @@ URLS = [
 def records(slack=SLACK, prs=None, meetings=None, chats=None) -> ProductRecords:
     docs = [
         Document("mini_market_research_report", ANN, "Market Research Report", DOC_LINK, "2026-03-01T00:00:00",
-                 "Executive Summary: Mini is a product.", None),
+                 "Executive Summary: Mini is a product. Competitors: RivalCo offers live dashboards.", None),
         Document("final_mini_market_research_report", ANN, "Market Research Report", FINAL_LINK,
                  "2026-03-06T00:00:00", "Executive Summary: Mini is a product. Final.", FEEDBACK),
     ]
@@ -295,7 +295,8 @@ class ScriptedChat:
                     text = resp
                     break
             if text is None:
-                text = meeting_json() if "five arrays" in system else session_json()
+                text = (meeting_json() if "five arrays" in system
+                        else json.dumps({"features": [], "claims": []}) if "two arrays" in system else session_json())
         if isinstance(text, tuple):
             text, toks = text
         return SimpleNamespace(message=SimpleNamespace(content=text), prompt_tokens=100, completion_tokens=toks,
@@ -303,7 +304,7 @@ class ScriptedChat:
 
     def kind(self, name):
         key = {"meeting": "five arrays", "session": "three arrays", "membership": "PR_MEMBERSHIP_TASK",
-               "group": "FEATURE_GROUP_TASK"}[name]
+               "group": "FEATURE_GROUP_TASK", "document": "two arrays"}[name]
         return [c for c in self.calls if key in c["messages"][0]["content"]]
 
 
