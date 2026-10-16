@@ -486,3 +486,54 @@ def test_a_pr_number_or_link_identifies_the_pr_and_articles_in_a_title_are_ignor
     out2, _ = run(_wrong_membership(), _rec_enum(ENUM, "Next, we have predictive analytics. Dee, you're assigned to the "
                                                       "predictive model evaluation."), tmp_path / "b")
     assert _about(out2, 6) == set()
+
+
+# ---------------------------------------------------------------- round-3 recall: type-level review discussions
+
+def _brainstorm(opener, replies, day="20260601"):
+    rows = [(f"{day}-0-q0000", fx.ANN, f"2026-06-01T09:00:00", opener) + fx.PLAN]
+    for i, (who, text) in enumerate(replies, 1):
+        rows.append((f"{day}-{i}-q000{i}", who, f"2026-06-01T09:{i:02d}:00", text) + fx.PLAN)
+    return fx.records(slack=fx.SLACK + rows)
+
+
+def _suggested_in(out, day="20260601"):
+    return {(e.key, e.dst_id) for e in edges(out.facts, "SUGGESTED") if e.key.startswith(day)}
+
+
+def test_a_brainstorm_about_a_document_type_reviews_every_version_for_replies_with_content_proposals(tmp_path):
+    rec = _brainstorm("Hi team, I want to discuss the Market Research Report for Mini. Let's brainstorm some ideas!", [
+        (fx.BEN, "Great initiative! We should ensure the report clearly outlines the pricing model."),
+        (fx.DEE, "Sure thing, I'll draft a roadmap and share it by next week."),
+        (fx.CY, "Absolutely. I'll focus on gathering feedback. We should include a section on user personas."),
+        (fx.EVE, "Let's aim to have a draft ready by the end of next week. Thanks, everyone!")])
+    out, _ = run(None, rec, tmp_path)
+    got = _suggested_in(out)
+    assert got == {(k, f"Document:{d}") for k in ("20260601-1-q0001", "20260601-3-q0003") for d in BOTH}
+    es = [e for e in edges(out.facts, "SUGGESTED") if e.key == "20260601-3-q0003"]
+    assert all(e.props["version_ambiguous"] is True and e.props["doc_basis"] == "version_ambiguous" for e in es)
+    assert es[0].props["text"] == "We should include a section on user personas."
+    assert out.report["type_level_rule_reviews"] == 2
+
+
+def test_the_opener_and_a_message_the_model_addressed_are_not_added_by_the_rule(tmp_path):
+    rec = _brainstorm("Hi team, we need to nail down the key sections of the Market Research Report for Mini. Thoughts?", [
+        (fx.BEN, "I'll handle the roadmap section. We need to outline the dates and owners.")])
+    chat = fx.standard_chat()
+    chat.script["[20260601-1-q0001]"] = fx.session_json(reviews=[{
+        "message_id": "20260601-1-q0001", "document_ref": "Market Research Report", "kind": "suggestion", "section": None,
+        "text": "Handle the roadmap section", "citations": [fx.cite("20260601-1-q0001", "I'll handle the roadmap section")]}])
+    out, _ = run(chat, rec, tmp_path)
+    assert _suggested_in(out) == set()  # the model's cited remark was work allocation; the rule does not re-read the message
+    assert out.report["type_level_rule_reviews"] == 0
+
+
+def test_a_brainstorm_about_another_products_document_or_without_a_type_adds_nothing(tmp_path):
+    ext = _brainstorm("Hi team, I want to discuss the X-Genie Market Research Report. Let's brainstorm!",
+                      [(fx.BEN, "We should highlight their privacy story.")], day="20260602")
+    out, _ = run(None, ext, tmp_path / "a")
+    assert _suggested_in(out, "20260602") == set()
+    plain = _brainstorm("Hi team, let's brainstorm the launch plan!", [(fx.BEN, "We should include a launch checklist.")],
+                        day="20260603")
+    out2, _ = run(None, plain, tmp_path / "b")
+    assert _suggested_in(out2, "20260603") == set()

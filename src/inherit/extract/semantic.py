@@ -31,7 +31,7 @@ from inherit.extract.structural import _links
 from inherit.facts import Edge, Facts, Node
 from inherit.ontology import check_edge
 
-EXTRACTOR = "semantic/v3"
+EXTRACTOR = "semantic/v4"
 FATE_VERSION = "feature_fate/v1"
 PENDING_VERSION = "pending/v1"
 PROMPT_VERSION = SEMANTIC_PROMPT_VERSION
@@ -1094,6 +1094,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             session_sums[group]["extracted"] += 1
             _process_session(data, chunk, rec, cat, anchors, own_keys, drops, state, reviews, observations,
                              decisions, discusses, competitor_alias, note_loss, unresolved_reviews, doc_prev)
+            state["type_level_rule_reviews"] = state.get("type_level_rule_reviews", 0) + type_level_reviews(
+                data, chunk, cat, doc_prev, reviews, discusses)
 
     # ---- demo links whose cited message names a known competitor (rule, after competitor discovery)
     done_links = {d_["link"] for d_ in demo_links}
@@ -1536,7 +1538,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         "feature_events": dict(Counter(e["kind"] for e in fevents)),
         "contributions": dict(Counter(c["kind"] for c in contributions)),
         "contributors": len({e for c in contributions for e in c["eids"]}),
-        "pr_conflicts": conflicts, "pr_quarantined": quarantined, "events_unattached": events_unattached, "unresolved_reviews": unresolved_reviews,
+        "pr_conflicts": conflicts, "pr_quarantined": quarantined,
+        "type_level_rule_reviews": state.get("type_level_rule_reviews", 0), "events_unattached": events_unattached, "unresolved_reviews": unresolved_reviews,
         "pr_membership": {"bugfix_prs_excluded": len(bugfix), "by_basis": dict(Counter(l_["basis"] for ls in dev_links.values() for l_ in ls[:1])),
                           "unassigned": unassigned, "features_with_prs": len({f for fl in feat_of_pr.values() for f in fl})},
         "pr_decisions": {"by_action": dict(decision_prs), "unresolved_prs": state.get("unresolved_prs", [])},
@@ -1573,6 +1576,55 @@ def estimate_semantic(rec, *, cache_root=None) -> dict:
     return {"meeting_calls": r["calls"]["meeting"], "session_calls": r["calls"]["session"],
             "membership_calls": r["calls"]["membership"], "membership_calls_max": r["membership_calls_max"],
             "cached": r["calls"]["cached"], "projected_usd": projected}
+
+
+# ---------------------------------------------------------------- type-level review discussions (rule)
+
+# What a rule-read reply must say: wording that proposes content (stricter than the model path, which a model chose),
+# and never a deadline, a request to review the work, or an invitation to contribute.
+_RULE_CUE = re.compile(
+    r"\b(?:consider|suggest(?:s|ed)?|recommend(?:s|ed)?|add(?:s|ed|ing)?|includ(?:e|es|ing)|highlight|detail|specify|emphasi[sz]e"
+    r"|make sure|elaborate|mention|outline|defin(?:e|es|ing)|cover|explain|ensure|clarif\w+|expand|replace|remove|improve|update"
+    r"|incorporate|address)\b", re.I)
+_RULE_NOT = re.compile(
+    r"\bdeadline\b|\bfeel free\b|\bonce i'?m done\b|\breview (?:it|this|that)\b|\bby (?:early |late |the )?(?:next|end|tomorrow|"
+    r"monday|tuesday|wednesday|thursday|friday)\b|\bnext (?:week|friday|monday)\b|\blet me know\b|\bsync\b", re.I)
+
+
+def type_level_reviews(data, chunk, cat, doc_prev, reviews, discusses) -> int:
+    """A session that opens by naming a document type of this product ("I want to discuss the Product Vision Document for
+    <product>") is a type-level review discussion, whether or not a version of the document exists yet. The model reads
+    the session first; this rule only adds the replies it did not return a review for: a reply whose own sentence
+    proposes a change to the content (suggestion wording or a content question, never work allocation, scheduling or an
+    opener) is a review of every document of that type, marked by the caller as version_ambiguous. A message the model
+    did address (kept or dropped) is never re-read, so a ruling on its cited remark stands. Returns the number added."""
+    real = [m for m in chunk if not m.is_bot]
+    if len(real) < 2 or not DOC_TYPE_RE.search(real[0].text):
+        return 0
+    modelled = {_str(r.get("message_id")) for r in _items(data, "reviews")}
+    added = 0
+    for k, m in enumerate(real[1:], 1):
+        if m.id in modelled or "http" in m.text or m.text.lstrip().startswith("@here"):
+            continue  # a shared link or an announcement is not a remark about the document
+        hit = next((x.strip() for x in _SENTENCES.split(m.text)
+                    if x.strip() and not _task_statement(x) and _RULE_CUE.search(_PURPOSE.sub(" ", x))
+                    and not _RULE_NOT.search(x)), None)
+        if hit is None:
+            continue
+        docs, why = resolve_review_docs(cat, [x.text for x in real[:k + 1]], "", doc_prev)
+        if not docs:
+            continue
+        good, _ = validate_items([{"citations": [{"record_id": m.id, "quote": hit}]}],
+                                 [SourceRecord(m.id, "message", "text", m.text)], SESSION_ALLOWED)
+        if not good:
+            continue
+        reviews.append({"docs": [d_.id for d_ in docs], "eids": [m.user_id], "ambiguous": False, "kind": "suggestion",
+                        "section": None, "text": hit, "record": m.id, "citations": good[0]["citations"], "speaker": None,
+                        "source_text": m.text[:600], "doc_basis": why})
+        for d_ in docs:
+            discusses.add((f"Message:{m.id}", f"Document:{d_.id}"))
+        added += 1
+    return added
 
 
 # ---------------------------------------------------------------- one Slack session chunk
