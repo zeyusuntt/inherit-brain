@@ -6,7 +6,7 @@ One deterministic plan per question family (the frozen mapping of task-8-design-
 the question text and the rows the tools returned; gold is used only by the evaluator at the bottom. Plans run with the
 agent's budgets (12 calls, paging through cursors, 200 rows / 12,000 tokens) and are scored with the official ID scoring
 (`eval.grade.f1_score_sets`); content questions are scored separately by key-phrase coverage. Each score is reported
-before and after the output guard. Families whose facts do not exist yet (semantic layer, Task 4c) print `pending 4c`.
+before and after the output guard. A family whose facts are absent from a graph prints `pending 4c` (none on the loaded dev graphs).
 Prints question keys, counts and scores only, never gold values. Plans and gold never enter prompts, facts or the catalogue.
 """
 
@@ -27,7 +27,7 @@ from inherit.tools.trace import Trace
 
 PRODUCTS = ("ActionGenie", "AnomalyForce", "ContentForce", "KnowledgeForce", "LeadForce", "TrendForce")
 ROLES = {r.lower(): r for r in ROLE_NOUNS}
-PARTIAL = {"person: authors and key reviewers": "authors only until the semantic layer adds reviewers"}
+PARTIAL: dict[str, str] = {}  # families scored only in part; empty now that the semantic layer is loaded
 
 
 class Plan:
