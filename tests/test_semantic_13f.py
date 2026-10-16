@@ -330,3 +330,27 @@ def test_a_meeting_and_a_slack_statement_that_disagree_leave_the_pr_unassociated
     out, _ = run(_chat_explicit(), rec, tmp_path)
     assert _about(out) == set()
     assert out.report["pr_conflicts"][-1]["kept"] is None
+
+
+@pytest.mark.parametrize("text", [
+    "I'll handle the testing strategies section. We should aim to have a draft by next week. How does that sound?",
+    "Could you schedule a meeting?",
+    "Can you take the integration part?",
+    "We should aim to have a draft by next week.",
+    "I'll send the draft over by Friday.",
+])
+def test_workflow_requests_are_not_reviews(text):
+    assert is_review("suggestion", text) is False
+    assert is_review("review_question", text) is False
+
+
+@pytest.mark.parametrize("text", [
+    "Can you explain the authentication flow?",
+    "Can you explain why the algorithm is quadratic?",
+    "I'll add a section on MFA.",
+    "Could you clarify the pricing assumptions?",
+    "We should add a meeting-notes section.",
+])
+def test_requests_about_the_content_are_reviews(text):
+    assert is_review("suggestion", text) is True
+    assert is_review("review_question", text) is True

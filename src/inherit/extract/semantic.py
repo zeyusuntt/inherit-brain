@@ -366,14 +366,25 @@ _TASK_TAKING = re.compile(
 # Wording that proposes a change to content. A purpose clause ("...to include in the document") describes the
 # gathering, not a change, and does not count.
 _CONTENT_CUE = re.compile(
-    r"\b(?:should|could|would|consider|suggest\w*|recommend\w*|add(?:s|ed|ing)?|includ(?:e|es|ing)|replace|remove|expand"
+    r"\b(?:consider|suggest\w*|recommend\w*|add(?:s|ed|ing)?|includ(?:e|es|ing)|replace|remove|expand"
     r"|clarif\w+|elaborate|mention|highlight|detail|specify|emphasi[sz]e|improve|update|worth|how about|what about)\b", re.I)
 _PURPOSE = re.compile(r"\bto (?:includ\w*|add|incorporate|mention|put|use)\b[^.!?]*", re.I)
 
 
+# Scheduling and delivery: meetings, calls, "aim to have a draft", "by next week".
+_SCHEDULE = re.compile(
+    r"\baim(?:ing)? to\b|\bby (?:next|the end of|end of|tomorrow|monday|tuesday|wednesday|thursday|friday|this)\b"
+    r"|\b(?:schedule|set up|book|arrange)\b[^.!?]*\b(?:meeting|call|session|sync)\b|\bmeeting\b", re.I)
+
+
 def _task_statement(sentence: str) -> bool:
-    """True for a sentence that only takes on, gathers or shares a task and proposes no change to the content."""
-    return bool(_TASK_TAKING.search(sentence)) and not _CONTENT_CUE.search(_PURPOSE.sub(" ", sentence))
+    """True for a sentence that is work allocation or scheduling and proposes no change to the content: it takes or asks
+    for an action (own a section, draft, gather, share, collaborate, schedule) and has no content wording. What matters
+    is the requested action, not the "can you" or "I'll" construction around it."""
+    plain = _PURPOSE.sub(" ", sentence)
+    if _CONTENT_CUE.search(plain):
+        return False
+    return bool(_TASK_TAKING.search(sentence) or _SCHEDULE.search(sentence))
 
 
 def cited_remark(text: str, citations, record_id: str, remark: str = "") -> str:
@@ -411,7 +422,7 @@ def cited_remark(text: str, citations, record_id: str, remark: str = "") -> str:
 
 # A question about who does what or when, or a check-in, is not a question about the document's content.
 _WORKFLOW_Q = re.compile(
-    r"\b(?:can|could|would|will) you\b|\b(?:thoughts|sound good|any questions|does that work|work for (?:everyone|you)"
+    r"\bhow does (?:that|this) sound\b|\b(?:thoughts|sound good|any questions|does that work|work for (?:everyone|you)"
     r"|make sense|(?:are|is) (?:you|anyone) (?:free|available)|who (?:will|can|wants))\b", re.I)
 
 
