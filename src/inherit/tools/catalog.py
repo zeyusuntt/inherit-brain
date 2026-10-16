@@ -287,7 +287,7 @@ def _resolve_documents(ctx: _Ctx, text: str, scope: str) -> list[str]:
     if scope == "previous":
         hit = [r for r in hit if r[3] == "previous"]
     elif scope == "current":
-        hit = [r for r in hit if r[3] != "previous"]
+        hit = [r for r in hit if r[3] == "current"]  # unknown scope stays unknown
     return sorted(r[0] for r in hit)
 
 
@@ -359,6 +359,15 @@ def _resolve_entity(ctx: _Ctx, p: dict) -> list[dict]:
 
 
 # ---------------------------------------------------------------- 3. doc_people
+_SLACK_RECORD = re.compile(r"^\d{8}-\d+-[0-9a-f]+$")  # Slack message ids; transcript segments are <meeting>#<line>
+
+
+def _substantive(kind: str, src) -> bool:
+    """A key-reviewer contribution: a suggestion, or a review question raised in Slack. A question asked in a meeting
+    transcript alone does not qualify."""
+    return kind == "suggestion" or (kind == "review_question" and bool(src) and all(_SLACK_RECORD.match(r) for r in src))
+
+
 def _doc_people(ctx: _Ctx, p: dict) -> list[dict]:
     docs = _resolve_documents(ctx, p["document_type"], p["scope"])
     if not docs:
@@ -370,6 +379,7 @@ def _doc_people(ctx: _Ctx, p: dict) -> list[dict]:
                     "AND s.kind IN ['suggestion', 'review_question'] AND ($role IS NULL OR p.role = $role) "
                     "RETURN p.eid, p.name, p.role, d.id, s.kind, s.section, s.text, s.ambiguous, s.src",
                     docs=docs, role=role)
+    reviews = [r for r in reviews if _substantive(r[4], r[8])]
     if p["return"] == "suggestions":
         out = [{"answer": text, "section": section, "kind": kind, "speaker": eid, "speaker_name": name,
                 "speaker_role": prole, "anonymous": False, "ambiguous": bool(amb), "document": did,
@@ -413,7 +423,7 @@ _SEL_AT = ("MATCH (b:Bug)-[:HAS_EVENT]->(ev:BugEvent) WITH b, collect({type: ev.
            f"WHERE herb_v1.statusAt(evs, $as_of) @AT AND {_FILTERS}")
 # "now reopened": the action (resolution, fix PR, dismissal) is followed by a REOPENED event, by source timestamp
 _LATER_REOPEN = " MATCH (b)-[:HAS_EVENT]->(ro:BugEvent) WHERE ro.type = 'REOPENED' AND ro.ts > {since}.ts"
-_FIX_PR_RESOLVED = " MATCH (b)-[:HAS_EVENT]->(rs:BugEvent) WHERE rs.type = 'RESOLVED' AND pr.link IN rs.fix_pr_links"
+_FIX_PR_RESOLVED = " MATCH (b)-[hs:HAS_EVENT]->(rs:BugEvent) WHERE rs.type = 'RESOLVED' AND pr.link IN rs.fix_pr_links"
 
 
 def _bug_selector(p: dict) -> tuple[str, dict]:
@@ -438,7 +448,7 @@ def _bug_board(ctx: _Ctx, p: dict) -> list[dict]:
     cos = _resolve_companies(ctx, p.get("customer"))
     base = {"components": comps, "companies": cos, **extra}
     if ret == "bugs":
-        return _bug_rows(ctx, sel, base)
+        return _bug_rows(ctx, sel, base, p["status"])
     join = p["status"] == "reopened"
     if actor == "company":
         found = ctx.q(sel + " MATCH (b)-[rb:REPORTED_BY]->(c:Customer) WHERE c.company IS NOT NULL "
@@ -450,22 +460,26 @@ def _bug_board(ctx: _Ctx, p: dict) -> list[dict]:
             g["bugs"].add(bid)
             g["refs"].update([cid, bid])
             g["evidence"].update(src or [])
+        _add_support(ctx, groups, p["status"])
         return _ranked(groups, p["rank"], lambda k, g: {"name": k})
+    # every branch returns: eid, name, role, bug, pr link, the acting edge's src, the event or FIXES src, extra refs
     if actor == "assignee":
-        found = ctx.q(sel + " MATCH (b)-[:HAS_EVENT]->(ev:BugEvent)-[at:ASSIGNED_TO]->(p:Person) "
+        found = ctx.q(sel + " MATCH (b)-[he:HAS_EVENT]->(ev:BugEvent)-[at:ASSIGNED_TO]->(p:Person) "
                       "WHERE ev.type = 'ASSIGNED' AND p.eid IN b.current_assignees "
-                      "RETURN p.eid, p.name, p.role, b.id, null, at.src", **base)
+                      "RETURN p.eid, p.name, p.role, b.id, null, at.src, he.src, [ev.id]", **base)
     elif actor in ("resolver", "dismisser"):
-        text = (sel + " MATCH (b)-[:HAS_EVENT]->(ev:BugEvent)-[ab:ACTED_BY]->(p:Person) WHERE ev.type = $etype"
-                + (_LATER_REOPEN.format(since="ev") if join else "") + " RETURN p.eid, p.name, p.role, b.id, null, ab.src")
+        text = (sel + " MATCH (b)-[he:HAS_EVENT]->(ev:BugEvent)-[ab:ACTED_BY]->(p:Person) WHERE ev.type = $etype"
+                + (_LATER_REOPEN.format(since="ev") if join else "")
+                + " RETURN p.eid, p.name, p.role, b.id, null, ab.src, he.src, [ev.id]")
         found = ctx.q(text, etype="RESOLVED" if actor == "resolver" else "DISMISSED", **base)
     else:  # fix_pr_author: counts distinct PR links
         text = (sel + " MATCH (pr:PR)-[fx:FIXES]->(b) MATCH (p:Person)-[op:OPENED]->(pr)"
-                + (_FIX_PR_RESOLVED + _LATER_REOPEN.format(since="rs") if join else "")
-                + " RETURN p.eid, p.name, p.role, b.id, pr.link, op.src")
+                + (_FIX_PR_RESOLVED + _LATER_REOPEN.format(since="rs")
+                   + " RETURN p.eid, p.name, p.role, b.id, pr.link, op.src, fx.src + hs.src, [rs.id]" if join else
+                   " RETURN p.eid, p.name, p.role, b.id, pr.link, op.src, fx.src, []"))
         found = ctx.q(text, **base)
     groups = {}
-    for eid, name, role, bid, link, src in found:
+    for eid, name, role, bid, link, src, src2, more in found:
         g = groups.setdefault(eid, {"items": set(), "bugs": set(), "prs": set(), "refs": {f"Person:{eid}"},
                                     "evidence": set(), "name": name, "role": role})
         g["items"].add(link if actor == "fix_pr_author" else bid)
@@ -473,10 +487,45 @@ def _bug_board(ctx: _Ctx, p: dict) -> list[dict]:
         if link:
             g["prs"].add(link)
             g["refs"].add(f"PR:{link}")
-        g["refs"].add(bid)
-        g["evidence"].update(src or [])
+        g["refs"].update([bid, *(x for x in more or [] if x and not x.startswith("http"))])
+        g["evidence"].update([*(src or []), *(src2 or [])])
+    _add_support(ctx, groups, p["status"])
     return _ranked(groups, p["rank"], lambda k, g: {"name": g["name"], "role": g["role"]} | (
         {"prs": sorted(g["prs"])} if actor == "fix_pr_author" else {}))
+
+
+_EVENT_FOR = {"resolved": ("RESOLVED",), "no_fix_needed": ("DISMISSED",), "reopened": ("REOPENED",)}
+
+
+def _bug_support(ctx: _Ctx, ids: list[str], status: str) -> dict[str, dict]:
+    """The records that make each bug satisfy `status`: its resolving, dismissing or reopening events, the FIXES edges of
+    its fix PRs, or its last event for active. Absence (unresolved) has none."""
+    out: dict[str, dict] = defaultdict(lambda: {"refs": set(), "evidence": set()})
+    if not ids or status in ("unresolved", "any"):
+        return out
+    events: dict[str, list] = defaultdict(list)
+    for bid, eid, typ, ts, src in ctx.q("MATCH (b:Bug)-[he:HAS_EVENT]->(ev:BugEvent) WHERE b.id IN $ids "
+                                        "RETURN b.id, ev.id, ev.type, ev.ts, he.src", ids=ids):
+        events[bid].append((ts or "", eid, typ, src or []))
+    for bid, evs in events.items():
+        keep = [max(evs)] if status == "active" else [e for e in evs if e[2] in _EVENT_FOR[status]]
+        for _, eid, _, src in keep:
+            out[bid]["refs"].add(eid)
+            out[bid]["evidence"].update(src)
+    if status == "resolved":
+        for bid, link, src in ctx.q("MATCH (pr:PR)-[fx:FIXES]->(b:Bug) WHERE b.id IN $ids RETURN b.id, pr.link, fx.src",
+                                    ids=ids):
+            out[bid]["refs"].add(f"PR:{link}")
+            out[bid]["evidence"].update(src or [])
+    return out
+
+
+def _add_support(ctx: _Ctx, groups: dict, status: str) -> None:
+    sup = _bug_support(ctx, sorted({b for g in groups.values() for b in g["bugs"]}), status)
+    for g in groups.values():
+        for b in g["bugs"]:
+            g["refs"].update(sup[b]["refs"])
+            g["evidence"].update(sup[b]["evidence"])
 
 
 def _ranked(groups: dict, rank: str, extra: Callable) -> list[dict]:
@@ -488,7 +537,7 @@ def _ranked(groups: dict, rank: str, extra: Callable) -> list[dict]:
     return rows
 
 
-def _bug_rows(ctx: _Ctx, sel: str, base: dict) -> list[dict]:
+def _bug_rows(ctx: _Ctx, sel: str, base: dict, status: str) -> list[dict]:
     found = ctx.q(sel + " RETURN b.id, b.title, b.impact_text, b.component, b.companies, b.unresolved, b.resolved, "
                   "b.active, b.reopened, b.no_fix_needed", **base)
     ids = [r[0] for r in found]
@@ -498,6 +547,9 @@ def _bug_rows(ctx: _Ctx, sel: str, base: dict) -> list[dict]:
                                    "RETURN b.id, c.id, rb.src", ids=ids):
             ev[bid]["refs"].add(cid)
             ev[bid]["evidence"].update(src or [])
+    for bid, sup in _bug_support(ctx, ids, status).items():
+        ev[bid]["refs"].update(sup["refs"])
+        ev[bid]["evidence"].update(sup["evidence"])
     rows = []
     for bid, title, impact, comp, companies, unres, res, act, reo, nofix in sorted(found):
         rows.append({"answer": title, "id": bid, "title": title, "impact_text": impact, "component": comp,
@@ -601,7 +653,9 @@ def _pr_board(ctx: _Ctx, p: dict) -> list[dict]:
 # ---------------------------------------------------------------- 7. feature_fate
 def _feature_fate(ctx: _Ctx, p: dict) -> list[dict]:
     feats = _resolve_features(ctx, p.get("topic"))
-    feature_rows = ctx.q("MATCH (f:Feature) RETURN f.id, f.title, f.aliases, f.details, f.discussed_not_implemented")
+    # the five fates are the semantic layer's derived Feature properties (one definition); events only give history
+    feature_rows = ctx.q("MATCH (f:Feature) RETURN f.id, f.title, f.aliases, f.details, f.implemented, f.reverted, "
+                         "f.held, f.delayed_then_added, f.discussed_not_implemented")
     events: dict[str, list] = defaultdict(list)
     for fid, eid, kind, date, reason, rtext, rec in ctx.q(
             "MATCH (f:Feature)-[:HAS_EVENT]->(ev:FeatureEvent) "
@@ -617,46 +671,35 @@ def _feature_fate(ctx: _Ctx, p: dict) -> list[dict]:
                                        "RETURN f.id, pr.link, pr.title, a.src"):
         about[fid][link] = (title, src)
     chosen: list[dict] = []
-    for fid, title, aliases, details, dni in sorted(feature_rows):
+    for fid, title, aliases, details, f_impl, f_rev, f_held, f_delayed, f_dni in sorted(feature_rows):
         if feats is not None and fid not in feats:
             continue
         evs = sorted(events[fid], key=lambda e: (e["date"] or "", e["id"]))
-        kinds = [e["kind"] for e in evs]
-        applied_rev = [(rv, reason, rs) for _, _, rv, reason, ap, rs in impl[fid] if rv and ap]
-        has_impl = bool(impl[fid]) or "implemented" in kinds
-        rev_reasons = [e["reason"] for e in evs if e["kind"] == "reverted" and e["reason"]] + [r for _, r, _ in applied_rev if r]
-        hold_reasons = [e["reason"] for e in evs if e["kind"] == "held" and e["reason"]]
-        holdres = [e["kind"] for e in evs if e["kind"] in ("held", "resumed")]
-        first_hold = next((e["date"] or "" for e in evs if e["kind"] == "held"), None)
-        impl_dates = [e["date"] or "" for e in evs if e["kind"] == "implemented"]
-        fates = {"any"}
-        if has_impl:
-            fates.add("implemented")
-        if dni:
-            fates.add("unimplemented")
-        if "reverted" in kinds or applied_rev:  # an applied revert (R4) or a reverted event
-            fates.add("reverted")
-        if holdres and holdres[-1] == "held":
-            fates.add("held")
-        if first_hold is not None and has_impl and (not impl_dates or max(impl_dates) > first_hold):
-            fates.add("delayed_then_added")
+        fates = {"any"} | {n for n, v in (("implemented", f_impl), ("reverted", f_rev), ("held", f_held),
+                                          ("delayed_then_added", f_delayed), ("unimplemented", f_dni)) if v is True}
         if p["fate"] not in fates:
             continue
+        rev_reasons = [e["reason"] for e in evs if e["kind"] == "reverted" and e["reason"]]
+        hold_reasons = [e["reason"] for e in evs if e["kind"] == "held" and e["reason"]]
         pool = {"reverted": rev_reasons, "held": hold_reasons, "delayed_then_added": hold_reasons}.get(
             p["fate"], rev_reasons + hold_reasons + [e["reason"] for e in evs if e["reason"]])
         if p.get("reason") and p["reason"] not in pool:
             continue
+        reverts = [(rv, rs) for _, _, rv, _, ap, rs in impl[fid] if rv and ap]  # applied reverts of implementing PRs
         chosen.append({"id": fid, "title": title, "aliases": aliases or [], "details": details or [], "events": evs,
                        "fates": sorted(fates - {"any"}), "reasons": sorted(set(pool)),
                        "prs": sorted({*(l for l, *_ in impl[fid]), *about[fid]}),
+                       "revert_prs": sorted({rv for rv, _ in reverts}),
                        "evidence": sorted({e["record"] for e in evs if e["record"]}
-                                          | {s for _, isrc, *_r in impl[fid] for s in isrc or []})})
+                                          | {s for _, isrc, *_r in impl[fid] for s in isrc or []}
+                                          | {s for _, rs in reverts for s in rs or []})})
     if p["return"] == "features":
         return [{"answer": c["title"], "id": c["id"], "title": c["title"], "details": c["details"],
                  "aliases": c["aliases"],
                  "events": [{k: e[k] for k in ("kind", "date", "reason", "reason_text", "record")} for e in c["events"]],
                  "fates": c["fates"], "reasons": c["reasons"], "prs": c["prs"],
-                 "refs": [c["id"], *(f"PR:{x}" for x in c["prs"])], "evidence": c["evidence"]} for c in chosen]
+                 "refs": [c["id"], *(f"PR:{x}" for x in [*c["prs"], *c["revert_prs"]])],
+                 "evidence": c["evidence"]} for c in chosen]
     ids = [c["id"] for c in chosen]
     if p["return"] == "prs":
         out: dict[str, dict] = {}
@@ -962,7 +1005,7 @@ TOOLS: dict[str, Tool] = {t.name: t for t in (
     _tool("feature_fate",
           "Features with their dated history, capability details, contributors and PRs, selected by fate: implemented "
           "(history is kept even after a later revert), unimplemented (discussed, no implementation evidence), "
-          "reverted (needs an applied revert), delayed_then_added (held, then implemented), held, any. reason "
+          "reverted (needs an applied revert), delayed_then_added (held, then resumed or implemented), held (any hold), any; all five are the semantic layer's derived properties. reason "
           "filters the revert or hold reason. Example: features that could not be added for security reasons -> "
           "feature_fate(fate='reverted', reason='security'); who was responsible for unimplemented features -> "
           "feature_fate(fate='unimplemented', return='people').",

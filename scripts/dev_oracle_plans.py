@@ -7,7 +7,7 @@ the question text and the rows the tools returned; gold is used only by the eval
 agent's budgets (12 calls, paging through cursors, 200 rows / 12,000 tokens) and are scored with the official ID scoring
 (`eval.grade.f1_score_sets`); content questions are scored separately by key-phrase coverage. Each score is reported
 before and after the output guard. Families whose facts do not exist yet (semantic layer, Task 4c) print `pending 4c`.
-Prints IDs and scores only, never gold text. Plans and gold never enter prompts, facts or the catalogue.
+Prints question keys, counts and scores only, never gold values. Plans and gold never enter prompts, facts or the catalogue.
 """
 
 from __future__ import annotations
@@ -178,6 +178,12 @@ def families():
     return F
 
 
+def miss_line(key, score, proposed, gold) -> str:
+    """Counts only: gold values (employee ids, companies, links) are never printed."""
+    return (f"{key} F1 {score:.0f}: predicted {len(proposed)}, gold {len(gold)}, extra {len(set(proposed) - set(gold))}, "
+            f"missing {len(set(gold) - set(proposed))}")
+
+
 def row_text(rows):
     parts = []
     for r in rows:
@@ -250,9 +256,7 @@ def main(argv=None) -> int:
             g_text, g_ids, dropped = guard(ans_text, proposed, p.results)
             pre, post = 100 * f1_score_sets(q.gold, proposed), 100 * f1_score_sets(q.gold, g_ids)
             if pre < 100 and args.misses:
-                extra, lost = sorted(set(proposed) - set(q.gold)), sorted(set(q.gold) - set(proposed))
-                s["misses"].append(f"{q.key} F1 {pre:.0f}: predicted {len(proposed)}, gold {len(q.gold)}, "
-                                   f"extra {extra[:6]}, missing {lost[:6]}")
+                s["misses"].append(miss_line(q.key, pre, proposed, q.gold))
         else:
             body = row_text(out)
             pre = coverage(q.gold, body)

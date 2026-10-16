@@ -119,8 +119,8 @@ def test_resolve_entity_exact_matches_on_names_titles_aliases_links_and_keys(tg)
     assert answers(call(tg, "resolve_entity", text="single sign-on")) == ["Feature:fE"]
     assert answers(call(tg, "resolve_entity", text=pr(10))) == [f"PR:{pr(10)}"]
     assert answers(call(tg, "resolve_entity", text="Rival")) == ["Competitor:Rival Corp"]
-    assert answers(call(tg, "resolve_entity", text="Market Research Report")) == ["Document:latest_mrr",
-                                                                                    "Document:prox_mrr"]
+    assert answers(call(tg, "resolve_entity", text="Market Research Report")) == [
+        "Document:latest_mrr", "Document:odd_mrr", "Document:prox_mrr"]
     assert answers(call(tg, "resolve_entity", text="Bug:b2")) == ["Bug:b2"]
 
 
@@ -310,9 +310,12 @@ def test_feature_fate_reverted_by_reason_needs_an_applied_revert(tg):
 
 def test_feature_fate_delayed_then_added_held_and_implemented_keep_history(tg):
     d = call(tg, "feature_fate", fate="delayed_then_added", reason="product_direction")
-    assert answers(d) == ["SSO login"]
-    assert [e["kind"] for e in d.rows[0]["events"]] == ["held", "resumed", "implemented"]
-    assert answers(call(tg, "feature_fate", fate="held")) == ["Blockchain audit"]  # SSO was resumed
+    # selected from the derived property: Offline mode was held and resumed without implementation evidence
+    assert answers(d) == ["Offline mode", "SSO login"]
+    assert [e["kind"] for e in by(d)["SSO login"]["events"]] == ["held", "resumed", "implemented"]
+    assert by(d)["Offline mode"]["fates"] == ["delayed_then_added", "held"]
+    assert answers(call(tg, "feature_fate", fate="held")) == [
+        "Blockchain audit", "Offline mode", "SSO login"]  # derived: any hold
     imp = call(tg, "feature_fate", fate="implemented", topic="export")
     assert answers(imp) == ["Export v2"]  # added, then reverted: the implementation history is kept
     assert [e["kind"] for e in imp.rows[0]["events"]][-1] == "reverted"
@@ -375,7 +378,8 @@ def test_who_said_worked_on_previous_release_uses_authors_and_named_qa_by_direct
 # ---------------------------------------------------------------- doc_people
 def test_doc_people_authors_plus_substantive_reviewers_not_attendees(tg):
     r = call(tg, "doc_people", document_type="Market Research Report")
-    assert answers(r) == sorted([GUS, FINN, CARA, SAM1, SAM2, DAN])  # Alice and Bob only attended
+    # Bob raised a review question in Slack; Dan's question came from a meeting transcript line, Alice only attended
+    assert answers(r) == sorted([GUS, FINN, CARA, SAM1, SAM2, BOB])
     roles = {x["answer"]: x["roles"] for x in r.rows}
     assert roles[GUS] == ["author"] and roles[CARA] == ["reviewer"] and roles[FINN] == ["author"]
     assert by(r)[SAM1]["ambiguous"] and by(r)[SAM2]["ambiguous"] and not by(r)[CARA]["ambiguous"]
@@ -404,9 +408,26 @@ def test_doc_people_suggestions_with_sections_speakers_and_anonymous_feedback(tg
     every = call(tg, "doc_people", document_type="Market Research Report", **{"return": "suggestions"})
     assert "Make it shorter" in answers(every) and by(every)["Make it shorter"]["speaker"] is None
     assert by(every)["Make it shorter"]["anonymous"] is True
+    assert "What about the EU?" not in answers(every) and "Is pricing final?" in answers(every)
     roled = call(tg, "doc_people", document_type="Market Research Report", role="QA Specialist",
                  **{"return": "suggestions"})
-    assert answers(roled) == ["What about the EU?"]  # anonymous feedback never satisfies a role filter
+    assert roled.rows == []  # Dan's only contribution is a transcript question; anonymous feedback never matches a role
+    slack_q = call(tg, "doc_people", document_type="Market Research Report", role="Software Engineer",
+                   **{"return": "suggestions"})
+    assert answers(slack_q) == ["Is pricing final?"] and slack_q.rows[0]["evidence"] == ["20260401-0-abcde"]
+
+
+def test_review_questions_alone_do_not_make_a_key_reviewer(tg):
+    people = call(tg, "doc_people", document_type="Market Research Report")
+    assert DAN not in answers(people)  # a transcript-line question
+    assert by(people)[BOB]["roles"] == ["reviewer"]  # a Slack review question does
+
+
+def test_scope_current_does_not_include_unknown_scope(tg):
+    anyp = call(tg, "doc_people", document_type="Market Research Report", scope="any")
+    cur = call(tg, "doc_people", document_type="Market Research Report", scope="current")
+    assert by(anyp)[GUS]["documents"] == ["Document:latest_mrr", "Document:odd_mrr"]
+    assert by(cur)[GUS]["documents"] == ["Document:latest_mrr"]
 
 
 # ---------------------------------------------------------------- bridges
@@ -516,6 +537,7 @@ def test_rows_are_identical_on_both_servers_except_bridges(tsrv_both, tmp_path):
         load(db)
         (tmp_path / ver).mkdir()
         graphs[ver] = agent_graph(db, tmp_path / ver)
+        graphs[ver].server_version = ver
     calls = [("resolve_person", {"name": "Sam Kim", "meeting": "m1"}), ("resolve_entity", {"text": "mode flicker"}),
              ("doc_people", {"document_type": "Market Research Report"}),
              ("doc_people", {"document_type": "Market Research Report", "return": "suggestions"}),
@@ -531,6 +553,7 @@ def test_rows_are_identical_on_both_servers_except_bridges(tsrv_both, tmp_path):
         assert rows["4.22"] == rows["6.0"], (tool, params)
         assert rows["6.0"], (tool, params)
     b = {v: call(g, "bridges", top_k=2).rows for v, g in graphs.items()}
+    assert {r["engine"] for r in b["4.22"]} == {"python"} and {r["engine"] for r in b["6.0"]} == {"native"}
     assert [(r["answer"], r["score"]) for r in b["4.22"]] == [(r["answer"], r["score"]) for r in b["6.0"]]
 
 
@@ -616,3 +639,122 @@ def test_component_resolution_adds_partial_areas_of_two_or_more_words_but_never_
     assert rc("user interface") == ["User Interface & Data Visualization", "User Interface & Frontend Performance"]
     assert rc("API security and access control") == []  # a one-word area ("Security") is not a partial name
     assert rc(None) is None
+
+
+# ---------------------------------------------------------------- fates come from the derived Feature properties
+def test_feature_fate_selects_by_the_derived_properties_not_by_events(tsrv, tmp_path):
+    facts = tool_facts()
+    nodes = [n for n in facts.nodes]
+    from dataclasses import replace
+    flipped = [replace(n, props={**n.props, "reverted": False, "implemented": False, "discussed_not_implemented": True})
+               if n.id == "Feature:fB" else n for n in nodes]
+    load(tsrv, type(facts)(flipped, facts.edges))
+    g = agent_graph(tsrv, tmp_path)
+    assert "Dark mode" not in answers(call(g, "feature_fate", fate="reverted"))  # events still say reverted
+    assert "Dark mode" not in answers(call(g, "feature_fate", fate="implemented"))
+    assert "Dark mode" in answers(call(g, "feature_fate", fate="unimplemented"))
+    assert call(g, "feature_fate", topic="dark mode").rows[0]["fates"] == ["unimplemented"]
+
+
+# ---------------------------------------------------------------- evidence names the whole qualifying path
+def test_company_ranking_evidence_includes_the_status_events(tg):
+    r = board(tg, status="reopened")
+    row = r.rows[0]
+    assert row["answer"] == "TechCorp"
+    assert {"rec-b2-0", "rec-b6-0", "msg-b2-3", "msg-b6-3"} <= set(row["evidence"])  # reporting edges + REOPENED events
+    assert "BugEvent:b2#3" in row["refs"] and "BugEvent:b6#3" in row["refs"]
+    res = board(tg, status="resolved").rows[0]
+    assert {"msg-b1-fix", "msg-b2-fix", "msg-b6-fix", "msg-b1-2", "msg-b2-2", "msg-b6-2"} <= set(res["evidence"])
+    assert f"PR:{pr(5)}" in res["refs"]
+
+
+def test_reopened_fix_pr_author_evidence_has_opened_fixes_resolution_and_the_later_reopening(tg):
+    bob = by(call(tg, "bug_board", status="reopened", actor="fix_pr_author"))[BOB]
+    assert {"rec-pr2", "rec-pr3", "msg-b2-fix", "msg-b2-2", "msg-b2-3"} <= set(bob["evidence"])
+    assert {"BugEvent:b2#2", "BugEvent:b2#3", f"PR:{pr(2)}", f"PR:{pr(3)}", "Bug:b2"} <= set(bob["refs"])
+    cara = by(call(tg, "bug_board", status="reopened", actor="dismisser"))[CARA]
+    assert {"msg-b5-2", "msg-b5-3"} <= set(cara["evidence"])  # the dismissal and the reopening after it
+    assert "msg-b3-2" not in cara["evidence"]
+
+
+def test_bug_rows_and_reverted_features_carry_their_supporting_records(tg):
+    b = by(call(tg, "bug_board", status="no_fix_needed", **{"return": "bugs"}), "id")["Bug:b3"]
+    assert {"rec-b3-0", "msg-b3-2"} <= set(b["evidence"]) and "BugEvent:b3#2" in b["refs"]
+    f = by(call(tg, "feature_fate", fate="reverted", reason="security", **{"return": "features"}), "id")["Feature:fF"]
+    assert "rec-revert23" in f["evidence"] and f"PR:{pr(23)}" in f["refs"] and "rec-impl22" in f["evidence"]
+
+
+def test_derived_fates_are_reported_on_the_row(tg):
+    row = by(call(tg, "feature_fate"), "id")["Feature:fE"]
+    assert row["fates"] == ["delayed_then_added", "held", "implemented"]
+
+
+# ---------------------------------------------------------------- guard: names, whole ids, real row shapes
+def test_guard_checks_names_without_the_optional_argument():
+    t, _, d = guard("Zed Quinn fixed the bug. Alice Ng fixed it too.", [], [RES])
+    assert t == "Alice Ng fixed it too." and [x["value"] for x in d] == ["Zed Quinn"]
+    t2, _, d2 = guard("InventedCorp reported it. TechCorp reported it too.", [], [RES])
+    assert t2 == "TechCorp reported it too." and [x["value"] for x in d2] == ["InventedCorp"]
+    t3, _, _ = guard("Zed Quinn and Alice Ng fixed it.", [], [RES])
+    assert t3 == "Alice Ng fixed it."
+    t4, _, d4 = guard("Zed Quinn asked about it.", [], [RES], context="What did Zed Quinn ask?")
+    assert t4 == "Zed Quinn asked about it." and d4 == []  # a name from the question is allowed
+
+
+def test_guard_recognises_complete_returned_ids_with_markdown_and_spaces():
+    rows = rows_result([{"answer": "Voice assistant", "refs": ["Feature:mini:voice assistant", "Bug:b1"],
+                         "evidence": []}])
+    for sent in ("See `Bug:b1` for details.", "The feature is **Feature:mini:voice assistant**.",
+                 "Feature:mini:voice assistant is not implemented.", "(Bug:b1) is open."):
+        t, _, d = guard(sent, [], [rows])
+        assert t == sent and d == [], sent
+    t, _, d = guard("See `Bug:b9` for details.", [], [rows])
+    assert t == "" and d[0]["value"] == "Bug:b9"
+    t, _, d = guard("Feature:mini:other thing is open.", [], [rows])
+    assert t == "" and d
+
+
+def test_guard_supports_the_fields_the_tools_emit():
+    sug = rows_result([{"answer": "Add pricing tiers", "speaker": CARA, "speaker_name": "Cara Diaz",
+                        "speaker_role": "Engineering Lead", "document": "Document:latest_mrr",
+                        "refs": [f"Person:{CARA}"], "evidence": ["20260401-0-abcde"]}])
+    trail = rows_result([{"answer": pr(2), "author": BOB, "author_name": "Bob Roy", "company": "TechCorp",
+                          "companies": ["TechCorp"], "bug_title": "Slow export", "refs": [f"PR:{pr(2)}"],
+                          "evidence": []}])
+    claim = rows_result([{"answer": "Rival has live dashboards", "subject": "Rival Corp", "stated_by": [ALICE],
+                          "refs": [], "evidence": [],
+                          "claims": [{"evidence": {"records": ["20260402-1-fffff"]}}]}])
+    text = ("Cara Diaz suggested pricing tiers. Bob Roy opened the fix for TechCorp. "
+            "Rival Corp has live dashboards, said by " + ALICE + ". See 20260402-1-fffff.")
+    t, _, d = guard(text, [], [sug, trail, claim])
+    assert t == text and d == []
+    kept, gone = guard_evidence(["20260402-1-fffff"], [claim])
+    assert kept == ["20260402-1-fffff"] and gone == []  # dictionary-shaped nested evidence keeps its category
+
+
+# ---------------------------------------------------------------- the oracle never prints gold
+def test_oracle_stdout_has_no_gold_values(monkeypatch, capsys):
+    import importlib.util
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from eval.questions import Question
+    from inherit.contracts import QuestionKey
+
+    spec = importlib.util.spec_from_file_location("dev_oracle_plans", Path(__file__).parents[1] / "scripts" /
+                                                  "dev_oracle_plans.py")
+    oracle = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(oracle)
+    gold_id, gold_text = "GOLD_SENTINEL_ID", "GOLD_SENTINEL_PHRASE words"
+    qs = [Question(QuestionKey("ActionGenie", "ans", 0), "Find the name of company that has the maximum number of "
+                   "unresolved bugs in ActionGenie?", "company", [gold_id, "ANOTHER_SENTINEL"]),
+          Question(QuestionKey("ActionGenie", "ans", 1), "Find all unresolved issues reported by TechCorp in the "
+                   "ActionGenie product?", "content", gold_text)]
+    monkeypatch.setattr(oracle, "load_questions", lambda split: qs)
+    monkeypatch.setattr(oracle, "agent_graph", lambda p, server: SimpleNamespace())
+    monkeypatch.setattr(oracle, "present", lambda g, needs: True)
+    monkeypatch.setattr(oracle.Plan, "call", lambda self, tool, **kw: [{"answer": "TechCorp"}])
+    oracle.main(["--misses"])
+    out = capsys.readouterr().out
+    assert "ActionGenie/ans/0 F1 0" in out and "extra 1" in out and "missing 2" in out
+    assert "SENTINEL" not in out

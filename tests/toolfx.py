@@ -147,9 +147,11 @@ def tool_facts() -> Facts:
         edges.append(_e("REVERTS", f"PR:{pr(rv)}", f"PR:{pr(tgt)}", [f"rec-revert{rv}"], reason=reason,
                         applied=applied, reason_text=f"revert because {reason}"))
 
-    # ---- features: key -> (title, aliases, details, discussed_not_implemented, [(kind, date, reason)], impl PRs)
+    # ---- features: key -> (title, aliases, details, discussed_not_implemented, [(kind, date, reason)], impl PRs).
+    # discussed_not_implemented is None where the semantic layer's manifest is incomplete (fA, fG), as it writes it.
+    # The fate properties are derived exactly as the semantic layer derives them (semantic.py, fate/v1).
     feats = {
-        "fA": ("Predictive analytics", ["predictive analytics model"], ["Retrains models nightly"], False,
+        "fA": ("Predictive analytics", ["predictive analytics model"], ["Retrains models nightly"], None,
                [("discussed", "2026-05-01", None)], []),
         "fB": ("Dark mode", [], ["Theme switch in settings"], False,
                [("discussed", "2026-05-02", None), ("implemented", "2026-05-20", None),
@@ -161,14 +163,22 @@ def tool_facts() -> Facts:
         "fE": ("SSO login", ["single sign-on"], ["SAML sign-in"], False,
                [("held", "2026-05-01", "product_direction"), ("resumed", "2026-05-20", None),
                 ("implemented", "2026-06-01", None)], [21]),
-        "fF": ("Third-party scanner", [], ["Scans uploads"], False, [("implemented", "2026-05-10", None)], [22]),
-        "fG": ("Blockchain audit", [], ["Immutable audit log"], False, [("held", "2026-05-06", "product_direction")], []),
+        "fF": ("Third-party scanner", [], ["Scans uploads"], False, [("implemented", "2026-05-10", None), ("reverted", "2026-06-07", "security")], [22]),
+        "fG": ("Blockchain audit", [], ["Immutable audit log"], None, [("held", "2026-05-06", "product_direction")], []),
+        # held, then resumed, never implemented: the semantic layer derives held and delayed_then_added for it
+        "fZ": ("Offline mode", [], ["Works without a network"], None,
+               [("held", "2026-05-02", "product_direction"), ("resumed", "2026-05-21", None)], []),
         "fH": ("Gamification", [], ["Badges for reports"], False, [("implemented", "2026-05-11", None)], [24]),
     }
     for k, (title, aliases, details, dni, events, impl) in feats.items():
         fid = f"Feature:{k}"
+        kinds = [e[0] for e in events]
+        held_dates = sorted(d for kd, d, _ in events if kd == "held")
+        later = [d for kd, d, _ in events if held_dates and kd in ("resumed", "implemented") and d > held_dates[0]]
         nodes.append(N("Feature", k, id=k, title=title, topic=title.lower(), aliases=aliases, details=details,
-                       product=P, discussed_not_implemented=dni))
+                       product=P, implemented="implemented" in kinds or bool(impl), reverted="reverted" in kinds,
+                       held="held" in kinds, resumed="resumed" in kinds, delayed_then_added=bool(held_dates and later),
+                       discussed=True, discussed_not_implemented=dni, derived_by="fate/v1"))
         has(fid)
         for i, (kind, date, reason) in enumerate(events):
             ev = f"{k}:ev{i}"
@@ -219,6 +229,7 @@ def tool_facts() -> Facts:
         ("prox_mrr", "Market Research Report", "previous", FINN),
         ("latest_pvd", "Product Vision Document", "current", EVE),
         ("prox_pvd", "Product Vision Document", "previous", EVE),
+        ("odd_mrr", "Market Research Report", "unknown", GUS),
     ]
     for k, typ, scope, author in docs:
         props = dict(id=k, type=typ, release_scope=scope, content=f"{typ} body", date="2026-04-01T00:00:00")
@@ -230,10 +241,13 @@ def tool_facts() -> Facts:
     sug = [(CARA, "Pricing", "Add pricing tiers", "suggestion", False, "rec-s1"),
            (SAM1, "Market", "Add churn data", "suggestion", True, "rec-s2"),
            (SAM2, "Market", "Add churn data", "suggestion", True, "rec-s2"),
-           (DAN, "Scope", "What about the EU?", "review_question", False, "rec-s3")]
+           (DAN, "Scope", "What about the EU?", "review_question", False, "m1#3")]
     for who, section, text, kind, amb, rec in sug:
         edges.append(_e("SUGGESTED", f"Person:{who}", "Document:latest_mrr", [rec], key=rec, section=section,
                         text=text, kind=kind, ambiguous=amb))
+    # a review question raised in Slack counts (Bob); Dan's question above came from a transcript line and does not
+    edges.append(_e("SUGGESTED", f"Person:{BOB}", "Document:latest_mrr", ["20260401-0-abcde"], key="20260401-0-abcde",
+                    section="Pricing", text="Is pricing final?", kind="review_question", ambiguous=False))
     edges.append(_e("SUGGESTED", f"Person:{ALICE}", "Document:latest_pvd", ["rec-s4"], key="rec-s4",
                     section="Goals", text="State the goals", kind="suggestion", ambiguous=False))
     nodes.append(N("Meeting", "m1", id="m1", document_type="product-planning", date="2026-05-01T10:00:00",
