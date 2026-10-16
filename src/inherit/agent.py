@@ -202,7 +202,8 @@ class _Depth1:
                 f"grouped on card fields. `root_id` must be {ref}. `direction` out: the root is the edge source; in: "
                 "the root is the edge target. `where` maps a card field (id, label, name or a property) to a value "
                 "or a list of values. `agg` count returns only the number of matches; group needs `group_field` and "
-                "returns the distinct values with counts.",
+                "returns the distinct values with counts. The product is a valid root by its name (resolve the name as written "
+                "in the question). Use `where` on neighbour card fields to narrow large expansions.",
                 {"type": "object", "properties": {
                     "root_id": {"type": "string"}, "edge_type": {"type": "string", "enum": edges},
                     "direction": {"type": "string", "enum": ["out", "in"]}, "where": {"type": "object"},

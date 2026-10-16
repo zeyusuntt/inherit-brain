@@ -419,3 +419,14 @@ def test_the_episode_works_through_the_read_only_agent_user(srv, load_facts, tmp
     a, b = ep(admin), ep(agent)
     assert a.resolve("TechCorp") == b.resolve("TechCorp")
     assert a.neighbors(CUST, "REPORTED_BY", "in") == b.neighbors(CUST, "REPORTED_BY", "in")
+
+
+def test_product_name_and_aliases_resolve_to_the_product(srv, load_facts):
+    from conftest import fx_node
+    from inherit.facts import Facts
+    prod = fx_node("Product", "mini", name="mini", aliases=["MiniAlias"], previous_names=["OldMini"])
+    g = load(srv, card_facts(load_facts, extra=Facts([prod], [])))
+    e = ep(g, f"Which bugs of {P} or MiniAlias or OldMini?")
+    for span in (P, "MiniAlias", "OldMini"):
+        assert [r["id"] for r in e.resolve(span)["rows"]] == [PRODUCT]
+    assert ids(e.get_card(PRODUCT)) == [PRODUCT]

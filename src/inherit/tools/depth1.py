@@ -40,6 +40,7 @@ FALLBACK_LABELS = ("Bug", "Feature", "Document", "Competitor")  # full-text fall
 FALLBACK_TOP = 5
 # Frozen per-label mention sets (stored field names; a list value contributes every item).
 MENTIONS: dict[str, tuple[str, ...]] = {
+    "Product": ("name", "aliases", "previous_names"),
     "Person": ("name", "eid"), "Customer": ("company", "source_id"), "Document": ("type", "source_id"),
     "Bug": ("title", "aliases", "component"), "PR": ("title", "link"), "Feature": ("title", "aliases"),
     "Competitor": ("name",), "Url": ("link",),
