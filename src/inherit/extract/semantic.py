@@ -73,6 +73,8 @@ def completed(text: str) -> bool:
 _EXISTS = re.compile(r"\b(?:has|have|had) been (?:added|implemented|introduced|integrated|delivered)\b|\bnow "
                      r"(?:supports?|includes?|offers?|provides?)\b|\bincludes\b|\bwas (?:added|implemented|introduced)\b",
                      re.I)
+# Documents shared as the latest or new draft describe the product as it is, so present-tense capability verbs count.
+_DESCRIBES = re.compile(r"\b(?:offers?|provides?|features?|supports?|leverages?|enables?)\b", re.I)
 _ROLLED_BACK = re.compile(r"\b(?:reverted|rolled back|backed out|was undone|were undone)\b", re.I)
 _REVIEW_CUE = re.compile(
     r"\b(?:should|could|would|add|include|consider|suggest|might|recommend|needs?|perhaps|maybe|expand|clarify|"
@@ -1058,7 +1060,9 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
         return True
 
     doc_sentences = [(d.id, x) for d in rec.documents if d.id not in doc_prev
-                     for x in re.split(r"(?<=[.!?])\s+|\n+", d.content) if _EXISTS.search(x) and not _NOT_DONE.search(x)]
+                     for x in re.split(r"(?<=[.!?])\s+|\n+", d.content)
+                     if (_EXISTS.search(x) or (_DESCRIBES.search(x) and d.id.startswith(("latest_", "new_"))))
+                     and not _NOT_DONE.search(x)]
 
     def document_conflicts(fid):
         out = set()
@@ -1066,7 +1070,8 @@ def run_semantic(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> S
             need = set(re.findall(r"[a-z0-9]{4,}", name.casefold()))
             if not need:
                 continue
-            out |= {d_ for d_, x in doc_sentences if need <= set(re.findall(r"[a-z0-9]{4,}", x.casefold()))}
+            k = -(-2 * len(need) // 3)  # at least two thirds of the feature name's words
+            out |= {d_ for d_, x in doc_sentences if len(need & set(re.findall(r"[a-z0-9]{4,}", x.casefold()))) >= k}
         return sorted(out)
 
     fate: dict[str, dict] = {}
