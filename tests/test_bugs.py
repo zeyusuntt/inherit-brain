@@ -831,3 +831,38 @@ def test_link_with_a_list_for_the_bug_is_a_failure(tmp_path):
     out, _ = run(chat=chat, tmp=tmp_path)
     assert [f["reason"] for f in out.report["extraction_failures"]] == ["invalid_shape"]
     assert out.report["events"]["unmatched"] == 1
+
+
+def test_external_customer_ids_are_type_checked(tmp_path):
+    bad = '{"bugs": [], "events": [], "external": [{"title": "t", "link": "https://github.com/a/b/pull/1", "message_id": "m", "customer_ids": 7}]}'
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": bad, "20260125-1-g0002": fx.session_json(events=[fx.REASSIGN_EVENT])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, tmp=tmp_path)
+    assert [f["reason"] for f in out.report["extraction_failures"]] == ["invalid_shape"]
+
+
+def test_an_exception_in_one_session_is_logged_and_the_run_continues(tmp_path, monkeypatch):
+    real = bugs._clean_session_answer
+
+    def boom(data, session, *a, **k):
+        if any(m.id == "20260125-1-g0002" for m in session):
+            raise KeyError("surprise")
+        return real(data, session, *a, **k)
+
+    monkeypatch.setattr(bugs, "_clean_session_answer", boom)
+    out, _ = run(tmp=tmp_path)
+    [f] = out.report["extraction_failures"]
+    assert f["kind"] == "session" and f["reason"] == "exception" and "KeyError: 'surprise'" in f["error"]
+    assert "20260125-1-g0002" in f["messages"]
+    assert len(nodes(out.facts, "Bug")) == 3  # the other sessions of the channel are still processed
+
+
+def test_an_exception_in_a_link_call_is_logged_and_the_items_stay_unmatched(tmp_path):
+    def explode(user):
+        raise RuntimeError("proxy down")
+
+    chat = fx.ScriptedChat(script=dict(fx.standard_chat().script), link=explode)
+    out, _ = run(chat=chat, tmp=tmp_path)
+    [f] = out.report["extraction_failures"]
+    assert f["kind"] == "link" and f["reason"] == "exception" and "RuntimeError: proxy down" in f["error"]
+    assert out.report["events"]["unmatched"] == 1

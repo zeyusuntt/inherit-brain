@@ -167,7 +167,7 @@ _SHAPES = {
              "component": _is_str, "impact_text": _is_str, "customer_ids": _str_list, "citations": _citations},
     "events": {"type": _is_str, "bug_ref": _is_str, "bug_mention": _is_str, "actor_message_id": _is_str,
                "assignee_eids": _str_list, "fix_pr_links": _str_list, "citations": _citations},
-    "external": {"title": _is_str, "link": _is_str, "similar_mention": _is_str, "message_id": _is_str,
+    "external": {"title": _is_str, "link": _is_str, "customer_ids": _str_list, "similar_mention": _is_str, "message_id": _is_str,
                  "citations": _citations},
     "components": {"bug_ref": _is_str, "component": _is_str, "citations": _citations},
     "links": {"item": _is_str, "bug": _is_str},
@@ -496,130 +496,140 @@ def run_bugs(rec, *, chat=llm.chat, cache_root=None, dry: bool = False) -> BugRe
             return None, None
 
         for si, session in enumerate(sessions(msgs)):
-            rep["sessions"] += 1
-            parse = br.parse_session(session, cat, rec.customers)
-            sess_src = [src_all[m.id] for m in session if not m.is_bot]
-            # rules items pass the same validator as model items (spans for every fact)
-            for kind, attr in (("bugs", "bugs"), ("events", "events"), ("external", "externals")):
-                kept, bad = validate_items(getattr(parse, attr), sess_src, ALLOWED)
-                for r, n in bad.items():
-                    rep["rules_dropped"][f"{kind}:{r}"] += n
-                setattr(parse, attr, kept)
-            rep["residual_messages"] += len(parse.residual)
-            m_bugs, m_events, m_ext = [], [], []
-            if parse.residual or parse.reopen or parse.no_area:
-                rep["model_sessions"] += 1
-                chunks = split_session(session, parse, rec, cat, known_areas)
-                rep["model_calls_split_sessions"] += len(chunks) > 1
-                for ci, (csess, cparse) in enumerate(chunks):
-                    req, mt = build_session_request(csess, cparse, rec, cat, known_areas)
-                    data, reason = caller.json_call("session", req, mt, session_shape_error)
-                    if data is None:
-                        rep["extraction_failures"].append({"kind": "session", "channel_id": channel_id,
-                                                           "messages": [m.id for m in csess if not m.is_bot],
-                                                           "reason": reason})
+            try:
+                rep["sessions"] += 1
+                parse = br.parse_session(session, cat, rec.customers)
+                sess_src = [src_all[m.id] for m in session if not m.is_bot]
+                # rules items pass the same validator as model items (spans for every fact)
+                for kind, attr in (("bugs", "bugs"), ("events", "events"), ("external", "externals")):
+                    kept, bad = validate_items(getattr(parse, attr), sess_src, ALLOWED)
+                    for r, n in bad.items():
+                        rep["rules_dropped"][f"{kind}:{r}"] += n
+                    setattr(parse, attr, kept)
+                rep["residual_messages"] += len(parse.residual)
+                m_bugs, m_events, m_ext = [], [], []
+                if parse.residual or parse.reopen or parse.no_area:
+                    rep["model_sessions"] += 1
+                    chunks = split_session(session, parse, rec, cat, known_areas)
+                    rep["model_calls_split_sessions"] += len(chunks) > 1
+                    for ci, (csess, cparse) in enumerate(chunks):
+                        req, mt = build_session_request(csess, cparse, rec, cat, known_areas)
+                        data, reason = caller.json_call("session", req, mt, session_shape_error)
+                        if data is None:
+                            rep["extraction_failures"].append({"kind": "session", "channel_id": channel_id,
+                                                               "messages": [m.id for m in csess if not m.is_bot],
+                                                               "reason": reason})
+                            continue
+                        csrc = [src_all[m.id] for m in csess if not m.is_bot]
+                        cb, ce, cx, areas = _clean_session_answer(
+                            data, csess, cparse, rec, cat, rep, csrc,
+                            areas_only=not (cparse.residual or cparse.reopen),
+                            prefix=f"{ci}." if len(chunks) > 1 else "")
+                        m_bugs += cb
+                        m_events += ce
+                        m_ext += cx
+                        for b in parse.bugs:
+                            b["component"] = b["component"] or areas.get(b["local_id"])
+                local_bug: dict[str, str] = {}
+                # ---- bugs: register, merge with prior bugs by title or alias
+                for b in [*parse.bugs, *m_bugs]:
+                    m = by_id[b["message_id"]]
+                    bug_id = find_bug(b["title"], m.ts)[0] or f"Bug:{rec.product}:{channel_id}:{br.slug(b['title'])}"
+                    local_bug[b["local_id"]] = bug_id
+                    if bug_id in ch_bugs:
+                        tgt = ch_bugs[bug_id]
+                        tgt["customer_ids"] += [c for c in b["customer_ids"] if c not in tgt["customer_ids"]]
+                        tgt["component"] = tgt["component"] or b["component"]
+                        for a in [b["title"], *b["aliases"]]:
+                            if a != tgt["title"] and a not in tgt["aliases"] and register(bug_id, a):
+                                tgt["aliases"].append(a)
                         continue
-                    csrc = [src_all[m.id] for m in csess if not m.is_bot]
-                    cb, ce, cx, areas = _clean_session_answer(
-                        data, csess, cparse, rec, cat, rep, csrc,
-                        areas_only=not (cparse.residual or cparse.reopen),
-                        prefix=f"{ci}." if len(chunks) > 1 else "")
-                    m_bugs += cb
-                    m_events += ce
-                    m_ext += cx
-                    for b in parse.bugs:
-                        b["component"] = b["component"] or areas.get(b["local_id"])
-            local_bug: dict[str, str] = {}
-            # ---- bugs: register, merge with prior bugs by title or alias
-            for b in [*parse.bugs, *m_bugs]:
-                m = by_id[b["message_id"]]
-                bug_id = find_bug(b["title"], m.ts)[0] or f"Bug:{rec.product}:{channel_id}:{br.slug(b['title'])}"
-                local_bug[b["local_id"]] = bug_id
-                if bug_id in ch_bugs:
-                    tgt = ch_bugs[bug_id]
-                    tgt["customer_ids"] += [c for c in b["customer_ids"] if c not in tgt["customer_ids"]]
-                    tgt["component"] = tgt["component"] or b["component"]
-                    for a in [b["title"], *b["aliases"]]:
-                        if a != tgt["title"] and a not in tgt["aliases"] and register(bug_id, a):
-                            tgt["aliases"].append(a)
-                    continue
-                ch_bugs[bug_id] = {"id": bug_id, "title": b["title"], "aliases": [], "component": b["component"],
-                                   "impact_text": b["impact_text"], "customer_ids": list(b["customer_ids"]),
-                                   "first_ts": m.ts, "message_id": m.id, "channel_id": channel_id,
-                                   "channel_name": cname}
-                register(bug_id, b["title"])
-                for a in b["aliases"]:
-                    if a != b["title"] and register(bug_id, a):
-                        ch_bugs[bug_id]["aliases"].append(a)
-                ch_events.append({"type": "REPORTED", "message_id": m.id, "bug_id": bug_id, "assignee_eids": [],
-                                  "fix_pr_links": [], "citations": b["citations"], "source": b["source"],
-                                  "link_method": "intro", "ts": m.ts})
-            # ---- events and look-alikes: link by local bug, then exact or alias, else pending for the channel call
-            for e in [*parse.events, *m_events]:
-                m = by_id[e["message_id"]]
-                ev = {**e, "ts": m.ts, "bug_id": None, "link_method": None}
-                if e.get("local_bug"):
-                    ev["bug_id"] = local_bug.get(e["local_bug"])
-                    ev["link_method"] = "local"
-                    if ev["bug_id"] is None:
-                        rep["dropped"]["events"]["bug_dropped"] += 1
-                        continue
-                    if not eligible(ev["bug_id"], m.ts):  # the bug was not reported yet: no target, stays unmatched
-                        ev["bug_id"] = ev["link_method"] = None
-                else:
-                    ev["bug_id"], ev["link_method"] = find_bug(e["mention"], m.ts)
-                if ev["bug_id"] is None and ev.get("mention"):
-                    pending.append(ev)
-                ch_events.append(ev)
-            for x in [*parse.externals, *m_ext]:
-                m = by_id[x["message_id"]]
-                xe = {**x, "ts": m.ts, "bug_id": None}
-                if x["similar_mention"]:
-                    xe["bug_id"] = find_bug(x["similar_mention"], m.ts)[0]
-                if xe["bug_id"] is None:
-                    pending.append({"_external": xe, "type": "SIMILAR", "mention": x["similar_mention"]
-                                    or by_id[x["message_id"]].text, "ts": m.ts, "message_id": m.id})
-                ch_externals.append(xe)
+                    ch_bugs[bug_id] = {"id": bug_id, "title": b["title"], "aliases": [], "component": b["component"],
+                                       "impact_text": b["impact_text"], "customer_ids": list(b["customer_ids"]),
+                                       "first_ts": m.ts, "message_id": m.id, "channel_id": channel_id,
+                                       "channel_name": cname}
+                    register(bug_id, b["title"])
+                    for a in b["aliases"]:
+                        if a != b["title"] and register(bug_id, a):
+                            ch_bugs[bug_id]["aliases"].append(a)
+                    ch_events.append({"type": "REPORTED", "message_id": m.id, "bug_id": bug_id, "assignee_eids": [],
+                                      "fix_pr_links": [], "citations": b["citations"], "source": b["source"],
+                                      "link_method": "intro", "ts": m.ts})
+                # ---- events and look-alikes: link by local bug, then exact or alias, else pending for the channel call
+                for e in [*parse.events, *m_events]:
+                    m = by_id[e["message_id"]]
+                    ev = {**e, "ts": m.ts, "bug_id": None, "link_method": None}
+                    if e.get("local_bug"):
+                        ev["bug_id"] = local_bug.get(e["local_bug"])
+                        ev["link_method"] = "local"
+                        if ev["bug_id"] is None:
+                            rep["dropped"]["events"]["bug_dropped"] += 1
+                            continue
+                        if not eligible(ev["bug_id"], m.ts):  # the bug was not reported yet: no target, stays unmatched
+                            ev["bug_id"] = ev["link_method"] = None
+                    else:
+                        ev["bug_id"], ev["link_method"] = find_bug(e["mention"], m.ts)
+                    if ev["bug_id"] is None and ev.get("mention"):
+                        pending.append(ev)
+                    ch_events.append(ev)
+                for x in [*parse.externals, *m_ext]:
+                    m = by_id[x["message_id"]]
+                    xe = {**x, "ts": m.ts, "bug_id": None}
+                    if x["similar_mention"]:
+                        xe["bug_id"] = find_bug(x["similar_mention"], m.ts)[0]
+                    if xe["bug_id"] is None:
+                        pending.append({"_external": xe, "type": "SIMILAR", "mention": x["similar_mention"]
+                                        or by_id[x["message_id"]].text, "ts": m.ts, "message_id": m.id})
+                    ch_externals.append(xe)
+            except Exception as exc:  # one bad session never aborts the product
+                rep["extraction_failures"].append({"kind": "session", "channel_id": channel_id,
+                                                   "messages": [m.id for m in session if not m.is_bot],
+                                                   "reason": "exception", "error": f"{type(exc).__name__}: {exc}"})
 
         # ---- one model call per channel for what is still unmatched
         if pending:
-            ordered_bugs = sorted(ch_bugs.values(), key=lambda b: (_dt(b["first_ts"]), b["id"]))
-            bref = {f"B{i + 1}": b for i, b in enumerate(ordered_bugs)}
-            items = []
-            for p in sorted(pending, key=lambda p: (_dt(p["ts"]), p["message_id"])):
-                eligible = [r for r, b in bref.items() if _dt(b["first_ts"]) <= _dt(p["ts"])]
-                if not eligible:
-                    continue
-                cites = [c["record_id"] for c in (p.get("citations") or p["_external"]["citations"])]
-                ctx = [by_id[c].text[:500] for c in dict.fromkeys(cites) if c in by_id][:3]
-                items.append((f"I{len(items) + 1}", {"kind": "external" if "_external" in p else "event",
-                                                     "type": p["type"], "mention": p["mention"], "ts": p["ts"],
-                                                     "context": ctx, "_p": p, "_ok": set(eligible)}))
-            if items:
-                req, mt = build_link_request(list(bref.items()), [(r, i) for r, i in items], cname)
-                data, reason = caller.json_call("link", req, mt, link_shape_error)
-                if data is None:
-                    rep["extraction_failures"].append({"kind": "link", "channel_id": channel_id,
-                                                       "messages": [i["_p"]["message_id"] for _, i in items],
-                                                       "reason": reason})
-                else:
-                    answers = {}
-                    for row in data.get("links") or []:
-                        if isinstance(row, dict) and isinstance(row.get("item"), str):
-                            answers[row["item"]] = row.get("bug")
-                    for ref, it in items:
-                        target = answers.get(ref)
-                        if target not in it["_ok"]:
-                            continue
-                        bug = bref[target]
-                        p = it["_p"]
-                        if "_external" in p:
-                            p["_external"]["bug_id"] = bug["id"]
-                        else:
-                            p["bug_id"] = bug["id"]
-                            p["link_method"] = "model"
-                            if p["mention"] != bug["title"] and p["mention"] not in bug["aliases"]:
-                                bug["aliases"].append(p["mention"])
+            try:
+                ordered_bugs = sorted(ch_bugs.values(), key=lambda b: (_dt(b["first_ts"]), b["id"]))
+                bref = {f"B{i + 1}": b for i, b in enumerate(ordered_bugs)}
+                items = []
+                for p in sorted(pending, key=lambda p: (_dt(p["ts"]), p["message_id"])):
+                    eligible = [r for r, b in bref.items() if _dt(b["first_ts"]) <= _dt(p["ts"])]
+                    if not eligible:
+                        continue
+                    cites = [c["record_id"] for c in (p.get("citations") or p["_external"]["citations"])]
+                    ctx = [by_id[c].text[:500] for c in dict.fromkeys(cites) if c in by_id][:3]
+                    items.append((f"I{len(items) + 1}", {"kind": "external" if "_external" in p else "event",
+                                                         "type": p["type"], "mention": p["mention"], "ts": p["ts"],
+                                                         "context": ctx, "_p": p, "_ok": set(eligible)}))
+                if items:
+                    req, mt = build_link_request(list(bref.items()), [(r, i) for r, i in items], cname)
+                    data, reason = caller.json_call("link", req, mt, link_shape_error)
+                    if data is None:
+                        rep["extraction_failures"].append({"kind": "link", "channel_id": channel_id,
+                                                           "messages": [i["_p"]["message_id"] for _, i in items],
+                                                           "reason": reason})
+                    else:
+                        answers = {}
+                        for row in data.get("links") or []:
+                            if isinstance(row, dict) and isinstance(row.get("item"), str):
+                                answers[row["item"]] = row.get("bug")
+                        for ref, it in items:
+                            target = answers.get(ref)
+                            if target not in it["_ok"]:
+                                continue
+                            bug = bref[target]
+                            p = it["_p"]
+                            if "_external" in p:
+                                p["_external"]["bug_id"] = bug["id"]
+                            else:
+                                p["bug_id"] = bug["id"]
+                                p["link_method"] = "model"
+                                if p["mention"] != bug["title"] and p["mention"] not in bug["aliases"]:
+                                    bug["aliases"].append(p["mention"])
+            except Exception as exc:  # a failed link call leaves its items unmatched
+                rep["extraction_failures"].append({"kind": "link", "channel_id": channel_id,
+                                                   "messages": [q.get("message_id") for q in pending],
+                                                   "reason": "exception", "error": f"{type(exc).__name__}: {exc}"})
         all_bugs.update(ch_bugs)
         all_events += [dict(e, msg_pos=pos[e["message_id"]], channel_id=channel_id) for e in ch_events]
         all_externals += ch_externals
