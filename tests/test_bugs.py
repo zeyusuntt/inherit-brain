@@ -675,3 +675,16 @@ def test_assignment_events_in_an_open_source_session_are_dropped(tmp_path):
     out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
     assert out.report["dropped"]["events"] == {"look_alike_session": 1}
     assert "BugEvent:Mini:20260113-2-c0003:0" not in nodes(out.facts, "BugEvent")
+
+
+def test_request_for_help_is_not_an_assignment(tmp_path):
+    text = f"Sure thing, I'll dive into the logs. @{fx.BOB}, could you assist me with this? Two heads are better."
+    slack = [r if r[0] != "20260125-1-g0002" else (r[0], fx.EMMA, r[2], text) for r in fx.SLACK]
+    ev = dict(fx.REASSIGN_EVENT, assignee_eids=[fx.BOB], citations=[fx.cite("20260125-1-g0002", "could you assist me")])
+    chat = fx.ScriptedChat(script={"20260111-5-b0006": fx.session_json(bugs=[fx.LEAK_BUG]),
+                                   "20260125-1-g0002": fx.session_json(events=[ev])},
+                           link=fx.link_json(("I1", "B1")))
+    out, _ = run(chat=chat, rec=fx.records(slack=slack), tmp=tmp_path)
+    assert out.report["dropped"]["events"] == {"help_request": 1}
+    dup = bug_by_title(out.facts, "Duplicate Log Entries for Manual Actions").props
+    assert dup["current_assignees"] == [fx.EMMA]  # still the engineer assigned before the reopening

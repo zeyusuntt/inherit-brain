@@ -34,6 +34,7 @@ EVENT_TYPES = ("REPORTED", "ASSIGNED", "RESOLVED", "DISMISSED", "REOPENED")
 MODEL_EVENT_TYPES = EVENT_TYPES[1:]
 TYPE_RANK = {t: i for i, t in enumerate(EVENT_TYPES)}
 EID_RE = re.compile(r"\beid_[A-Za-z0-9_]+")
+HELP_REQUEST = re.compile(r"\b(?:assist|help|support) (?:me|us)\b|\btwo heads\b|\bpair (?:up|with)\b", re.I)
 # Wording an actor message must contain for a model event of that type (the model over-reads follow-up chatter).
 EVIDENCE = {
     "RESOLVED": re.compile(r"resolv|\bfix|patch|deploy|\bmerged?\b|releas|shipp|\bclosed?\b|pull/\d+", re.I),
@@ -196,6 +197,9 @@ def _clean_session_answer(data, session, parse, rec, cat, rep, sess_src, areas_o
             continue
         if typ == "ASSIGNED" and look_alike_session:  # people reviewing open-source PRs are not assigned to the bug
             drop("events", "look_alike_session")
+            continue
+        if typ == "ASSIGNED" and HELP_REQUEST.search(msgs[mid].text):
+            drop("events", "help_request")  # asking a colleague to assist does not hand over the bug
             continue
         if typ in EVIDENCE and not EVIDENCE[typ].search(msgs[mid].text):
             drop("events", "no_evidence_for_type")

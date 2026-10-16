@@ -21,7 +21,8 @@ fix_pr_links, citations.
   type is one of ASSIGNED, RESOLVED, DISMISSED, REOPENED. Never emit REPORTED: one is created for each bug.
   ASSIGNED: someone becomes responsible, including self-assignment ("I'll take it") and reassignment. \
 assignee_eids lists the employee ids (eid_...) of the people made responsible. Use only eids that appear in the \
-message list; a first name alone is resolved with the speaker list, never invented. In a session about open-source look-alikes, people who say they will review those pull requests are not assigned \
+message list; a first name alone is resolved with the speaker list, never invented. Asking a colleague to help or assist ("could you assist me") does not assign the bug to them. In a session about \
+open-source look-alikes, people who say they will review those pull requests are not assigned \
 to anything. A person thanked in the same \
 message ("Thanks, @eid_x!") for an earlier bug is not assigned to the new one: only the person asked or told to \
 handle it.
