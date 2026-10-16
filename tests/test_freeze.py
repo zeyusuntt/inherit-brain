@@ -13,6 +13,7 @@ from inherit import freeze
 from inherit.graph import load as loadmod
 
 P = "mini"
+LOG_HEAD = '{"path": "x", "allowed": true, "run_id": "r1"}\n'
 
 
 @pytest.fixture
@@ -49,7 +50,7 @@ def frozen(mini_bundle, load_facts, falkor_both, tmp_path):
         freeze._stamp(env, layer, P)
     for rf in freeze.SUMMARY_FILES.values():
         (fd / rf).write_text("{}")
-    (root / "runs" / "access" / "extract-r1.jsonl").write_text('{"path": "x", "allowed": true}\n')
+    (root / "runs" / "access" / "extract-r1.jsonl").write_text(LOG_HEAD)
     (env.out / "extraction_summary.json").write_text(json.dumps({
         "runs": {"r1": {"access_log": "extract-r1.jsonl"}},
         "products": {P: {layer: {"failures": 0, "complete": True, "run_id": "r1"} for layer in freeze.LAYERS}}}))
@@ -396,8 +397,10 @@ def test_required_evidence_cannot_be_missing_or_empty(frozen):
     rep.write_text("{}")
     log = frozen.root / "runs" / "access" / "extract-r1.jsonl"
     log.write_text("")
-    fails(frozen, "access log of extraction run r1")
-    log.write_text('{"path": "x"}\n')
+    fails(frozen, "access log of extraction run 'r1'")
+    log.write_text('{"path": "x", "run_id": "other"}\n')
+    fails(frozen, "first line does not name this run")
+    log.write_text(LOG_HEAD)
     lr = frozen.out / "load_report.json"
     good = lr.read_text()
     lr.write_text(json.dumps({"6.0": {P: {}}}))
@@ -407,3 +410,33 @@ def test_required_evidence_cannot_be_missing_or_empty(frozen):
     lr.write_text(good)
     (frozen.out / "extraction_summary.json").unlink()
     fails(frozen, "extraction_summary.json missing")
+
+
+def test_the_summary_never_supplies_a_log_path(frozen):
+    secret = frozen.root / "data" / "raw" / "products" / "ActionGenie.json"
+    secret.parent.mkdir(parents=True)
+    secret.write_text("{}")
+    sp = frozen.out / "extraction_summary.json"
+    summ = json.loads(sp.read_text())
+    evil = "../../data/raw/products/ActionGenie"
+    summ["runs"][evil] = {"access_log": "../../data/raw/products/ActionGenie.json"}
+    summ["runs"]["r1"]["access_log"] = "../../data/raw/products/ActionGenie.json"
+    summ["products"][P]["bugs"]["run_id"] = evil
+    sp.write_text(json.dumps(summ))
+    seen: list[str] = []
+    active = [True]
+
+    def hook(event, args):
+        if active[0] and event == "open" and args and isinstance(args[0], (str, bytes)):
+            seen.append(str(args[0]))
+
+    sys.addaudithook(hook)
+    try:
+        with pytest.raises(freeze.FreezeError, match="invalid run id"):
+            freeze.build_manifest(frozen)
+        assert any("invalid run id" in d for d in freeze.collect(frozen)[1])
+    finally:
+        active[0] = False
+    assert not [x for x in seen if "ActionGenie" in x]
+    assert freeze._access_log(frozen, "a/b") is None and freeze._access_log(frozen, "..") is None
+    assert freeze._access_log(frozen, "r1").name == "extract-r1.jsonl"

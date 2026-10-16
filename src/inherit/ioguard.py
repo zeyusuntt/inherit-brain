@@ -4,7 +4,8 @@
 open, os.listdir and os.scandir as a JSON line {path, mode, allowed} and raises PermissionError for
 anything that is not allowed.
 
-Inside the repo only src/, .venv/, data/bundle/, data/cache/, data/facts/, results/freeze/ and runs/ are allowed.
+Inside the repo only src/, .venv/, data/bundle/, data/cache/, data/facts/ and runs/ are allowed, and the single file
+results/freeze/extraction_summary.json.
 Raw HERB data, question files and metadata files outside the bundle are refused wherever they live.
 Outside the repo, only the Python install, the temp dir and a short list of system dirs are allowed.
 """
@@ -20,8 +21,10 @@ import tempfile
 import threading
 from pathlib import Path
 
-READ_DIRS = ("src", ".venv", "data/bundle", "data/cache", "data/facts", "results/freeze")
-WRITE_DIRS = ("runs/access", "data/cache", "data/facts", "results/freeze")
+READ_DIRS = ("src", ".venv", "data/bundle", "data/cache", "data/facts")
+WRITE_DIRS = ("runs/access", "data/cache", "data/facts")
+# Single files (not directories) that guarded freeze extraction reads and writes.
+EXACT_FILES = ("results/freeze/extraction_summary.json",)
 PROCESS_EVENTS = ("subprocess.Popen", "os.system", "os.exec", "os.posix_spawn", "os.spawn", "os.fork", "os.forkpty")
 # Never readable, wherever they live. Checked before any directory allowance.
 FORBIDDEN_NAMES = ("answerable_questions", "unanswerable_questions", "ground_truth", "citations", "salesforce_team")
@@ -87,6 +90,8 @@ def _flags_write(flags) -> bool:
 def repo_dir_allowed(path: str | os.PathLike | bytes, repo_root: str | os.PathLike, write: bool = False) -> bool:
     """True if a path inside the repo lies under an allowed directory (no name rules)."""
     p, root = _real(path), _real(repo_root)
+    if p in {os.path.join(root, f) for f in EXACT_FILES}:
+        return True
     dirs = WRITE_DIRS if write else READ_DIRS + ("runs/access",)
     if any(_under(p, os.path.join(root, d)) for d in dirs):
         return True
@@ -140,6 +145,9 @@ def install(repo_root: str | os.PathLike, log_path: str | os.PathLike) -> None:
     log.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(str(log), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
     log_real = _real(log)
+    if os.fstat(fd).st_size == 0:  # first line names the run, so a log file can be tied to its run id
+        os.write(fd, (json.dumps({"path": log_real, "mode": "install", "allowed": True, "write": True,
+                                  "run_id": log.stem.removeprefix("extract-")}) + "\n").encode("utf-8"))
 
     def emit(path: str, mode: str, allowed: bool, write: bool = False) -> None:
         line = json.dumps({"path": path, "mode": mode, "allowed": allowed, "write": write}, ensure_ascii=False) + "\n"

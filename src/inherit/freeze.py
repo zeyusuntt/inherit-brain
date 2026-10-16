@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -416,6 +417,32 @@ def _card_corpus_hash(graph) -> str:
     return h.hexdigest()
 
 
+RUN_ID_RE = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _access_log(env: Env, run_id) -> Path | None:
+    """runs/access/extract-<run id>.jsonl for a valid run id, else None. The summary never supplies a path."""
+    if not isinstance(run_id, str) or not RUN_ID_RE.fullmatch(run_id) or run_id.startswith("."):
+        return None
+    base = (env.root / "runs" / "access").resolve()
+    f = (base / f"extract-{run_id}.jsonl").resolve()
+    return f if f.parent == base else None
+
+
+def _log_problem(f: Path, run_id: str) -> str | None:
+    if not f.is_file():
+        return "missing"
+    with f.open(encoding="utf-8") as fh:
+        first = fh.readline()
+    try:
+        head = json.loads(first)
+    except ValueError:
+        head = None
+    if not isinstance(head, dict) or head.get("run_id") != run_id:
+        return "empty, or its first line does not name this run"
+    return None
+
+
 def collect(env: Env) -> tuple[dict, list[str]]:
     """The freeze state as it is now, and every problem that stops it being a valid freeze."""
     problems: list[str] = []
@@ -482,9 +509,10 @@ def collect(env: Env) -> tuple[dict, list[str]]:
                                           if (env.out / "extraction_summary.json").is_file() else None)
     logs = {}
     for rid in sorted(used_runs):
-        f = env.root / "runs" / "access" / runs[rid]["access_log"]
-        if not f.is_file() or not f.read_text(encoding="utf-8").strip():
-            problems.append(f"access log of extraction run {rid} ({f.name}) is missing or empty")
+        f = _access_log(env, rid)
+        why = "has an invalid run id" if f is None else _log_problem(f, rid)
+        if why:
+            problems.append(f"access log of extraction run {rid!r}: {why}")
         else:
             logs[f.name] = sha256_file(f)
     state["access_logs"] = logs

@@ -214,3 +214,25 @@ print(json.dumps({{"client": type(c).__name__, "env": env}}))
     assert p.returncode == 0, p.stderr
     got = json.loads(p.stdout.strip().splitlines()[-1])
     assert got == {"client": "OpenAI", "env": "denied"}
+
+
+def test_only_the_extraction_summary_is_open_under_results_freeze(tmp_path):
+    repo, _ = make_repo(tmp_path)
+    (repo / "results/freeze/questions").mkdir(parents=True)
+    ok = repo / "results/freeze/extraction_summary.json"
+    ok.write_text("{}")
+    assert is_allowed(ok, repo) and is_allowed(ok, repo, write=True)
+    for name in ("answers.json", "questions/held.json", "manifest.json"):
+        f = repo / "results/freeze" / name
+        assert not is_allowed(f, repo) and not is_allowed(f, repo, write=True), name
+
+
+def test_the_log_starts_with_a_line_naming_the_run(tmp_path):
+    repo, _ = make_repo(tmp_path)
+    log = repo / "runs/access/extract-20260101T000000Z.jsonl"
+    code = "import sys\nsys.path.insert(0, %r)\nfrom inherit import ioguard\nioguard.install(%r, %r)\n" % (
+        str(SRC), str(repo), str(log))
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=str(repo))
+    assert p.returncode == 0, p.stderr
+    first = json.loads(log.read_text().splitlines()[0])
+    assert first["run_id"] == "20260101T000000Z" and first["allowed"] is True
