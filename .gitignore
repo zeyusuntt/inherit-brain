@@ -9,3 +9,6 @@ docs/internal/
 runs/
 *.pk
 *.pkl
+
+# family classification outputs hold question-derived text and dev gold values (hashes go into acceptance and PREREG)
+results/families/
