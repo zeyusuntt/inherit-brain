@@ -1,0 +1,62 @@
+{
+ "arms": {
+  "A5": {
+   "products": "all",
+   "sub_cap_usd": 1.76
+  },
+  "A0": {
+   "products": "all",
+   "sub_cap_usd": 7.64
+  },
+  "A1f": {
+   "products": "all",
+   "sub_cap_usd": 19.53
+  },
+  "A0v": {
+   "products": "all",
+   "sub_cap_usd": 0.94
+  },
+  "A2": {
+   "products": [
+    "AutoTuneForce",
+    "CoachForce",
+    "EdgeForce",
+    "PitchForce",
+    "ProposalForce",
+    "WorkFlowGenie"
+   ],
+   "sub_cap_usd": 0.47
+  },
+  "A4": {
+   "products": [
+    "CollaborateForce",
+    "ConnectForce",
+    "FeedbackForce",
+    "MonitorForce",
+    "SecurityForce"
+   ],
+   "include_families": "multihop",
+   "sub_cap_usd": 2.42
+  },
+  "A4c": {
+   "products": [
+    "CollaborateForce",
+    "ConnectForce",
+    "FeedbackForce",
+    "MonitorForce",
+    "SecurityForce"
+   ],
+   "sub_cap_usd": 2.15
+  },
+  "A0f": {
+   "products": [
+    "CollaborateForce",
+    "ConnectForce",
+    "FeedbackForce",
+    "MonitorForce",
+    "SecurityForce"
+   ],
+   "sub_cap_usd": 2.36
+  }
+ }
+}

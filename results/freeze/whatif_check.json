@@ -1,0 +1,366 @@
+{
+ "4.22": {
+  "ActionGenie": {
+   "diffs": [],
+   "identity": "0947bb018f7f4e2da6d0c1230579ff51b5440b3b0785595cdf1b7a48dd8a8774",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "AnomalyForce": {
+   "diffs": [],
+   "identity": "616f60abc76bad53054899c290d6ee40af73e6785c9d84ce1d56d7cff629abfb",
+   "leads": 9,
+   "mismatches": 0
+  },
+  "AutoTuneForce": {
+   "diffs": [],
+   "identity": "94075b3fb43414b6d30d4a12501d3de3b17d7183bef4d0e1d7da7cba9ab4487c",
+   "leads": 6,
+   "mismatches": 0
+  },
+  "CoachForce": {
+   "diffs": [],
+   "identity": "f0f185fb7341973aa78f61b7bd86a6133d1d8d55be0ac0b4e9b3dd4bce2502b0",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "CollaborateForce": {
+   "diffs": [],
+   "identity": "52bf1239e86adc277078069df00f9c8ad1d7039965370897104684db6f310ff9",
+   "leads": 9,
+   "mismatches": 0
+  },
+  "CollaborationForce": {
+   "diffs": [],
+   "identity": "77a44dfc64ef7d3200336efeeb55a17a019014a00c7cebd1997de4bcd5cdc168",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "ConnectForce": {
+   "diffs": [],
+   "identity": "8137c32353282af603efe4d11b67a711f1b896fc68b8685063f2c32bf0998003",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "ContentForce": {
+   "diffs": [],
+   "identity": "18b07ed8fbf4eb55a687ed1fbb5dbffb15caa180bcc83a9d6d4586dc047c6e3b",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "ContextForce": {
+   "diffs": [],
+   "identity": "84653020916dc9c65e3f9ba044359d5d636929edf324eecda87222494d218458",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "EdgeForce": {
+   "diffs": [],
+   "identity": "85d6d6a3f129464286412ffc4e0ee04c3a8a09c13d648adadd962a98dd85e590",
+   "leads": 6,
+   "mismatches": 0
+  },
+  "ExplainabilityForce": {
+   "diffs": [],
+   "identity": "6f91c3641c0f477b0e8ccb982c93134c5c29f3b9cf147a8bf8199878a5566bed",
+   "leads": 4,
+   "mismatches": 0
+  },
+  "FeedbackForce": {
+   "diffs": [],
+   "identity": "ec678297c0fae5c8301f017526bc591b6ba4aba2c9ac9229486574cad3dc0747",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "FlowForce": {
+   "diffs": [],
+   "identity": "47a0526b4739b828694e7f533846544b1c9748a134577498d33acfd88c68be3e",
+   "leads": 5,
+   "mismatches": 0
+  },
+  "ForecastForce": {
+   "diffs": [],
+   "identity": "3e2ba99054823b2f36718a3c450693b70640937f671958a51701d22977fa5d82",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "InsightForce": {
+   "diffs": [],
+   "identity": "fc31a86712af1410d8835e9fb2b566ef2d3fdf5761317b520fe3772591142682",
+   "leads": 6,
+   "mismatches": 0
+  },
+  "KnowledgeForce": {
+   "diffs": [],
+   "identity": "b4e34f80527b01e03e4a8efce3b032aba0ed65091c641fddde00672b5556fc2f",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "LeadForce": {
+   "diffs": [],
+   "identity": "e2495f5abe0c7aeaacad983383d6cdb7ad112d9a284db98d01c130582e750227",
+   "leads": 6,
+   "mismatches": 0
+  },
+  "MonitorForce": {
+   "diffs": [],
+   "identity": "f8830f333c95d251118429202aabcf0d3752b1dd7e8072fd4cc307d2e941fcad",
+   "leads": 4,
+   "mismatches": 0
+  },
+  "PersonalizeForce": {
+   "diffs": [],
+   "identity": "d72073e268ca0ecfcc88f6b3b47536f8f024b6d1820724ff534de0ca0354b0f3",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "PitchForce": {
+   "diffs": [],
+   "identity": "de8bf5a884628835d9d6c07058fb8b3f6b0702fd8c434e8362672c51c873b8e3",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "ProposalForce": {
+   "diffs": [],
+   "identity": "fa0790931cd74fc717cc859d628d06df379e69f289425464baed305ac9382c56",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "SearchFlow": {
+   "diffs": [],
+   "identity": "38036b3f2a8d48e704c9cc1b03cb3d23a5ad52368b775aef92d2cc0f4c1bfb46",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "SearchForce": {
+   "diffs": [],
+   "identity": "b5f93433eb657a39e2ec519c464e1cd98a24e43ca8ad72808745f826e05de407",
+   "leads": 6,
+   "mismatches": 0
+  },
+  "SecurityForce": {
+   "diffs": [],
+   "identity": "11879c4851b3fad60caee2bb5d80f6e0794e48c27faa72538d0ebb5689c0b514",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "SentimentForce": {
+   "diffs": [],
+   "identity": "16d578f1fb6b6a879ce5acc4b1105a086855381f875b3fbf579c5ed37c8286d7",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "SummarizeForce": {
+   "diffs": [],
+   "identity": "bbe34e16772524c0ba443114ae38c3ba10a886ecddeb5543b7a9e6536b5104ff",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "SupportForce": {
+   "diffs": [],
+   "identity": "de25ed3bff1902103a44bcdac66b83f671de69e5ec4a4b891f72dfc5ee403a54",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "TrendForce": {
+   "diffs": [],
+   "identity": "819f63764489e8376ab62edb5266f64fc0f886513f0aa7d3c34ecb103421380d",
+   "leads": 5,
+   "mismatches": 0
+  },
+  "VizForce": {
+   "diffs": [],
+   "identity": "867f23b8855fba4c20a5b5749aafe33dd77ca4565e13ad14a002df8c14b20860",
+   "leads": 9,
+   "mismatches": 0
+  },
+  "WorkFlowGenie": {
+   "diffs": [],
+   "identity": "3255e9adf47cb09d6e7340a1a18d09752a2b2e5743470065e7ce2728a15f1b69",
+   "leads": 4,
+   "mismatches": 0
+  }
+ },
+ "6.0": {
+  "ActionGenie": {
+   "diffs": [],
+   "identity": "0947bb018f7f4e2da6d0c1230579ff51b5440b3b0785595cdf1b7a48dd8a8774",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "AnomalyForce": {
+   "diffs": [],
+   "identity": "616f60abc76bad53054899c290d6ee40af73e6785c9d84ce1d56d7cff629abfb",
+   "leads": 9,
+   "mismatches": 0
+  },
+  "AutoTuneForce": {
+   "diffs": [],
+   "identity": "94075b3fb43414b6d30d4a12501d3de3b17d7183bef4d0e1d7da7cba9ab4487c",
+   "leads": 6,
+   "mismatches": 0
+  },
+  "CoachForce": {
+   "diffs": [],
+   "identity": "f0f185fb7341973aa78f61b7bd86a6133d1d8d55be0ac0b4e9b3dd4bce2502b0",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "CollaborateForce": {
+   "diffs": [],
+   "identity": "52bf1239e86adc277078069df00f9c8ad1d7039965370897104684db6f310ff9",
+   "leads": 9,
+   "mismatches": 0
+  },
+  "CollaborationForce": {
+   "diffs": [],
+   "identity": "77a44dfc64ef7d3200336efeeb55a17a019014a00c7cebd1997de4bcd5cdc168",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "ConnectForce": {
+   "diffs": [],
+   "identity": "8137c32353282af603efe4d11b67a711f1b896fc68b8685063f2c32bf0998003",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "ContentForce": {
+   "diffs": [],
+   "identity": "18b07ed8fbf4eb55a687ed1fbb5dbffb15caa180bcc83a9d6d4586dc047c6e3b",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "ContextForce": {
+   "diffs": [],
+   "identity": "84653020916dc9c65e3f9ba044359d5d636929edf324eecda87222494d218458",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "EdgeForce": {
+   "diffs": [],
+   "identity": "85d6d6a3f129464286412ffc4e0ee04c3a8a09c13d648adadd962a98dd85e590",
+   "leads": 6,
+   "mismatches": 0
+  },
+  "ExplainabilityForce": {
+   "diffs": [],
+   "identity": "6f91c3641c0f477b0e8ccb982c93134c5c29f3b9cf147a8bf8199878a5566bed",
+   "leads": 4,
+   "mismatches": 0
+  },
+  "FeedbackForce": {
+   "diffs": [],
+   "identity": "ec678297c0fae5c8301f017526bc591b6ba4aba2c9ac9229486574cad3dc0747",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "FlowForce": {
+   "diffs": [],
+   "identity": "47a0526b4739b828694e7f533846544b1c9748a134577498d33acfd88c68be3e",
+   "leads": 5,
+   "mismatches": 0
+  },
+  "ForecastForce": {
+   "diffs": [],
+   "identity": "3e2ba99054823b2f36718a3c450693b70640937f671958a51701d22977fa5d82",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "InsightForce": {
+   "diffs": [],
+   "identity": "fc31a86712af1410d8835e9fb2b566ef2d3fdf5761317b520fe3772591142682",
+   "leads": 6,
+   "mismatches": 0
+  },
+  "KnowledgeForce": {
+   "diffs": [],
+   "identity": "b4e34f80527b01e03e4a8efce3b032aba0ed65091c641fddde00672b5556fc2f",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "LeadForce": {
+   "diffs": [],
+   "identity": "e2495f5abe0c7aeaacad983383d6cdb7ad112d9a284db98d01c130582e750227",
+   "leads": 6,
+   "mismatches": 0
+  },
+  "MonitorForce": {
+   "diffs": [],
+   "identity": "f8830f333c95d251118429202aabcf0d3752b1dd7e8072fd4cc307d2e941fcad",
+   "leads": 4,
+   "mismatches": 0
+  },
+  "PersonalizeForce": {
+   "diffs": [],
+   "identity": "d72073e268ca0ecfcc88f6b3b47536f8f024b6d1820724ff534de0ca0354b0f3",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "PitchForce": {
+   "diffs": [],
+   "identity": "de8bf5a884628835d9d6c07058fb8b3f6b0702fd8c434e8362672c51c873b8e3",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "ProposalForce": {
+   "diffs": [],
+   "identity": "fa0790931cd74fc717cc859d628d06df379e69f289425464baed305ac9382c56",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "SearchFlow": {
+   "diffs": [],
+   "identity": "38036b3f2a8d48e704c9cc1b03cb3d23a5ad52368b775aef92d2cc0f4c1bfb46",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "SearchForce": {
+   "diffs": [],
+   "identity": "b5f93433eb657a39e2ec519c464e1cd98a24e43ca8ad72808745f826e05de407",
+   "leads": 6,
+   "mismatches": 0
+  },
+  "SecurityForce": {
+   "diffs": [],
+   "identity": "11879c4851b3fad60caee2bb5d80f6e0794e48c27faa72538d0ebb5689c0b514",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "SentimentForce": {
+   "diffs": [],
+   "identity": "16d578f1fb6b6a879ce5acc4b1105a086855381f875b3fbf579c5ed37c8286d7",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "SummarizeForce": {
+   "diffs": [],
+   "identity": "bbe34e16772524c0ba443114ae38c3ba10a886ecddeb5543b7a9e6536b5104ff",
+   "leads": 8,
+   "mismatches": 0
+  },
+  "SupportForce": {
+   "diffs": [],
+   "identity": "de25ed3bff1902103a44bcdac66b83f671de69e5ec4a4b891f72dfc5ee403a54",
+   "leads": 7,
+   "mismatches": 0
+  },
+  "TrendForce": {
+   "diffs": [],
+   "identity": "819f63764489e8376ab62edb5266f64fc0f886513f0aa7d3c34ecb103421380d",
+   "leads": 5,
+   "mismatches": 0
+  },
+  "VizForce": {
+   "diffs": [],
+   "identity": "867f23b8855fba4c20a5b5749aafe33dd77ca4565e13ad14a002df8c14b20860",
+   "leads": 9,
+   "mismatches": 0
+  },
+  "WorkFlowGenie": {
+   "diffs": [],
+   "identity": "3255e9adf47cb09d6e7340a1a18d09752a2b2e5743470065e7ce2728a15f1b69",
+   "leads": 4,
+   "mismatches": 0
+  }
+ }
+}

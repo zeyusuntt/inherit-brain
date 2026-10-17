@@ -1,0 +1,834 @@
+{
+ "products": {
+  "ActionGenie": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "AnomalyForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "AutoTuneForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "CoachForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "CollaborateForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "CollaborationForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "ConnectForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "ContentForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "ContextForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "EdgeForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "ExplainabilityForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "FeedbackForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "FlowForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "ForecastForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "InsightForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "KnowledgeForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "LeadForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "MonitorForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "PersonalizeForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "PitchForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "ProposalForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "SearchFlow": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "SearchForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "SecurityForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "SentimentForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "SummarizeForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "SupportForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "TrendForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "VizForce": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  },
+  "WorkFlowGenie": {
+   "bugs": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "names": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "rules": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "semantic": {
+    "complete": false,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   },
+   "structural": {
+    "complete": true,
+    "failures": 0,
+    "run_id": "20261016T223050603069Z"
+   }
+  }
+ },
+ "runs": {
+  "20261016T193719439395Z": {
+   "access_log": "extract-20261016T193719439395Z.jsonl"
+  },
+  "20261016T202907220678Z": {
+   "access_log": "extract-20261016T202907220678Z.jsonl"
+  },
+  "20261016T203922713395Z": {
+   "access_log": "extract-20261016T203922713395Z.jsonl"
+  },
+  "20261016T212226495377Z": {
+   "access_log": "extract-20261016T212226495377Z.jsonl"
+  },
+  "20261016T220002582911Z": {
+   "access_log": "extract-20261016T220002582911Z.jsonl"
+  },
+  "20261016T223050603069Z": {
+   "access_log": "extract-20261016T223050603069Z.jsonl"
+  }
+ }
+}
