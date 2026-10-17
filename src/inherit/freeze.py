@@ -346,10 +346,15 @@ def facts_identity(facts) -> dict:
     return _identity(nodes, edges)
 
 
+# whole-graph reads: the servers' default query timeout (1 s) is too short for the larger products
+READ_TIMEOUT_MS = 60_000
+
+
 def graph_identity(graph) -> dict:
     nodes = [[lb, i, {k: v for k, v in props.items() if k != "embedding"}] for lb, i, props in
-             graph.ro_query("MATCH (n) RETURN labels(n)[0], n.id, properties(n)").result_set]
-    edges = [list(r) for r in graph.ro_query("MATCH (a)-[e]->(b) RETURN a.id, type(e), b.id, properties(e)").result_set]
+             graph.ro_query("MATCH (n) RETURN labels(n)[0], n.id, properties(n)", timeout=READ_TIMEOUT_MS).result_set]
+    edges = [list(r) for r in graph.ro_query("MATCH (a)-[e]->(b) RETURN a.id, type(e), b.id, properties(e)",
+                                             timeout=READ_TIMEOUT_MS).result_set]
     return _identity(nodes, edges)
 
 
@@ -677,11 +682,12 @@ def a2_export_identity(graph) -> dict:
                 if "embedding" not in k.lower() and not (isinstance(v, list) and len(v) >= 64
                                                          and all(isinstance(x, float) for x in v))}
 
-    rows = graph.ro_query("MATCH (n) RETURN id(n), labels(n), properties(n)").result_set
+    rows = graph.ro_query("MATCH (n) RETURN id(n), labels(n), properties(n)", timeout=READ_TIMEOUT_MS).result_set
     line = {i: _line([sorted(lb), clean(pr)]) for i, lb, pr in rows}
     nodes = list(line.values())
     edges = [[t, clean(pr), line[a], line[b]] for a, t, pr, b in
-             graph.ro_query("MATCH (a)-[e]->(b) RETURN id(a), type(e), properties(e), id(b)").result_set]
+             graph.ro_query("MATCH (a)-[e]->(b) RETURN id(a), type(e), properties(e), id(b)",
+                            timeout=READ_TIMEOUT_MS).result_set]
     return _identity(nodes, edges)
 
 
