@@ -1,0 +1,180 @@
+{
+ "audit": {
+  "auditors": {
+   "claude": {
+    "model": "claude-sonnet-5-5",
+    "prompt_hash": "5265542fbc58c8e776f039daea52b4e4311242568e9cc1272007895a82c2bea7",
+    "settings": "one fresh agent per batch, two at a time; reads only the batch file and writes only its verdict file; no other tools or files",
+    "version": "Claude Code workflow agent (model alias sonnet)"
+   },
+   "codex": {
+    "model": "gpt-6.1-sol",
+    "prompt_hash": "fce3310b100d74dd845bf22ee06cff4e67540adb2877ee2b4662063ba28d422b",
+    "settings": "codex exec -s read-only, model_reasoning_effort=high, one fresh process per batch started in an empty directory holding only the batch file; one retry when the reply is not JSON",
+    "version": "codex-cli 0.162.1"
+   },
+   "third": {
+    "model": "gpt-6.1-sol",
+    "prompt_hash": "fce3310b100d74dd845bf22ee06cff4e67540adb2877ee2b4662063ba28d422b",
+    "settings": "codex exec -s read-only, model_reasoning_effort=high, one fresh process per batch started in an empty directory holding only the batch file; one retry when the reply is not JSON; third pass over third_batches (shares the model family with auditor 1)",
+    "version": "codex-cli 0.162.1"
+   }
+  },
+  "complete": true,
+  "prompt_hashes": {
+   "common_precision": "51da091166f516ba0cc9ad46dc4c742421a34e4f9950478b3c8b749db9f7808c",
+   "common_recall": "0e3480c20d3c7bb9c172379cad668dad0513ff4771731956f064d1939b9ea926",
+   "open_work": "449aacfb21be7e39bdb3df08fcfaf8a5a015fdede550d84a0b9e05809d528359",
+   "recall_rules:recall_bug": "673756c2fa5f50cabda32a9e6cc21085f0c4a7a43a58c1abd21ddfbe0415896f",
+   "recall_rules:recall_reviewer": "cbe6294c4d1aaeb2b2d8049d1358a320ffd45e919ea72faeade9e6b47469c5bb",
+   "rubric:bug_event": "371137e11726258ab47bcf9e143b5c71883ecf806fdf0df404229a004d0700ba",
+   "rubric:name_resolution": "02abe5c837f2fab89cda5402407964d0177f24987b09429a60cc8a026c261c09",
+   "rubric:review_relation": "2c5bb5ee41266f8b48721f7f5a651216ea0f76b431d773ffbe791a8720eb1e6b",
+   "rubric:whatif_edge": "ac12e5062905da7a6717e7a2b71b2ec98edafbf857b7282f61b8ce927ee7d29b",
+   "rubric:whatif_path": "82ab78116e7ec3c122e7f49fd02de45467dad9694e5838aeccca6c15c118703f",
+   "rubric:whatif_unowned": "e7e3e2621b2a77cb2979006765349d48cfbc756f3d342883b858c9c9ad912f45",
+   "third_precision": "df0b74dafd6300b8793d02debb0fa81fcce869336097f051ff3dbb0c8fdaf6e2",
+   "third_recall": "31c858f27f902632a6750b5a1dc103c09bd3d5be97430f64ea3958ded14c1bdc",
+   "version": "audit-prompts/v5"
+  },
+  "round": 6,
+  "sample_hash": "34251f49d0d932fd6ba18e6f3a54e27b85283899a676f25d7f38f7c73d98f359",
+  "summary_sha256": "ce4c3d7e76604929b3f20594d9b2166496888dd5fa4e0aec836473b8555e9aa6",
+  "verdict_hashes": {
+   "claude": "69e2f7cc6fc804dabdc3ad7a52bdf7c1b07470febb796ec74f438be88d373e69",
+   "codex": "5eb20ff33b604d0035626a142f19178b6bb1e853237daccf30ec743d0b8da025",
+   "third": "d0accf5caef913ccd5450deba00c6674e11c900542fec2c00965414aec3e7736"
+  }
+ },
+ "created_utc": "2026-10-17T02:44:25Z",
+ "dev_run": {
+  "per_product": {
+   "ActionGenie": 96.03,
+   "AnomalyForce": 97.45,
+   "ContentForce": 47.73,
+   "KnowledgeForce": 55.0,
+   "LeadForce": 83.33,
+   "TrendForce": 91.67
+  },
+  "records_sha256": "03b5e9118f5d5749d5ea62444ff8cdc7210d82e340cb38f14f62b2bf272ad95a",
+  "run_id": "A5-dev-frozen"
+ },
+ "gates": [
+  {
+   "denominator": 50,
+   "name": "audit:precision:bug_event",
+   "numerator": 50,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": 0.9
+  },
+  {
+   "denominator": 50,
+   "name": "audit:precision:review_relation",
+   "numerator": 50,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": 0.9
+  },
+  {
+   "denominator": 50,
+   "name": "audit:precision:name_resolution",
+   "numerator": 50,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": 0.9
+  },
+  {
+   "denominator": 30,
+   "name": "audit:precision:whatif_unowned",
+   "numerator": 30,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": 0.9
+  },
+  {
+   "denominator": 30,
+   "name": "audit:precision:whatif_edge",
+   "numerator": 29,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": 0.9
+  },
+  {
+   "denominator": 0,
+   "name": "audit:precision:whatif_path",
+   "numerator": 0,
+   "pass": true,
+   "status": "not estimable (empty dev pool)",
+   "threshold": 0.9
+  },
+  {
+   "denominator": 76,
+   "name": "audit:recall:recall_bug",
+   "numerator": 75,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": 0.85
+  },
+  {
+   "denominator": 48,
+   "name": "audit:recall:recall_reviewer",
+   "numerator": 42,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": 0.85
+  },
+  {
+   "denominator": 1,
+   "name": "audit:complete",
+   "numerator": 1,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": 1
+  },
+  {
+   "denominator": 100,
+   "name": "dev score: A5 person and company macro",
+   "numerator": 86.16,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": 75.0
+  },
+  {
+   "denominator": null,
+   "name": "freeze check",
+   "numerator": 0,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": "0 differences"
+  },
+  {
+   "denominator": 60,
+   "name": "what-if verification mismatches",
+   "numerator": 0,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": "0 mismatches"
+  },
+  {
+   "denominator": 1,
+   "name": "families.json present",
+   "numerator": 1,
+   "pass": true,
+   "status": "evaluated",
+   "threshold": 1
+  }
+ ],
+ "inputs": {
+  "audit_summary_sha256": "ce4c3d7e76604929b3f20594d9b2166496888dd5fa4e0aec836473b8555e9aa6",
+  "audit_verdict_hashes": {
+   "claude": "69e2f7cc6fc804dabdc3ad7a52bdf7c1b07470febb796ec74f438be88d373e69",
+   "codex": "5eb20ff33b604d0035626a142f19178b6bb1e853237daccf30ec743d0b8da025",
+   "third": "d0accf5caef913ccd5450deba00c6674e11c900542fec2c00965414aec3e7736"
+  },
+  "dev_records_sha256": "03b5e9118f5d5749d5ea62444ff8cdc7210d82e340cb38f14f62b2bf272ad95a",
+  "families_sha256": "ad65eb0e49c9288da79c0fe4774cf61a4e5672489233c0920f3aa4e0bf9a163a",
+  "manifest_sha256": "61b7da15cb0f0176af156d858720e0a3ccd13d9acec53a09410dfe69f28d9dc9"
+ },
+ "pass": true
+}
