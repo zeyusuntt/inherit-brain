@@ -142,14 +142,19 @@ def texts_identity(texts: list[str]) -> str:
     return h.hexdigest()
 
 
+IDENTITY_TIMEOUT_MS = 60_000
+
+
 def graph_identity(graph) -> str:
     """Content identity of a frozen graph: the hash of every node (label, id, properties) and edge (endpoints, type,
     properties) plus the card definition version. Cards are a function of exactly this, so a corrected property or a
     rewired edge changes it even when the node and edge counts do not."""
     from inherit.graph import cards
 
-    nodes = graph.ro_query("MATCH (n) RETURN labels(n)[0], n.id, properties(n)").result_set
-    edges = graph.ro_query("MATCH (a)-[e]->(b) RETURN a.id, type(e), b.id, properties(e)").result_set
+    # a whole-graph read: the server default (1 s) is too short for the larger products, so allow a minute
+    nodes = graph.ro_query("MATCH (n) RETURN labels(n)[0], n.id, properties(n)", timeout=IDENTITY_TIMEOUT_MS).result_set
+    edges = graph.ro_query("MATCH (a)-[e]->(b) RETURN a.id, type(e), b.id, properties(e)",
+                           timeout=IDENTITY_TIMEOUT_MS).result_set
     blob = json.dumps({"card_version": cards.CARD_VERSION, "nodes": sorted(map(list, nodes), key=str),
                        "edges": sorted(map(list, edges), key=str)}, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
