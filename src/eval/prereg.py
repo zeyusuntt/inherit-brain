@@ -110,12 +110,21 @@ def audit_gates(root: Path, audit_round: int, gates_report: Callable | None = No
     return gates, info
 
 
+# Report-only modules: they write the audit, family and pre-registration reports and never run an arm, so a change
+# to them cannot change how a dev run behaved.
+REPORT_ONLY = ("src/eval/prereg.py", "src/eval/prereg_template.md", "src/eval/families.py",
+               "src/eval/audit_extraction.py", "src/eval/audit_prompts_v1.py", "src/eval/audit_prompts_v2.py",
+               "src/eval/audit_prompts_v3.py", "src/eval/audit_prompts_v4.py")
+
+
 def code_unchanged(root: Path, run_commit: str, freeze_commit: str) -> bool:
-    """True when src, pyproject.toml and uv.lock are identical at the two commits (False if either is unknown)."""
+    """True when the behaviour code (src without the report-only modules, pyproject.toml, uv.lock) is identical at
+    the two commits (False if either is unknown)."""
     if not re.fullmatch(r"[0-9a-f]{40}", str(run_commit or "")):
         return False  # a dirty or unknown commit cannot be compared
-    r = subprocess.run(["git", "diff", "--quiet", run_commit, freeze_commit, "--", "src", "pyproject.toml", "uv.lock"],
-                       cwd=root, capture_output=True)
+    exclude = [f":(exclude){f}" for f in REPORT_ONLY]
+    r = subprocess.run(["git", "diff", "--quiet", run_commit, freeze_commit, "--", "src", *exclude, "pyproject.toml",
+                        "uv.lock"], cwd=root, capture_output=True)
     return r.returncode == 0
 
 
@@ -322,8 +331,13 @@ def family_texts(fam_doc: dict) -> tuple[str, str, str]:
     fams = fam_doc["families"]
     multi = F.multi_set(fams)
     counts = ", ".join(f"{k} {v}" for k, v in sorted(fam_doc["counts"].items()))
-    summary = f"{len(fams)} question families classified ({counts}); {len(multi)} are in the multi-hop set."
-    excl = sorted((t, f) for t, f in fams.items() if f.get("source") == "held-unseen" and f["verdict"] != "multi")
+    summary = f"{len(fams)} question families classified ({counts}); multi-hop set: {len(multi)}."
+
+    def excluded_by_disagreement(f: dict) -> bool:  # both classifiers must give the same clear verdict
+        return f.get("codex") != f.get("claude") or f.get("codex") not in ("multi", "single")
+
+    excl = sorted((t, f) for t, f in fams.items() if f.get("source") == "held-unseen"
+                  and f["verdict"] != "content (not classified)" and excluded_by_disagreement(f))
     excluded = "\n".join(f"- {t} (Codex: {f.get('codex')}, Claude: {f.get('claude')}, result: {f['verdict']})"
                          for t, f in excl) or "none"
     return summary, F.render_block(multi), excluded

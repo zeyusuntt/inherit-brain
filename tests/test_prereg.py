@@ -598,3 +598,32 @@ def test_arms_table_renders_include_families():
 def mk_manifest_dict_for_table():
     return {"products": ["P1", "P2", "P3"],
             "arms": {"A4": {"products": ["P3"], "sub_cap_usd": 2.0, "include_families": "multihop"}}}
+
+
+def test_excluded_unseen_lists_only_disagreements_and_uncertain():
+    fam = {"counts": {"single": 3, "multi": 0}, "families": {
+        "a": {"source": "held-unseen", "codex": "single", "claude": "single", "verdict": "single"},
+        "b": {"source": "held-unseen", "codex": "multi", "claude": "single", "verdict": "excluded (disagreement)"},
+        "c": {"source": "held-unseen", "codex": "uncertain", "claude": "uncertain", "verdict": "excluded (disagreement)"},
+        "d": {"source": "held-unseen", "verdict": "content (not classified)"},
+        "e": {"source": "dev", "verdict": "single"}}}
+    _, _, excluded = P.family_texts(fam)
+    assert "- b " in excluded and "- c " in excluded and "- a " not in excluded and "- d " not in excluded
+    agreed = {"counts": {}, "families": {"a": fam["families"]["a"]}}
+    assert P.family_texts(agreed)[2] == "none"
+
+
+def test_report_only_modules_do_not_count_as_behaviour_code(tmp_path):
+    import subprocess
+    def git(*a): subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+    git("init", "-q"); git("config", "user.email", "t@t"); git("config", "user.name", "t")
+    (tmp_path / "src" / "eval").mkdir(parents=True); (tmp_path / "src" / "inherit").mkdir(parents=True)
+    (tmp_path / "src" / "eval" / "prereg.py").write_text("a"); (tmp_path / "src" / "inherit" / "agent.py").write_text("a")
+    git("add", "-A"); git("commit", "-qm", "1")
+    c1 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
+    (tmp_path / "src" / "eval" / "prereg.py").write_text("b"); git("commit", "-qam", "2")
+    c2 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
+    assert P.code_unchanged(tmp_path, c1, c2)
+    (tmp_path / "src" / "inherit" / "agent.py").write_text("b"); git("commit", "-qam", "3")
+    c3 = subprocess.run(["git", "rev-parse", "HEAD"], cwd=tmp_path, capture_output=True, text=True).stdout.strip()
+    assert not P.code_unchanged(tmp_path, c1, c3)
