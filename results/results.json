@@ -1,0 +1,1542 @@
+{
+ "summary": {
+  "A5": {
+   "n": {
+    "answerable": 659,
+    "unanswerable": 544
+   },
+   "failed": {
+    "answerable": 0,
+    "unanswerable": 0
+   },
+   "per_type": {
+    "person": {
+     "n": 214,
+     "mean": 82.50622016002906,
+     "failed": 0
+    },
+    "company": {
+     "n": 104,
+     "mean": 87.84645909645909,
+     "failed": 0
+    },
+    "pr": {
+     "n": 145,
+     "mean": 66.44499178981937,
+     "failed": 0
+    },
+    "url": {
+     "n": 15,
+     "mean": 100.0,
+     "failed": 0
+    },
+    "content": {
+     "n": 181,
+     "mean": 74.08839779005525,
+     "failed": 0
+    },
+    "unanswerable": {
+     "n": 544,
+     "mean": 82.3529411764706,
+     "failed": 0
+    }
+   },
+   "groups": {
+    "person": 82.50622016002906,
+    "company": 87.84645909645909,
+    "artifact": 69.59077380952381,
+    "content": 74.08839779005525
+   },
+   "primary": 79.98115102200398,
+   "paper_macro": 78.5079627140168,
+   "unanswerable_rate": 82.3529411764706,
+   "explicit_refusal_rate": 80.51470588235294,
+   "false_refusal_rate": 6.980273141122914,
+   "failure_rate": 0.0,
+   "by_seen": {
+    "seen": {
+     "n": {
+      "answerable": 416,
+      "unanswerable": 194
+     },
+     "failed": {
+      "answerable": 0,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 174,
+       "mean": 83.35417584219368,
+       "failed": 0
+      },
+      "company": {
+       "n": 64,
+       "mean": 83.42013888888889,
+       "failed": 0
+      },
+      "pr": {
+       "n": 10,
+       "mean": 100.0,
+       "failed": 0
+      },
+      "url": {
+       "n": 15,
+       "mean": 100.0,
+       "failed": 0
+      },
+      "content": {
+       "n": 153,
+       "mean": 74.9673202614379,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 194,
+       "mean": 73.71134020618557,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": 83.35417584219368,
+      "company": 83.42013888888889,
+      "artifact": 100.0,
+      "content": 74.9673202614379
+     },
+     "primary": 88.92477157702751,
+     "paper_macro": 85.43540874813011,
+     "unanswerable_rate": 73.71134020618557,
+     "explicit_refusal_rate": 72.16494845360825,
+     "false_refusal_rate": 4.086538461538462,
+     "failure_rate": 0.0
+    },
+    "unseen": {
+     "n": {
+      "answerable": 243,
+      "unanswerable": 350
+     },
+     "failed": {
+      "answerable": 0,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 40,
+       "mean": 78.81761294261294,
+       "failed": 0
+      },
+      "company": {
+       "n": 40,
+       "mean": 94.92857142857142,
+       "failed": 0
+      },
+      "pr": {
+       "n": 135,
+       "mean": 63.95943562610229,
+       "failed": 0
+      },
+      "url": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "content": {
+       "n": 28,
+       "mean": 69.28571428571429,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 350,
+       "mean": 87.14285714285714,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": 78.81761294261294,
+      "company": 94.92857142857142,
+      "artifact": 63.95943562610229,
+      "content": 69.28571428571429
+     },
+     "primary": 79.23520666576222,
+     "paper_macro": 76.74783357075023,
+     "unanswerable_rate": 87.14285714285714,
+     "explicit_refusal_rate": 85.14285714285714,
+     "false_refusal_rate": 11.934156378600823,
+     "failure_rate": 0.0
+    }
+   },
+   "median_input_tokens": 10117.0,
+   "mean_input_tokens": 13351.187863674148,
+   "mean_output_tokens": 211.85536159600997,
+   "mean_tool_calls": 6.749792186201164,
+   "latency_p50": 4.707643458037637,
+   "latency_p95": 16.085120108316186
+  },
+  "A4": {
+   "n": {
+    "answerable": 121,
+    "unanswerable": 159
+   },
+   "failed": {
+    "answerable": 0,
+    "unanswerable": 0
+   },
+   "per_type": {
+    "person": {
+     "n": 33,
+     "mean": 20.75019842022738,
+     "failed": 0
+    },
+    "company": {
+     "n": 10,
+     "mean": 40.666666666666664,
+     "failed": 0
+    },
+    "pr": {
+     "n": 29,
+     "mean": 14.869281045751634,
+     "failed": 0
+    },
+    "url": {
+     "n": 2,
+     "mean": 100.0,
+     "failed": 0
+    },
+    "content": {
+     "n": 47,
+     "mean": 28.404255319148938,
+     "failed": 0
+    },
+    "unanswerable": {
+     "n": 159,
+     "mean": 71.69811320754717,
+     "failed": 0
+    }
+   },
+   "groups": {
+    "person": 20.75019842022738,
+    "company": 40.666666666666664,
+    "artifact": 20.361585494412815,
+    "content": 28.404255319148938
+   },
+   "primary": 27.259483527102287,
+   "paper_macro": 27.54567647511395,
+   "unanswerable_rate": 71.69811320754717,
+   "explicit_refusal_rate": 71.06918238993711,
+   "false_refusal_rate": 42.97520661157025,
+   "failure_rate": 0.0,
+   "by_seen": {
+    "seen": {
+     "n": {
+      "answerable": 86,
+      "unanswerable": 70
+     },
+     "failed": {
+      "answerable": 0,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 33,
+       "mean": 20.75019842022738,
+       "failed": 0
+      },
+      "company": {
+       "n": 10,
+       "mean": 40.666666666666664,
+       "failed": 0
+      },
+      "pr": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "url": {
+       "n": 2,
+       "mean": 100.0,
+       "failed": 0
+      },
+      "content": {
+       "n": 41,
+       "mean": 24.75609756097561,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 70,
+       "mean": 70.0,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": 20.75019842022738,
+      "company": 40.666666666666664,
+      "artifact": 100.0,
+      "content": 24.75609756097561
+     },
+     "primary": 53.80562169563135,
+     "paper_macro": 46.54324066196742,
+     "unanswerable_rate": 70.0,
+     "explicit_refusal_rate": 68.57142857142857,
+     "false_refusal_rate": 45.348837209302324,
+     "failure_rate": 0.0
+    },
+    "unseen": {
+     "n": {
+      "answerable": 35,
+      "unanswerable": 89
+     },
+     "failed": {
+      "answerable": 0,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "company": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "pr": {
+       "n": 29,
+       "mean": 14.869281045751634,
+       "failed": 0
+      },
+      "url": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "content": {
+       "n": 6,
+       "mean": 53.333333333333336,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 89,
+       "mean": 73.03370786516854,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": null,
+      "company": null,
+      "artifact": 14.869281045751634,
+      "content": 53.333333333333336
+     },
+     "primary": null,
+     "paper_macro": null,
+     "unanswerable_rate": 73.03370786516854,
+     "explicit_refusal_rate": 73.03370786516854,
+     "false_refusal_rate": 37.142857142857146,
+     "failure_rate": 0.0
+    }
+   },
+   "median_input_tokens": 62033.0,
+   "mean_input_tokens": 52341.525,
+   "mean_output_tokens": 315.77142857142854,
+   "mean_tool_calls": 4.785714285714286,
+   "latency_p50": 11.32891143701272,
+   "latency_p95": 31.89922027080323
+  },
+  "A0": {
+   "n": {
+    "answerable": 659,
+    "unanswerable": 544
+   },
+   "failed": {
+    "answerable": 17,
+    "unanswerable": 27
+   },
+   "per_type": {
+    "person": {
+     "n": 214,
+     "mean": 34.56339714313895,
+     "failed": 3
+    },
+    "company": {
+     "n": 104,
+     "mean": 47.73472254241484,
+     "failed": 2
+    },
+    "pr": {
+     "n": 145,
+     "mean": 35.87684729064039,
+     "failed": 0
+    },
+    "url": {
+     "n": 15,
+     "mean": 28.652236652236653,
+     "failed": 0
+    },
+    "content": {
+     "n": 181,
+     "mean": 52.12707182320442,
+     "failed": 12
+    },
+    "unanswerable": {
+     "n": 544,
+     "mean": 37.68382352941177,
+     "failed": 27
+    }
+   },
+   "groups": {
+    "person": 34.56339714313895,
+    "company": 47.73472254241484,
+    "artifact": 35.19954004329004,
+    "content": 52.12707182320442
+   },
+   "primary": 39.165886576281274,
+   "paper_macro": 42.40618288801206,
+   "unanswerable_rate": 37.68382352941177,
+   "explicit_refusal_rate": 35.845588235294116,
+   "false_refusal_rate": 9.711684370257966,
+   "failure_rate": 3.657522859517872,
+   "by_seen": {
+    "seen": {
+     "n": {
+      "answerable": 416,
+      "unanswerable": 194
+     },
+     "failed": {
+      "answerable": 13,
+      "unanswerable": 4
+     },
+     "per_type": {
+      "person": {
+       "n": 174,
+       "mean": 28.631353959312268,
+       "failed": 1
+      },
+      "company": {
+       "n": 64,
+       "mean": 25.97222222222222,
+       "failed": 0
+      },
+      "pr": {
+       "n": 10,
+       "mean": 53.38095238095239,
+       "failed": 0
+      },
+      "url": {
+       "n": 15,
+       "mean": 28.652236652236653,
+       "failed": 0
+      },
+      "content": {
+       "n": 153,
+       "mean": 49.705882352941174,
+       "failed": 12
+      },
+      "unanswerable": {
+       "n": 194,
+       "mean": 43.29896907216495,
+       "failed": 4
+      }
+     },
+     "groups": {
+      "person": 28.631353959312268,
+      "company": 25.97222222222222,
+      "artifact": 38.54372294372294,
+      "content": 49.705882352941174
+     },
+     "primary": 31.049099708419146,
+     "paper_macro": 35.713295369549655,
+     "unanswerable_rate": 43.29896907216495,
+     "explicit_refusal_rate": 41.23711340206186,
+     "false_refusal_rate": 12.740384615384615,
+     "failure_rate": 2.7868852459016393
+    },
+    "unseen": {
+     "n": {
+      "answerable": 243,
+      "unanswerable": 350
+     },
+     "failed": {
+      "answerable": 4,
+      "unanswerable": 23
+     },
+     "per_type": {
+      "person": {
+       "n": 40,
+       "mean": 60.36778499278498,
+       "failed": 2
+      },
+      "company": {
+       "n": 40,
+       "mean": 82.55472305472306,
+       "failed": 2
+      },
+      "pr": {
+       "n": 135,
+       "mean": 34.58024691358025,
+       "failed": 0
+      },
+      "url": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "content": {
+       "n": 28,
+       "mean": 65.35714285714286,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 350,
+       "mean": 34.57142857142857,
+       "failed": 23
+      }
+     },
+     "groups": {
+      "person": 60.36778499278498,
+      "company": 82.55472305472306,
+      "artifact": 34.58024691358025,
+      "content": 65.35714285714286
+     },
+     "primary": 59.167584987029436,
+     "paper_macro": 60.71497445455779,
+     "unanswerable_rate": 34.57142857142857,
+     "explicit_refusal_rate": 32.857142857142854,
+     "false_refusal_rate": 4.526748971193416,
+     "failure_rate": 4.5531197301854975
+    }
+   },
+   "median_input_tokens": 46451.0,
+   "mean_input_tokens": 47532.049044056526,
+   "mean_output_tokens": 774.6109725685785,
+   "mean_tool_calls": 4.472152950955944,
+   "latency_p50": 21.407245166017674,
+   "latency_p95": 71.18035096219958
+  },
+  "A1f": {
+   "n": {
+    "answerable": 659,
+    "unanswerable": 544
+   },
+   "failed": {
+    "answerable": 32,
+    "unanswerable": 17
+   },
+   "per_type": {
+    "person": {
+     "n": 214,
+     "mean": 26.95259962624188,
+     "failed": 26
+    },
+    "company": {
+     "n": 104,
+     "mean": 9.966347754809293,
+     "failed": 3
+    },
+    "pr": {
+     "n": 145,
+     "mean": 40.41707717569786,
+     "failed": 0
+    },
+    "url": {
+     "n": 15,
+     "mean": 46.666666666666664,
+     "failed": 0
+    },
+    "content": {
+     "n": 181,
+     "mean": 58.812154696132595,
+     "failed": 3
+    },
+    "unanswerable": {
+     "n": 544,
+     "mean": 13.786764705882353,
+     "failed": 17
+    }
+   },
+   "groups": {
+    "person": 26.95259962624188,
+    "company": 9.966347754809293,
+    "artifact": 41.00297619047619,
+    "content": 58.812154696132595
+   },
+   "primary": 25.973974523842458,
+   "paper_macro": 34.183519566914995,
+   "unanswerable_rate": 13.786764705882353,
+   "explicit_refusal_rate": 9.926470588235293,
+   "false_refusal_rate": 3.0349013657056148,
+   "failure_rate": 4.073150457190358,
+   "by_seen": {
+    "seen": {
+     "n": {
+      "answerable": 416,
+      "unanswerable": 194
+     },
+     "failed": {
+      "answerable": 31,
+      "unanswerable": 10
+     },
+     "per_type": {
+      "person": {
+       "n": 174,
+       "mean": 18.033200890439065,
+       "failed": 25
+      },
+      "company": {
+       "n": 64,
+       "mean": 15.12388653013653,
+       "failed": 3
+      },
+      "pr": {
+       "n": 10,
+       "mean": 73.66666666666666,
+       "failed": 0
+      },
+      "url": {
+       "n": 15,
+       "mean": 46.666666666666664,
+       "failed": 0
+      },
+      "content": {
+       "n": 153,
+       "mean": 55.588235294117645,
+       "failed": 3
+      },
+      "unanswerable": {
+       "n": 194,
+       "mean": 10.309278350515465,
+       "failed": 10
+      }
+     },
+     "groups": {
+      "person": 18.033200890439065,
+      "company": 15.12388653013653,
+      "artifact": 57.46666666666666,
+      "content": 55.588235294117645
+     },
+     "primary": 30.207918029080748,
+     "paper_macro": 36.552997345339975,
+     "unanswerable_rate": 10.309278350515465,
+     "explicit_refusal_rate": 6.185567010309279,
+     "false_refusal_rate": 4.5673076923076925,
+     "failure_rate": 6.721311475409836
+    },
+    "unseen": {
+     "n": {
+      "answerable": 243,
+      "unanswerable": 350
+     },
+     "failed": {
+      "answerable": 1,
+      "unanswerable": 7
+     },
+     "per_type": {
+      "person": {
+       "n": 40,
+       "mean": 65.75198412698413,
+       "failed": 1
+      },
+      "company": {
+       "n": 40,
+       "mean": 1.7142857142857146,
+       "failed": 0
+      },
+      "pr": {
+       "n": 135,
+       "mean": 37.954144620811284,
+       "failed": 0
+      },
+      "url": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "content": {
+       "n": 28,
+       "mean": 76.42857142857143,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 350,
+       "mean": 15.714285714285714,
+       "failed": 7
+      }
+     },
+     "groups": {
+      "person": 65.75198412698413,
+      "company": 1.7142857142857146,
+      "artifact": 37.954144620811284,
+      "content": 76.42857142857143
+     },
+     "primary": 35.140138154027035,
+     "paper_macro": 45.46224647266314,
+     "unanswerable_rate": 15.714285714285714,
+     "explicit_refusal_rate": 12.0,
+     "false_refusal_rate": 0.411522633744856,
+     "failure_rate": 1.349072512647555
+    }
+   },
+   "median_input_tokens": 125947.0,
+   "mean_input_tokens": 128831.84289276808,
+   "mean_output_tokens": 506.33000831255197,
+   "mean_tool_calls": 0.0,
+   "latency_p50": 11.606903582927771,
+   "latency_p95": 50.622273053904024
+  },
+  "A0f": {
+   "n": {
+    "answerable": 116,
+    "unanswerable": 159
+   },
+   "failed": {
+    "answerable": 4,
+    "unanswerable": 0
+   },
+   "per_type": {
+    "person": {
+     "n": 28,
+     "mean": 54.075366988900825,
+     "failed": 1
+    },
+    "company": {
+     "n": 10,
+     "mean": 29.555555555555554,
+     "failed": 0
+    },
+    "pr": {
+     "n": 29,
+     "mean": 40.347564313081556,
+     "failed": 3
+    },
+    "url": {
+     "n": 2,
+     "mean": 87.5,
+     "failed": 0
+    },
+    "content": {
+     "n": 47,
+     "mean": 65.74468085106383,
+     "failed": 0
+    },
+    "unanswerable": {
+     "n": 159,
+     "mean": 21.38364779874214,
+     "failed": 0
+    }
+   },
+   "groups": {
+    "person": 54.075366988900825,
+    "company": 29.555555555555554,
+    "artifact": 43.389656938044034,
+    "content": 65.74468085106383
+   },
+   "primary": 42.34019316083347,
+   "paper_macro": 48.19131508339106,
+   "unanswerable_rate": 21.38364779874214,
+   "explicit_refusal_rate": 16.9811320754717,
+   "false_refusal_rate": 1.7241379310344827,
+   "failure_rate": 1.4545454545454546,
+   "by_seen": {
+    "seen": {
+     "n": {
+      "answerable": 81,
+      "unanswerable": 70
+     },
+     "failed": {
+      "answerable": 1,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 28,
+       "mean": 54.075366988900825,
+       "failed": 1
+      },
+      "company": {
+       "n": 10,
+       "mean": 29.555555555555554,
+       "failed": 0
+      },
+      "pr": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "url": {
+       "n": 2,
+       "mean": 87.5,
+       "failed": 0
+      },
+      "content": {
+       "n": 41,
+       "mean": 64.26829268292683,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 70,
+       "mean": 27.142857142857142,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": 54.075366988900825,
+      "company": 29.555555555555554,
+      "artifact": 87.5,
+      "content": 64.26829268292683
+     },
+     "primary": 57.04364084815213,
+     "paper_macro": 58.8498038068458,
+     "unanswerable_rate": 27.142857142857142,
+     "explicit_refusal_rate": 24.285714285714285,
+     "false_refusal_rate": 2.4691358024691357,
+     "failure_rate": 0.6622516556291391
+    },
+    "unseen": {
+     "n": {
+      "answerable": 35,
+      "unanswerable": 89
+     },
+     "failed": {
+      "answerable": 3,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "company": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "pr": {
+       "n": 29,
+       "mean": 40.347564313081556,
+       "failed": 3
+      },
+      "url": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "content": {
+       "n": 6,
+       "mean": 75.83333333333333,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 89,
+       "mean": 16.853932584269664,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": null,
+      "company": null,
+      "artifact": 40.347564313081556,
+      "content": 75.83333333333333
+     },
+     "primary": null,
+     "paper_macro": null,
+     "unanswerable_rate": 16.853932584269664,
+     "explicit_refusal_rate": 11.235955056179776,
+     "false_refusal_rate": 0.0,
+     "failure_rate": 2.4193548387096775
+    }
+   },
+   "median_input_tokens": 64164.0,
+   "mean_input_tokens": 63282.192727272726,
+   "mean_output_tokens": 521.0909090909091,
+   "mean_tool_calls": 3.1454545454545455,
+   "latency_p50": 20.7737393330317,
+   "latency_p95": 43.88194748772076
+  },
+  "A4c": {
+   "n": {
+    "answerable": 116,
+    "unanswerable": 159
+   },
+   "failed": {
+    "answerable": 0,
+    "unanswerable": 0
+   },
+   "per_type": {
+    "person": {
+     "n": 28,
+     "mean": 28.369268477056924,
+     "failed": 0
+    },
+    "company": {
+     "n": 10,
+     "mean": 38.88888888888889,
+     "failed": 0
+    },
+    "pr": {
+     "n": 29,
+     "mean": 14.070010449320794,
+     "failed": 0
+    },
+    "url": {
+     "n": 2,
+     "mean": 66.07142857142857,
+     "failed": 0
+    },
+    "content": {
+     "n": 47,
+     "mean": 26.70212765957447,
+     "failed": 0
+    },
+    "unanswerable": {
+     "n": 159,
+     "mean": 69.18238993710692,
+     "failed": 0
+    }
+   },
+   "groups": {
+    "person": 28.369268477056924,
+    "company": 38.88888888888889,
+    "artifact": 17.4249406507471,
+    "content": 26.70212765957447
+   },
+   "primary": 28.22769933889764,
+   "paper_macro": 27.84630641906685,
+   "unanswerable_rate": 69.18238993710692,
+   "explicit_refusal_rate": 65.40880503144655,
+   "false_refusal_rate": 44.827586206896555,
+   "failure_rate": 0.0,
+   "by_seen": {
+    "seen": {
+     "n": {
+      "answerable": 81,
+      "unanswerable": 70
+     },
+     "failed": {
+      "answerable": 0,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 28,
+       "mean": 28.369268477056924,
+       "failed": 0
+      },
+      "company": {
+       "n": 10,
+       "mean": 38.88888888888889,
+       "failed": 0
+      },
+      "pr": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "url": {
+       "n": 2,
+       "mean": 66.07142857142857,
+       "failed": 0
+      },
+      "content": {
+       "n": 41,
+       "mean": 21.70731707317073,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 70,
+       "mean": 57.142857142857146,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": 28.369268477056924,
+      "company": 38.88888888888889,
+      "artifact": 66.07142857142857,
+      "content": 21.70731707317073
+     },
+     "primary": 44.44319531245813,
+     "paper_macro": 38.75922575263628,
+     "unanswerable_rate": 57.142857142857146,
+     "explicit_refusal_rate": 51.42857142857143,
+     "false_refusal_rate": 45.67901234567901,
+     "failure_rate": 0.0
+    },
+    "unseen": {
+     "n": {
+      "answerable": 35,
+      "unanswerable": 89
+     },
+     "failed": {
+      "answerable": 0,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "company": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "pr": {
+       "n": 29,
+       "mean": 14.070010449320794,
+       "failed": 0
+      },
+      "url": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "content": {
+       "n": 6,
+       "mean": 60.833333333333336,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 89,
+       "mean": 78.65168539325843,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": null,
+      "company": null,
+      "artifact": 14.070010449320794,
+      "content": 60.833333333333336
+     },
+     "primary": null,
+     "paper_macro": null,
+     "unanswerable_rate": 78.65168539325843,
+     "explicit_refusal_rate": 76.40449438202248,
+     "false_refusal_rate": 42.857142857142854,
+     "failure_rate": 0.0
+    }
+   },
+   "median_input_tokens": 60976.0,
+   "mean_input_tokens": 52263.09818181818,
+   "mean_output_tokens": 315.7672727272727,
+   "mean_tool_calls": 4.738181818181818,
+   "latency_p50": 14.316546375048347,
+   "latency_p95": 37.66327430832898
+  },
+  "A0v": {
+   "n": {
+    "answerable": 659,
+    "unanswerable": 544
+   },
+   "failed": {
+    "answerable": 7,
+    "unanswerable": 2
+   },
+   "per_type": {
+    "person": {
+     "n": 214,
+     "mean": 28.378453182188057,
+     "failed": 7
+    },
+    "company": {
+     "n": 104,
+     "mean": 0.0,
+     "failed": 0
+    },
+    "pr": {
+     "n": 145,
+     "mean": 26.74137931034483,
+     "failed": 0
+    },
+    "url": {
+     "n": 15,
+     "mean": 54.36652236652237,
+     "failed": 0
+    },
+    "content": {
+     "n": 181,
+     "mean": 45.0,
+     "failed": 0
+    },
+    "unanswerable": {
+     "n": 544,
+     "mean": 65.44117647058823,
+     "failed": 2
+    }
+   },
+   "groups": {
+    "person": 28.378453182188057,
+    "company": 0.0,
+    "artifact": 29.331236471861473,
+    "content": 45.0
+   },
+   "primary": 19.23656321801651,
+   "paper_macro": 25.67742241351238,
+   "unanswerable_rate": 65.44117647058823,
+   "explicit_refusal_rate": 61.9485294117647,
+   "false_refusal_rate": 28.679817905918057,
+   "failure_rate": 0.7481296758104738,
+   "by_seen": {
+    "seen": {
+     "n": {
+      "answerable": 416,
+      "unanswerable": 194
+     },
+     "failed": {
+      "answerable": 7,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 174,
+       "mean": 19.616247564519195,
+       "failed": 7
+      },
+      "company": {
+       "n": 64,
+       "mean": 0.0,
+       "failed": 0
+      },
+      "pr": {
+       "n": 10,
+       "mean": 72.71428571428571,
+       "failed": 0
+      },
+      "url": {
+       "n": 15,
+       "mean": 54.36652236652237,
+       "failed": 0
+      },
+      "content": {
+       "n": 153,
+       "mean": 42.091503267973856,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 194,
+       "mean": 85.56701030927834,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": 19.616247564519195,
+      "company": 0.0,
+      "artifact": 61.70562770562771,
+      "content": 42.091503267973856
+     },
+     "primary": 27.107291756715636,
+     "paper_macro": 30.85334463453019,
+     "unanswerable_rate": 85.56701030927834,
+     "explicit_refusal_rate": 84.5360824742268,
+     "false_refusal_rate": 39.90384615384615,
+     "failure_rate": 1.1475409836065573
+    },
+    "unseen": {
+     "n": {
+      "answerable": 243,
+      "unanswerable": 350
+     },
+     "failed": {
+      "answerable": 0,
+      "unanswerable": 2
+     },
+     "per_type": {
+      "person": {
+       "n": 40,
+       "mean": 66.49404761904762,
+       "failed": 0
+      },
+      "company": {
+       "n": 40,
+       "mean": 0.0,
+       "failed": 0
+      },
+      "pr": {
+       "n": 135,
+       "mean": 23.335978835978835,
+       "failed": 0
+      },
+      "url": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "content": {
+       "n": 28,
+       "mean": 60.892857142857146,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 350,
+       "mean": 54.285714285714285,
+       "failed": 2
+      }
+     },
+     "groups": {
+      "person": 66.49404761904762,
+      "company": 0.0,
+      "artifact": 23.335978835978835,
+      "content": 60.892857142857146
+     },
+     "primary": 29.943342151675484,
+     "paper_macro": 37.6807208994709,
+     "unanswerable_rate": 54.285714285714285,
+     "explicit_refusal_rate": 49.42857142857143,
+     "false_refusal_rate": 9.465020576131687,
+     "failure_rate": 0.3372681281618887
+    }
+   },
+   "median_input_tokens": 5176.0,
+   "mean_input_tokens": 6499.380714879468,
+   "mean_output_tokens": 196.18620116375726,
+   "mean_tool_calls": 0.0,
+   "latency_p50": 5.099550832994282,
+   "latency_p95": 18.19154948331414
+  },
+  "A2": {
+   "n": {
+    "answerable": 160,
+    "unanswerable": 94
+   },
+   "failed": {
+    "answerable": 8,
+    "unanswerable": 0
+   },
+   "per_type": {
+    "person": {
+     "n": 59,
+     "mean": 29.800914716168958,
+     "failed": 8
+    },
+    "company": {
+     "n": 28,
+     "mean": 8.928571428571429,
+     "failed": 0
+    },
+    "pr": {
+     "n": 30,
+     "mean": 33.19047619047619,
+     "failed": 0
+    },
+    "url": {
+     "n": 4,
+     "mean": 33.33333333333333,
+     "failed": 0
+    },
+    "content": {
+     "n": 39,
+     "mean": 51.666666666666664,
+     "failed": 0
+    },
+    "unanswerable": {
+     "n": 94,
+     "mean": 59.57446808510638,
+     "failed": 0
+    }
+   },
+   "groups": {
+    "person": 29.800914716168958,
+    "company": 8.928571428571429,
+    "artifact": 33.207282913165265,
+    "content": 51.666666666666664
+   },
+   "primary": 23.978923019301885,
+   "paper_macro": 30.900858931143077,
+   "unanswerable_rate": 59.57446808510638,
+   "explicit_refusal_rate": 58.51063829787234,
+   "false_refusal_rate": 13.125,
+   "failure_rate": 3.1496062992125986,
+   "by_seen": {
+    "seen": {
+     "n": {
+      "answerable": 104,
+      "unanswerable": 23
+     },
+     "failed": {
+      "answerable": 8,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 49,
+       "mean": 22.44250080984775,
+       "failed": 8
+      },
+      "company": {
+       "n": 18,
+       "mean": 13.88888888888889,
+       "failed": 0
+      },
+      "pr": {
+       "n": 3,
+       "mean": 22.222222222222218,
+       "failed": 0
+      },
+      "url": {
+       "n": 4,
+       "mean": 33.33333333333333,
+       "failed": 0
+      },
+      "content": {
+       "n": 30,
+       "mean": 44.666666666666664,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 23,
+       "mean": 78.26086956521739,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": 22.44250080984775,
+      "company": 13.88888888888889,
+      "artifact": 28.571428571428573,
+      "content": 44.666666666666664
+     },
+     "primary": 21.63427275672174,
+     "paper_macro": 27.39237123420797,
+     "unanswerable_rate": 78.26086956521739,
+     "explicit_refusal_rate": 78.26086956521739,
+     "false_refusal_rate": 17.307692307692307,
+     "failure_rate": 6.299212598425197
+    },
+    "unseen": {
+     "n": {
+      "answerable": 56,
+      "unanswerable": 71
+     },
+     "failed": {
+      "answerable": 0,
+      "unanswerable": 0
+     },
+     "per_type": {
+      "person": {
+       "n": 10,
+       "mean": 65.85714285714285,
+       "failed": 0
+      },
+      "company": {
+       "n": 10,
+       "mean": 0.0,
+       "failed": 0
+      },
+      "pr": {
+       "n": 27,
+       "mean": 34.40917107583774,
+       "failed": 0
+      },
+      "url": {
+       "n": 0,
+       "mean": null,
+       "failed": 0
+      },
+      "content": {
+       "n": 9,
+       "mean": 75.0,
+       "failed": 0
+      },
+      "unanswerable": {
+       "n": 71,
+       "mean": 53.521126760563384,
+       "failed": 0
+      }
+     },
+     "groups": {
+      "person": 65.85714285714285,
+      "company": 0.0,
+      "artifact": 34.40917107583774,
+      "content": 75.0
+     },
+     "primary": 33.42210464432686,
+     "paper_macro": 43.816578483245145,
+     "unanswerable_rate": 53.521126760563384,
+     "explicit_refusal_rate": 52.11267605633803,
+     "false_refusal_rate": 5.357142857142857,
+     "failure_rate": 0.0
+    }
+   },
+   "median_input_tokens": 11142.0,
+   "mean_input_tokens": 13292.547244094489,
+   "mean_output_tokens": 283.1929133858268,
+   "mean_tool_calls": 0.0,
+   "latency_p50": 6.980000375013333,
+   "latency_p95": 36.544734289875485
+  }
+ },
+ "boot": {
+  "H1": {
+   "diff": 40.815264445722704,
+   "lo": 35.73546215366018,
+   "hi": 46.18415177615077,
+   "missing_group_replicates": 0,
+   "n": 10000
+  },
+  "H2": {
+   "diff": 54.00717649816153,
+   "lo": 48.70472081463917,
+   "hi": 58.75747834572924,
+   "missing_group_replicates": 0,
+   "n": 10000
+  },
+  "H3": {
+   "diff": 90.18455228981544,
+   "lo": 84.47026657552972,
+   "hi": 95.84415584415584,
+   "missing_group_replicates": 10000,
+   "n": 10000
+  },
+  "H3_all": {
+   "diff": 35.57839743114722,
+   "lo": 27.19680082015317,
+   "hi": 47.87289624717593,
+   "missing_group_replicates": 75,
+   "n": 10000
+  }
+ },
+ "paper_style": {
+  "H1": {
+   "diff": 36.10177982600473,
+   "lo": 32.06996993797861,
+   "hi": 40.17251555154672,
+   "missing_group_replicates": 0,
+   "n": 10000
+  },
+  "H2": {
+   "diff": 44.3244431471018,
+   "lo": 40.320144255558354,
+   "hi": 47.920675116886734,
+   "missing_group_replicates": 0,
+   "n": 10000
+  }
+ },
+ "secondary": {
+  "A0f-A0 (subset)": {
+   "diff": 20.677269231204473,
+   "lo": 14.88132392458158,
+   "hi": 26.388397316968746,
+   "missing_group_replicates": 5,
+   "n": 10000
+  },
+  "A4-A0f (subset)": {
+   "diff": -13.845578775384318,
+   "lo": -26.5700902848532,
+   "hi": -0.490191389486597,
+   "missing_group_replicates": 5,
+   "n": 10000
+  },
+  "A5-A4c (subset)": {
+   "diff": 33.51004150268771,
+   "lo": 21.533336000838162,
+   "hi": 46.0660005432393,
+   "missing_group_replicates": 5,
+   "n": 10000
+  },
+  "A0v-A0": {
+   "diff": -19.92932335826477,
+   "lo": -23.191641372523833,
+   "hi": -15.949626332969931,
+   "missing_group_replicates": 0,
+   "n": 10000
+  },
+  "A5-A2 (A2 products)": {
+   "diff": 58.812738257707665,
+   "lo": 45.274486194851555,
+   "hi": 69.81129975384634,
+   "missing_group_replicates": 0,
+   "n": 10000
+  },
+  "A0-A2 (A2 products)": {
+   "diff": 16.433230213741123,
+   "lo": 2.4835257825974004,
+   "hi": 24.724713642323483,
+   "missing_group_replicates": 0,
+   "n": 10000
+  }
+ },
+ "decisions": {
+  "H1": {
+   "diff": 40.815264445722704,
+   "lo": 35.73546215366018,
+   "pass": true,
+   "prior_expectation_met": true
+  },
+  "H2": {
+   "diff": 54.00717649816153,
+   "lo": 48.70472081463917,
+   "interval_ok": true,
+   "tokens_ok": true,
+   "pass": true,
+   "token_ratio": 0.08032743931971385
+  },
+  "H3": {
+   "estimable": true,
+   "diff": 90.18455228981544,
+   "lo": 84.47026657552972,
+   "pass": true,
+   "prior_expectation_met": true,
+   "all_questions": [
+    35.57839743114722,
+    27.19680082015317,
+    47.87289624717593
+   ]
+  },
+  "H4": {
+   "pass": true,
+   "unanswerable_rate": {
+    "A5": 82.3529411764706,
+    "A1f": 13.786764705882353
+   },
+   "false_refusal_rate": {
+    "A5": 6.980273141122914,
+    "A1f": 3.0349013657056148
+   },
+   "explicit_refusal_rate": {
+    "A5": 80.51470588235294,
+    "A1f": 9.926470588235293
+   }
+  }
+ },
+ "multihop_questions": 7,
+ "post_hoc_sensitivity_excluding_provider_502": {
+  "H1": {
+   "diff": 40.305008266404144,
+   "lo": 34.9767208833956,
+   "hi": 45.89317558433696,
+   "missing_group_replicates": 0,
+   "n": 10000,
+   "dropped_slots": 44
+  },
+  "H2": {
+   "diff": 54.298331909980575,
+   "lo": 49.04962524571722,
+   "hi": 58.98752731285359,
+   "missing_group_replicates": 0,
+   "n": 10000,
+   "dropped_slots": 6
+  }
+ },
+ "post_hoc_sensitivity_company_cust_ids_mapped": {
+  "changed_company_answers": {
+   "A5": 0,
+   "A0": 3,
+   "A1f": 49
+  },
+  "primary_endpoint": {
+   "A5": 79.98115102200398,
+   "A0": 39.582553242947945,
+   "A1f": 37.30930585917379
+  },
+  "H1": {
+   "diff": 40.39859777905604,
+   "lo": 35.48844599148783,
+   "hi": 45.64312218830259,
+   "missing_group_replicates": 0,
+   "n": 10000
+  },
+  "H2": {
+   "diff": 42.671845162830195,
+   "lo": 36.93529049526852,
+   "hi": 48.13100893378732,
+   "missing_group_replicates": 0,
+   "n": 10000
+  }
+ }
+}
