@@ -1,0 +1,84 @@
+{
+ "by_seen": {
+  "seen": {
+   "n_questions": 610,
+   "H1": {
+    "diff": 57.875671868608364,
+    "lo": 51.820704510991256,
+    "hi": 63.72638427304366,
+    "missing_group_replicates": 0
+   },
+   "H2": {
+    "diff": 58.716853547946755,
+    "lo": 49.95509510078098,
+    "hi": 66.62448658171148,
+    "missing_group_replicates": 0
+   }
+  },
+  "unseen": {
+   "n_questions": 593,
+   "H1": {
+    "diff": 20.067621678732785,
+    "lo": 12.931455229007947,
+    "hi": 26.49415927544421,
+    "missing_group_replicates": 0
+   },
+   "H2": {
+    "diff": 44.095068511735185,
+    "lo": 40.4011725349159,
+    "hi": 47.6624234711604,
+    "missing_group_replicates": 0
+   }
+  }
+ },
+ "citation_overlap": {
+  "A5": {
+   "n": 659,
+   "mean_recall": 0.07832799536712753,
+   "mean_precision": 0.7483344172266783,
+   "n_empty_evidence": 46
+  },
+  "A4": {
+   "n": 121,
+   "mean_recall": 0.003367912549025697,
+   "mean_precision": 0.052066115702479335,
+   "n_empty_evidence": 52
+  },
+  "A0": {
+   "n": 642,
+   "mean_recall": 0.03488830861117618,
+   "mean_precision": 0.35867082035306336,
+   "n_empty_evidence": 61
+  },
+  "A1f": {
+   "n": 627,
+   "mean_recall": 0.04140310591139211,
+   "mean_precision": 0.2230285309232678,
+   "n_empty_evidence": 109
+  },
+  "A0f": {
+   "n": 112,
+   "mean_recall": 0.0038917969010886263,
+   "mean_precision": 0.019642857142857146,
+   "n_empty_evidence": 4
+  },
+  "A4c": {
+   "n": 116,
+   "mean_recall": 0.0073827607337971024,
+   "mean_precision": 0.09657224958949097,
+   "n_empty_evidence": 52
+  },
+  "A0v": {
+   "n": 652,
+   "mean_recall": 0.03441788062728304,
+   "mean_precision": 0.35686167104878763,
+   "n_empty_evidence": 185
+  },
+  "A2": {
+   "n": 152,
+   "mean_recall": 0.03348112171857073,
+   "mean_precision": 0.31217105263157896,
+   "n_empty_evidence": 30
+  }
+ }
+}

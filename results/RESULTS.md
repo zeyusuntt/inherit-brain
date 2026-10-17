@@ -53,6 +53,33 @@ Scores are F1 x 100 (ids) or the HERB judge on model M (content, unanswerable). 
 
 How to read them (as registered): A0f minus A0 is the effect of the pre-extracted card representation on the same retrieval agent. A4 minus A0f compares typed depth-1 access with retrieval over the same cards; here typed access did worse, and A4 hit its input budget on 68.9% of questions. A5 minus A4 and A5 against A4c measure the full multi-hop toolkit against the card view, not multi-hop alone. None of these shows that another database could not do the same.
 
+## Also reported (pre-registered in PREREG section 10, no threshold)
+
+These two items were registered as "also reported" and were missing from the first version of this page. They come from the same graded runs, with no model call (`results/held_run/reported_extras.py`, output in `results/reported_extras.json`).
+
+Seen and unseen question strings. 610 held-out questions share their normalised question string with a development question; the tools were built against development questions, so this is where overfitting would show.
+
+| Comparison | Seen in development (610 questions) | Never seen (593 questions) |
+|---|---|---|
+| H1, A5 minus A0 | +57.9 [51.8, 63.7] | +20.1 [12.9, 26.5] |
+| H2, A5 minus A1f | +58.7 [50.0, 66.6] | +44.1 [40.4, 47.7] |
+| A5 primary endpoint | 88.9 | 79.2 |
+| A0 primary endpoint | 31.0 | 59.2 |
+
+The lead over A0 is about a third as large on strings never seen in development, and still above zero. The two halves are not the same mix of questions: 135 of the 243 answerable unseen questions are PR questions, against 10 of 416 seen ones, so the split mixes novelty with question type.
+
+Cited records against HERB's citations (answerable questions, descriptive only, never graded). Precision is the share of an answer's cited records that HERB also cites; recall is the share of HERB's citations the answer cites. HERB lists many records per question, so recall is low for every arm.
+
+| Arm | Questions | Precision | Recall | No evidence cited |
+|---|---|---|---|---|
+| A5 | 659 | 74.8% | 7.8% | 46 |
+| A0 | 642 | 35.9% | 3.5% | 61 |
+| A1f | 627 | 22.3% | 4.1% | 109 |
+| A0v | 652 | 35.7% | 3.4% | 185 |
+| A2 (six products) | 152 | 31.2% | 3.3% | 30 |
+
+A4, A4c and A0f cite cards, not records, so their overlap (2% to 10% precision) says little.
+
 ## Post-hoc analyses (not pre-registered)
 
 1. Provider network errors. 44 of A0's and 6 of A1f's failures were the proxy's "502 upstream unreachable" errors from the model provider, not the arms' own failures. They stay zero-scored above, as registered. Dropping those slots from both arms of the pair: H1 +40.3 [35.0, 45.9], H2 +54.3 [49.0, 59.0].
