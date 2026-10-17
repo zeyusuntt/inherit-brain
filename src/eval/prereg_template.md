@@ -98,6 +98,8 @@ How the differences are read:
 
 A family is a normalised question string. A family is multi-hop when the answer values its questions need are not in what A4 can see: the cards of every root the question text can name (plus the Product), and the full cards of their one-hop neighbours. On the development set this was computed by code for every instance; a family with mixed instances counts as multi-hop only if every instance needs content outside the visible set. Held-out strings never seen in development were classified from the question text and the card field list only, independently by two models (Codex and a Claude subagent); only strings both called multi-hop are in the set, and disagreements or uncertain cases stay outside it (they remain in every other endpoint). This is a schema-only classification, not a check against held-out content.
 
+A first Claude classification attempt was discarded unused because the agent assigned verdicts by keyword rules instead of reading each template; a fresh agent then classified every template. Both final classifications agree on all 215 unseen strings.
+
 {{dev_visibility_summary}}
 
 {{family_counts}}
@@ -111,6 +113,19 @@ Held-out strings excluded after disagreement or uncertainty:
 ## 12. Development acceptance
 
 Extraction was accepted on the six development products by two models, not by people: auditor 1 Codex, auditor 2 a Claude subagent, each reading only the audit packet. An item is correct when both say correct; a disagreement goes to a third Codex pass that sees both reasoned verdicts and decides. The gates use the adjudicated result. Agreement between two models does not show equivalence to human labels, and the third pass shares a model family with auditor 1.
+
+The acceptance took six rounds. Each round drew a fresh seeded sample (seed 20261015 plus the round number), and every failed round is kept with its packets and verdicts:
+
+| Round | Rubric | Failed gates | Passed gates |
+|---|---|---|---|
+| 1 | v1 | bug events 42/50, review relations 36/50, bug recall 104/146, reviewer recall 8/15 | names 50/50, newly unowned 30/30, dependency edges 27/30, affected paths 2/2 |
+| 2 | v2 | review relations 41/50, dependency edges 25/30, affected paths 0/2, reviewer recall 0/0 (no reviewers in the sampled documents) | bug events 49/50, names 50/50, newly unowned 30/30, bug recall 111/115 |
+| 3 | v3 | reviewer recall 8/24 | every precision gate, bug recall 119/124 |
+| 4 | v3 | reviewer recall 24/52 | every precision gate, bug recall 47/48 |
+| 5 | v4 | review relations 39/50 | every other precision gate, bug recall 142/146, reviewer recall 35/39 |
+| 6 | v5 | none | all (table below) |
+
+Between rounds, extraction changed only by deterministic rules applied to the cached model outputs (no prompt changed and no new model call was made): one ASSIGNED event per assignment, on the message that hands the bug over; component evidence from the acceptance; review relations limited to content proposals and review questions about this product's documents (excluding work allocation, competitors' documents, author acknowledgements, summaries and openers), unversioned remarks attached to every version of the type; a rule that reads type-level discussions the model left unread (its edges are marked review_origin="type_level_rule"); name candidates taken from the meeting's attendees first, as the design states; explicit task statements outranking title overlap for PR membership; completion statements read for feature fate. The rubrics changed only to state definitions the auditors disagreed on, or to add evidence the packets lacked: the bug event model, the frozen state predicates and candidate sets for ambiguous names (v2); product provenance records, development membership and recall eligibility (v3); author acts and type-level reviewer recall (v4); product identity including internal names, and the name rule as implemented (v5). After round 4 the reviewer-recall endpoint was amended: targets are document types (all versions), author acknowledgements are excluded by act, and strict per-document recall and distinct-reviewer coverage are reported alongside; rounds 1 to 4 keep their original, failed results. After round 2 the only two affected paths were found to rest on a feature the records report as completed; with that fixed, the dev pool holds no affected path, so that gate is reported as not estimable. Malformed auditor answers were retried once each (3 packets in round 3, 1 in round 4, 2 in round 5).
 
 {{auditors}}
 
