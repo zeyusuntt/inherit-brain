@@ -12,3 +12,13 @@ runs/
 
 # family classification outputs hold question-derived text and dev gold values (hashes go into acceptance and PREREG)
 results/families/
+
+# video media and build output
+video/node_modules/
+video/out/
+video/build/
+video/public/audio/
+*.m4a
+*.MOV
+*.wav
+.models/
