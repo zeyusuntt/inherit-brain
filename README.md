@@ -7,6 +7,8 @@ inherit-brain answers a new maintainer's questions about a product's history: wh
 Track 3: Company Brain, Graph Hacks 2026 (WeMakeDevs x FalkorDB).
 [Demo site](https://zeyusuntt.github.io/inherit-brain/) · [Video](VIDEO_URL) · [Blog post](BLOG_URL) · [Results](results/RESULTS.md) · [Pre-registration](PREREG.md) · [Cypher](docs/CYPHER.md) · [MCP server](docs/MCP.md)
 
+[![The demo site: the scores and one real question with its path](docs/blog/cover.png)](https://zeyusuntt.github.io/inherit-brain/)
+
 On 1,203 held-out questions of Salesforce's [HERB](https://github.com/SalesforceAIResearch/HERB) benchmark (a simulated company with 30 products), with the plan's hash posted publicly before the run:
 
 | Same model (Qwen3-30B-A3B-Instruct-2507) | Score (registered primary endpoint) | Median input tokens |
