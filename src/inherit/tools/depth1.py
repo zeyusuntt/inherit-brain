@@ -23,6 +23,7 @@ import math
 import time
 import unicodedata
 from collections import defaultdict
+from urllib.parse import urlsplit
 
 import redis
 from falkordb import FalkorDB
@@ -102,8 +103,8 @@ def read_only_graph(host: str, port: int, user: str, password: str, name: str) -
 def agent_graph(product: str, server: str = "6.0") -> Graph:
     """herb:<product> as the read-only agent_<product> user (passwords in data/acl.json)."""
     pw = json.loads((ROOT / "data" / "acl.json").read_text())[server][f"agent_{product}"]
-    kw = FalkorDB.from_url(load_settings().falkor_urls[server]).connection.connection_pool.connection_kwargs
-    return read_only_graph(kw["host"], kw["port"], f"agent_{product}", pw, f"herb:{product}")
+    url = urlsplit(load_settings().falkor_urls[server])  # parsed, not connected: the only connection is the agent's
+    return read_only_graph(url.hostname or "localhost", url.port or 6379, f"agent_{product}", pw, f"herb:{product}")
 
 
 # ---------------------------------------------------------------- root resolution
