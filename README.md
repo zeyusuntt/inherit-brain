@@ -180,7 +180,7 @@ flowchart LR
 - **Audit** ([src/eval/audit_extraction.py](src/eval/audit_extraction.py)). Before the held-out run, two model auditors (OpenAI Codex and a Claude agent) checked sampled facts against the raw records, with a third pass on disagreements. The extraction failed five rounds and passed the sixth. Between rounds the extraction rules and the audit rubrics changed, and the reviewer-recall endpoint was amended after round four; every round, including the failures, is in [PREREG.md section 12](PREREG.md).
 - **Isolation.** One graph per product, and one read-only ACL user per product for the agent, so a question about one product cannot read another. The what-if runs as a separate user whose key patterns cover only its product graph and its own scratch copies (`GRAPH.COPY`, then delete in the copy).
 - **Spend.** Every model call goes through one function ([src/inherit/llm.py](src/inherit/llm.py)) and a local metering proxy with a hard cap.
-- **Tested on FalkorDB 4.22.1 and 6.0.2.** The tool tests run against both servers from `docker-compose.yml`.
+- **Tested on FalkorDB 4.22.1 and 6.0.2.** The tool tests run against both servers from `docker-compose.yml`. What differed between them, and the ACL and index behaviour we hit along the way (with minimal reproductions), is in [docs/falkor-versions.md](docs/falkor-versions.md) and [docs/sponsor-feedback.md](docs/sponsor-feedback.md).
 
 ## Setup
 
@@ -257,7 +257,7 @@ uv run pytest -q
 
 ## Built during the event
 
-The first commit is 2026-10-16 05:01 UTC, after the event opened (2026-10-14 18:31 UTC). Everything in this repository was written during the event. Reused, as Rule 9 allows: the HERB dataset and the HERB paper's retrieval tools (ported in [src/baselines/paper_tools.py](src/baselines/paper_tools.py), with the two upstream bugs fixed and listed there), FalkorDB, GraphRAG-SDK and open-source Python libraries.
+The first commit is 2026-10-16 05:01 UTC, after the event opened (2026-10-14 18:31 UTC). Everything in this repository was written during the event. Reused, as Rule 9 allows: the HERB dataset, HERB's scoring code (ported in [src/eval/grade.py](src/eval/grade.py)) and its retrieval baselines (ported in [src/baselines/](src/baselines/), with two upstream bugs fixed and listed in [paper_tools.py](src/baselines/paper_tools.py)), FalkorDB, GraphRAG-SDK and open-source Python libraries.
 
 ## AI assistance
 
