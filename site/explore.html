@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explore every answer: inherit-brain</title>
+<meta name="description" content="All 1,203 held-out HERB questions: every arm's answer and score, A5's tool path with its Cypher queries, and the records it cited.">
+<meta name="color-scheme" content="light dark">
+<script>try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="preload" href="assets/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/site.css">
+<script type="module" src="assets/js/explore.js"></script>
+</head>
+<body class="page-explore">
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="wordmark" href="./">inherit-brain</a>
+    <nav class="nav" aria-label="Main">
+      <a href="./">Overview</a>
+      <a href="explore.html" aria-current="page">Explore</a>
+      <a href="whatif.html">If someone leaves</a>
+      <a href="https://github.com/zeyusuntt/inherit-brain">GitHub</a>
+    </nav>
+    <button class="theme-toggle" type="button">Dark theme</button>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+  <div class="ex-top">
+    <h1>Every held-out answer</h1>
+    <p id="ex-sub">Every arm's answer and score, A5's path through the graph, and the records it cited.</p>
+  </div>
+  <div class="ex-grid">
+    <aside class="ex-side" aria-label="Questions">
+      <form class="filters" id="filters" role="search">
+        <div class="field"><label for="f-product">Product</label><select id="f-product"><option value="">All products</option></select></div>
+        <div class="field"><label for="f-type">Type</label>
+          <select id="f-type">
+            <option value="">All types</option><option value="person">Person</option><option value="company">Company</option>
+            <option value="pr">PR</option><option value="url">URL</option><option value="content">Content</option><option value="unanswerable">Unanswerable</option>
+          </select></div>
+        <div class="field"><label for="f-seen">Development set</label>
+          <select id="f-seen"><option value="">Seen or not</option><option value="seen">Seen in development</option><option value="unseen">Never seen</option></select></div>
+        <div class="field"><label for="f-outcome">Outcome</label>
+          <select id="f-outcome">
+            <option value="">Any outcome</option><option value="a5c">A5 correct (score 100)</option><option value="a5w">A5 wrong or partial</option>
+            <option value="a5b">A5 beat A0</option><option value="a0b">A0 beat A5</option>
+          </select></div>
+        <div class="field" style="grid-column: span 2"><label for="f-text">Search text or key</label><input id="f-text" type="search" autocomplete="off" placeholder="for example: reopened"></div>
+      </form>
+      <div class="ex-count"><span id="count" aria-live="polite">Loading questions</span><button class="btn" type="button" id="random">Random question</button></div>
+      <ul class="qlist" id="qlist" aria-label="Questions in dataset order">
+        <li><div class="skel" style="height:58px;margin:10px"></div></li>
+        <li><div class="skel" style="height:58px;margin:10px"></div></li>
+        <li><div class="skel" style="height:58px;margin:10px"></div></li>
+        <li><div class="skel" style="height:58px;margin:10px"></div></li>
+      </ul>
+      <div class="pager"><button class="btn" type="button" id="prev-page">Previous</button><span id="page-info"></span><button class="btn" type="button" id="next-page">Next</button></div>
+      <p class="dots-key" aria-hidden="true">
+        <span><i class="dot a5" style="--v:100"></i>A5</span>
+        <span><i class="dot o" style="--v:60"></i>other arms, in table order</span>
+        <span>fill = score</span>
+        <span><i class="dot na"></i>did not run</span>
+      </p>
+    </aside>
+    <section class="detail" id="detail" aria-live="polite" aria-label="Question detail"></section>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div>
+      <p>Questions and records: HERB, Salesforce AI Research, CC BY-NC 4.0. Excerpts are shown for non-commercial research use.</p>
+    </div>
+    <div class="right"><p><a href="https://github.com/zeyusuntt/inherit-brain">github.com/zeyusuntt/inherit-brain</a></p></div>
+  </div>
+</footer>
+</body>
+</html>

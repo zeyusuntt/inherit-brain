@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>If this person leaves: inherit-brain</title>
+<meta name="description" content="Per product: which open bugs and PRs would lose their only recorded owner if one person left, and which work depends on them.">
+<meta name="color-scheme" content="light dark">
+<script>try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="preload" href="assets/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/site.css">
+<script type="module" src="assets/js/whatif.js"></script>
+</head>
+<body class="page-whatif">
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="wordmark" href="./">inherit-brain</a>
+    <nav class="nav" aria-label="Main">
+      <a href="./">Overview</a>
+      <a href="explore.html">Explore</a>
+      <a href="whatif.html" aria-current="page">If someone leaves</a>
+      <a href="https://github.com/zeyusuntt/inherit-brain">GitHub</a>
+    </nav>
+    <button class="theme-toggle" type="button">Dark theme</button>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+  <div class="wi-top">
+    <h1 class="h2">If this person leaves</h1>
+    <p class="lede">For one product at a time: which open bugs and pull requests would lose their only recorded owner, and which other open work depends on them.</p>
+  </div>
+  <div class="wi-grid">
+    <aside class="wi-side">
+      <div class="field"><label for="wi-product">Product</label><select id="wi-product"></select></div>
+      <div class="defs" id="defs">
+        <div class="skel skel-line"></div><div class="skel skel-line" style="width:80%"></div><div class="skel skel-line" style="width:90%"></div>
+      </div>
+    </aside>
+    <section aria-label="People">
+      <div class="wi-tabs seg" role="tablist" aria-label="Which people">
+        <button type="button" role="tab" id="tab-owners" aria-selected="true" aria-controls="people-panel">Most open work</button>
+        <button type="button" role="tab" id="tab-leads" aria-selected="false" aria-controls="people-panel">Engineering Leads</button>
+      </div>
+      <p class="small" id="tab-note" style="margin-bottom:16px"></p>
+      <div id="people-panel" role="tabpanel" aria-labelledby="tab-owners">
+        <div class="skel" style="height:64px;margin-bottom:8px"></div><div class="skel" style="height:64px;margin-bottom:8px"></div><div class="skel" style="height:64px"></div>
+      </div>
+      <p class="wi-foot">Computed by GRAPH.COPY of the product graph, removing the person in the copy, and diffing; checked against an independent Python computation on every lead. The lists here come from that Python computation on a read-only export of the graph, which matched the copy-and-diff result with 0 mismatches for every lead on both FalkorDB versions (<a href="https://github.com/zeyusuntt/inherit-brain/blob/main/results/freeze/whatif_check.json">whatif_check.json</a>).</p>
+    </section>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div><p>Questions and records: HERB, Salesforce AI Research, CC BY-NC 4.0. Excerpts are shown for non-commercial research use.</p></div>
+    <div class="right"><p><a href="https://github.com/zeyusuntt/inherit-brain">github.com/zeyusuntt/inherit-brain</a></p></div>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>inherit-brain: ask the product you inherited</title>
+<meta name="description" content="A company brain on FalkorDB over Salesforce's HERB benchmark. Held-out results, every answer's graph path and records, and an if-this-person-leaves view.">
+<meta name="color-scheme" content="light dark">
+<script>try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="preload" href="assets/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/site.css">
+<script type="module" src="assets/js/overview.js"></script>
+</head>
+<body class="page-overview">
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="wrap">
+    <a class="wordmark" href="./">inherit-brain</a>
+    <nav class="nav" aria-label="Main">
+      <a href="./" aria-current="page">Overview</a>
+      <a href="explore.html">Explore</a>
+      <a href="whatif.html">If someone leaves</a>
+      <a href="https://github.com/zeyusuntt/inherit-brain">GitHub</a>
+    </nav>
+    <button class="theme-toggle" type="button">Dark theme</button>
+  </div>
+</header>
+
+<main id="main">
+  <!-- ============================================================ hero -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-copy">
+        <p class="kicker">Graph Hacks 2026 · Track 3: Company Brain</p>
+        <h1 class="h1">Ask the product you inherited.</h1>
+        <p class="lede">inherit-brain turns a product team's Slack, meetings, documents and pull requests into a FalkorDB graph, and answers questions by walking it. Every answer shows its tool calls, the Cypher they ran, and the records they returned.</p>
+
+        <div id="scores" class="scores" aria-describedby="score-caption">
+          <div class="skel" style="height:150px"></div>
+        </div>
+        <div class="score-axis" aria-hidden="true"><span style="left:0">0</span><span style="left:50%">50</span><span style="left:100%">100</span></div>
+        <p id="score-caption" class="micro score-caption">Primary endpoint, held-out, F1 x 100 (macro average over person, company and artifact questions).</p>
+
+        <div class="hero-foot">
+          <p id="hero-line">1,203 held-out questions on Salesforce's HERB benchmark, 24 products, plan pre-registered before the run.</p>
+          <p class="linkrow" id="hero-links">
+            <a href="https://github.com/zeyusuntt/inherit-brain/blob/main/PREREG.md">Pre-registration</a>
+            <a href="https://github.com/zeyusuntt/inherit-brain/blob/main/results/RESULTS.md">Results</a>
+            <a href="explore.html">Explore every answer</a>
+          </p>
+        </div>
+      </div>
+
+      <aside class="specimen" id="specimen" aria-label="One real question and its path">
+        <div class="specimen-head">
+          <p class="micro">One of 1,203 questions, chosen to show a path</p>
+        </div>
+        <div id="specimen-body">
+          <div class="skel skel-line" style="width:90%"></div>
+          <div class="skel skel-line" style="width:70%"></div>
+          <div class="skel" style="height:180px;margin-top:18px"></div>
+          <div class="skel" style="height:90px;margin-top:12px"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================================================ removal test -->
+  <section class="block" id="removal" aria-labelledby="removal-h">
+    <div class="wrap">
+      <div class="block-head">
+        <h2 class="h2" id="removal-h">The removal test</h2>
+      </div>
+      <p class="removal-claim" id="removal-claim">Swap the graph tools for retrieval and the same model loses 40.8 points.</p>
+      <div id="ablation"></div>
+      <div class="interval-line">
+        <p id="h1-line"></p>
+        <div id="h1-strip" class="interval-strip"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ results -->
+  <section class="block" id="results" aria-labelledby="results-h">
+    <div class="wrap">
+      <div class="block-head">
+        <h2 class="h2" id="results-h">Results</h2>
+        <p class="lede" id="results-lede">Differences on the primary endpoint with 95% intervals. A dashed mark is the row's pre-registered threshold; the zero line is darker.</p>
+      </div>
+      <div id="forest"></div>
+
+      <div class="results-pair">
+        <figure style="margin:0">
+          <p class="figure-title">Score against input tokens</p>
+          <p class="small">The four arms that answered all 1,203 questions. Median input tokens per question, log scale.</p>
+          <div id="scatter" class="scatter-box"></div>
+          <details class="table-alt" id="scatter-table"><summary>Show as a table</summary></details>
+        </figure>
+        <div class="overlap" id="overlap"></div>
+      </div>
+
+      <div style="margin-top:72px">
+        <p class="figure-title">Every arm</p>
+        <p class="small" id="arms-note"></p>
+        <div class="table-scroll" tabindex="0" role="region" aria-label="Per-arm results table">
+          <table class="arms" id="arms-table"></table>
+        </div>
+        <p class="figure-note" id="arms-foot"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ where it is weaker -->
+  <section class="block" id="weaker" aria-labelledby="weaker-h">
+    <div class="wrap">
+      <div class="block-head">
+        <h2 class="h2" id="weaker-h">Where it is weaker</h2>
+        <p class="lede">The same run, read against inherit-brain. Each line is in <a href="https://github.com/zeyusuntt/inherit-brain/blob/main/results/RESULTS.md">RESULTS.md</a> with its interval.</p>
+      </div>
+      <ul class="ledger" id="ledger"></ul>
+    </div>
+  </section>
+
+  <!-- ============================================================ how it works -->
+  <section class="block" id="how" aria-labelledby="how-h">
+    <div class="wrap">
+      <div class="block-head">
+        <h2 class="h2" id="how-h">How it works</h2>
+      </div>
+      <ol class="pipeline">
+        <li><h3>HERB records</h3><p>Slack messages, meeting transcripts, documents and pull requests, per product.</p></li>
+        <li><h3>Extraction</h3><p>Rules plus a model turn records into people, bugs, features, PRs and their links. Audited in six rounds.</p></li>
+        <li><h3>One graph per product</h3><p><code>herb:&lt;product&gt;</code> on FalkorDB: <span data-calc="graph.nodes">56,708</span> nodes and <span data-calc="graph.edges">164,698</span> edges over <span data-calc="graph.products">30</span> products, <span data-calc="graph.labels">16</span> node labels, <span data-calc="graph.types">24</span> edge types.</p></li>
+        <li><h3>Nine typed tools</h3><p>Each runs fixed, read-only Cypher. The model chooses the tool and fills its parameters, nothing else.</p></li>
+        <li><h3>Agent loop</h3><p>Connects as a read-only database user, at most 12 tool calls and 60,000 input tokens per question.</p></li>
+      </ol>
+      <div class="branch">
+        <div><b>Separate what-if tool</b> (<code>if_leaves</code>): <code>GRAPH.COPY</code> of the product graph under its own ACL user. Not in the agent's tools and not part of the scored run; the <a href="whatif.html">If someone leaves</a> page shows its output.</div>
+      </div>
+
+      <div class="tools">
+        <div>
+          <h3 class="h3">The nine tools</h3>
+          <p class="small" style="margin-top:8px">Calls are A5's tool calls over the 1,203 held-out questions. <code>bridges</code> was available and never called.</p>
+        </div>
+        <ul class="tool-list" id="tool-list">
+          <li><code>resolve_person</code>A name to employee ids; namesakes all returned, flagged ambiguous.<span class="calls"><span data-calc="tool.resolve_person">22</span> calls</span></li>
+          <li><code>resolve_entity</code>A document, customer, PR, bug, feature or competitor name to node ids, full-text fallback.<span class="calls"><span data-calc="tool.resolve_entity">608</span> calls</span></li>
+          <li><code>doc_people</code>Authors and key reviewers of a document type, with role and evidence.<span class="calls"><span data-calc="tool.doc_people">361</span> calls</span></li>
+          <li><code>bug_board</code>Bugs counted by company or person, by status, optionally as of a date.<span class="calls"><span data-calc="tool.bug_board">399</span> calls</span></li>
+          <li><code>fix_trail</code>Customer, its bugs, the PRs that fix them, and the PR authors.<span class="calls"><span data-calc="tool.fix_trail">90</span> calls</span></li>
+          <li><code>feature_fate</code>Features by fate, with dated history, contributors and PRs.<span class="calls"><span data-calc="tool.feature_fate">226</span> calls</span></li>
+          <li><code>who_said</code>Typed observations about competitors and releases, and demo links.<span class="calls"><span data-calc="tool.who_said">226</span> calls</span></li>
+          <li><code>pr_board</code>Product PRs by approval, merge, revert reason and kind, or their authors.<span class="calls"><span data-calc="tool.pr_board">234</span> calls</span></li>
+          <li><code>bridges</code>People ranked by betweenness on the collaboration graph.<span class="calls"><span data-calc="tool.bridges">0</span> calls</span></li>
+        </ul>
+      </div>
+
+      <div class="schema">
+        <h3 class="h3" style="margin-bottom:12px">The graph schema</h3>
+        <div class="schema-figure" id="schema-figure" tabindex="0" role="region" aria-label="Schema diagram, scrolls sideways on small screens"></div>
+        <div class="schema-below">
+          <p class="figure-note" style="margin-top:0">Node and edge counts are totals over the <span data-calc="graph.products">30</span> product graphs (FalkorDB 6.0.2). Each edge count is the type's total over all its endpoints; the drawing shows its main endpoints. <code>HAS_EVENT</code> (<span data-calc="edge.HAS_EVENT">6,576</span>) links bugs and features to their event histories. <code>DISCUSSES</code> also links meetings to features and documents, and messages to documents; <code>REPORTED_BY</code> also links observations to customers and people. Endpoints follow <code>src/inherit/ontology.py</code>.</p>
+          <div>
+            <h4 class="h3" style="font-size:15px;margin-bottom:8px">Edge types not drawn</h4>
+            <table class="edge-table" id="edge-table">
+              <thead><tr><th scope="col">Edge</th><th scope="col">From, to</th><th scope="col" class="n">Count</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="features">
+        <div>
+          <h3 class="h3">FalkorDB features doing work</h3>
+          <p class="small" style="margin-top:8px">Counts come from A5's <span data-calc="cypher.total">8,104</span> recorded queries in the held-out run. Tested on FalkorDB 4.22.1 and 6.0.2. Features that no held-out question needed are listed with their zero.</p>
+          <ul class="feature-list" style="margin-top:22px">
+            <li><b>A graph per product</b><span><code>herb:&lt;product&gt;</code>, one per product; the agent only ever sees one.</span></li>
+            <li><b>Read-only ACL user</b><span>One per product for the agent. All <span data-calc="cypher.ro">8,104</span> queries ran as <code>GRAPH.RO_QUERY</code>.</span></li>
+            <li><b>Full-text index</b><span><code>db.idx.fulltext.queryNodes</code>, the fallback inside <code>resolve_entity</code>: <span data-calc="cypher.fulltext">88</span> queries.</span></li>
+            <li><b>User-defined function</b><span><code>herb_v1.statusAt</code> returns a bug's status on any date, for <code>bug_board(as_of=...)</code>: <span data-calc="cypher.statusAt">0</span> queries; no held-out question asked for a past date.</span></li>
+            <li><b>Betweenness</b><span><code>algo.betweenness</code> for knowledge bridges (native on 6.0.2, computed in Python on 4.22.1): <span data-calc="cypher.betweenness">0</span> queries.</span></li>
+            <li><b>Vector indexes</b><span>Built at load on message and document embeddings. None of the nine tools queries them: <span data-calc="cypher.vector">0</span> queries.</span></li>
+            <li><b><code>GRAPH.COPY</code></b><span>The what-if counterfactual, on a copy, under a separate ACL user. Not scored.</span></li>
+          </ul>
+        </div>
+        <div id="query">
+          <h3 class="h3" style="margin-bottom:8px">One recorded query</h3>
+          <div id="query-body">
+            <div class="skel" style="height:260px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ pre-registered -->
+  <section class="block" id="prereg" aria-labelledby="prereg-h">
+    <div class="wrap">
+      <div class="block-head">
+        <h2 class="h2" id="prereg-h">Pre-registered, then run</h2>
+        <p class="lede">Arms, endpoints, thresholds and statistics were fixed in writing and the file's hash posted publicly before any held-out question was answered.</p>
+      </div>
+      <ol class="timeline" id="timeline"></ol>
+      <p class="spend" id="spend"></p>
+    </div>
+  </section>
+
+  <!-- ============================================================ run it -->
+  <section class="block" id="run" aria-labelledby="run-h">
+    <div class="wrap run">
+      <div>
+        <h2 class="h2" id="run-h">Run it yourself</h2>
+        <p class="body" style="margin-top:14px">Python with uv, FalkorDB 4.22.1 and 6.0.2 in Docker. The test suite runs the tools against both servers. The raw HERB data is not in the repository.</p>
+        <p class="linkrow">
+          <a href="https://github.com/zeyusuntt/inherit-brain/blob/main/README.md#setup">Setup in the README</a>
+          <a href="https://github.com/zeyusuntt/inherit-brain/blob/main/docs/CYPHER.md">Every tool's Cypher</a>
+          <a href="https://github.com/zeyusuntt/inherit-brain/blob/main/docs/MCP.md">MCP server over the same tools</a>
+        </p>
+      </div>
+      <pre class="code cmd" aria-label="Commands"><span class="prompt">$ </span>uv sync
+<span class="prompt">$ </span>docker compose up -d
+<span class="prompt">$ </span>uv run pytest -q</pre>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div>
+      <p class="ink">Built for Graph Hacks (WeMakeDevs x FalkorDB), Track 3: Company Brain.</p>
+      <p>Questions and records: HERB, Salesforce AI Research, CC BY-NC 4.0. Excerpts are shown for non-commercial research use.</p>
+      <p>Built with AI coding assistants; see the <a href="https://github.com/zeyusuntt/inherit-brain/blob/main/README.md#ai-assistance">README</a>.</p>
+    </div>
+    <div class="right">
+      <p><a href="https://github.com/zeyusuntt/inherit-brain">github.com/zeyusuntt/inherit-brain</a></p>
+      <p id="footer-extra"></p>
+    </div>
+  </div>
+</footer>
+<noscript><p class="wrap small">The numbers and examples on this page are drawn from JSON by JavaScript. Without it, see results/RESULTS.md in the repository.</p></noscript>
+</body>
+</html>
