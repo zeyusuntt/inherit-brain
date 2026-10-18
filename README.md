@@ -206,7 +206,7 @@ The extracted facts, the embedding cache and the recorded held-out run are attac
 ```bash
 uv sync
 docker compose up -d                 # FalkorDB 4.22.1 on 6379, 6.0.2 on 6380
-make quickstart                      # download the release assets, load all 30 product graphs
+make quickstart                      # download the release assets (12 s), load all 30 graphs (about 3 min)
 uv run python -m inherit.ask --replay runs/eval/A5-held --slot SecurityForce/ans/21
 ```
 
