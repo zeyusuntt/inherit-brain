@@ -5,7 +5,7 @@
 inherit-brain answers a new maintainer's questions about a product's history: who wrote and reviewed a spec, who fixed the bugs customers reopened, which open work loses its owner when someone leaves. It turns a team's Slack channels, meeting transcripts, documents, pull requests and bug histories into one FalkorDB graph per product, and an agent answers by calling nine read-only graph tools. Each answer shows the tool calls, the Cypher they ran, and the records they returned.
 
 Track 3: Company Brain, Graph Hacks 2026 (WeMakeDevs x FalkorDB).
-[Demo site](https://zeyusuntt.github.io/inherit-brain/) · [Video](VIDEO_URL) · [Blog post](BLOG_URL) · [Results](results/RESULTS.md) · [Pre-registration](PREREG.md) · [Cypher](docs/CYPHER.md) · [MCP server](docs/MCP.md)
+[Demo site](https://zeyusuntt.github.io/inherit-brain/) · [Results](results/RESULTS.md) · [Pre-registration](PREREG.md) · [Cypher](docs/CYPHER.md) · [MCP server](docs/MCP.md)
 
 [![The demo site: the scores and one real question with its path](docs/blog/cover.png)](https://zeyusuntt.github.io/inherit-brain/)
 
