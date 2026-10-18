@@ -1,4 +1,5 @@
 // "If this person leaves": data/whatif.json, one product at a time, owners (default) or Engineering Leads.
+import { buildWhatIfGraph, renderGraph } from "./graphview.js";
 import { initTheme, getJSON, esc, escClean, int } from "./common.js";
 
 initTheme();
@@ -27,6 +28,7 @@ function personHTML(x, i, openIdx) {
   const num = (n, label) => `<span class="c${n === 0 ? " zero" : ""}"><small>${label}</small>${int(n)}</span>`;
   const any = x.newly_unowned.length || x.affected.length;
   const body = any ? `
+      ${renderGraph(buildWhatIfGraph(x), { title: `If ${x.person.name} leaves` })}
       ${x.newly_unowned.length ? `<div><h4>Newly unowned (${int(x.newly_unowned.length)})</h4><ul class="items">${x.newly_unowned.map(itemHTML).join("")}</ul></div>` : ""}
       ${x.affected.length ? `<div><h4>Affected (${int(x.affected.length)}), with the dependency path from the affected item to the unowned one</h4><ul class="items">${x.affected.map(affectedHTML).join("")}</ul></div>` : ""}`
     : `<p class="nothing">Nothing open has this person as its only owner, so nothing is newly unowned or affected.</p>`;

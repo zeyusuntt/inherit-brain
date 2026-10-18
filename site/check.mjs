@@ -205,7 +205,38 @@ async function overviewChecks(page, ctx) {
   const sf = readJSON(path.join(SITE, "data/q/SupportForce.json")).questions.find((q) => q.k === "SupportForce/ans/3");
   for (const id of sf.arms.A5.answer_ids) if (!spec.includes(id)) fail(ctx, `hero specimen lacks A5 id ${id}`);
   if (!(await page.$("#query-body pre.code"))) fail(ctx, "recorded Cypher query did not render");
+  // hero graph picture
+  const hg = await page.$eval("#specimen", (e) => ({ svg: e.querySelector(".gv-svg")?.textContent || "", answers: e.querySelectorAll(".gv-answer").length }));
+  if (!hg.svg) fail(ctx, "hero graph picture did not render");
+  else {
+    if (hg.answers !== sf.arms.A5.answer_ids.length) fail(ctx, `hero graph has ${hg.answers} answer nodes`);
+    for (const nm of sf.arms.A5.answer_names) if (!hg.svg.includes(nm)) fail(ctx, `hero graph lacks "${nm}"`);
+  }
+  // Start here: five numbered links that resolve
+  const links = await page.$$eval("#start .start-list li > a", (as) => as.map((a) => a.getAttribute("href")));
+  if (links.length !== 5) fail(ctx, `Start here has ${links.length} links, want 5`);
+  const whatif = readJSON(path.join(SITE, "data/whatif.json"));
+  const qkeys = new Set(questions.map((x) => x.k));
+  for (const h of links) {
+    const m = h.match(/^explore\.html#q=(.+)$/);
+    const w = h.match(/^whatif\.html#p=(.+)$/);
+    if (m) { if (!qkeys.has(m[1])) fail(ctx, `Start here link ${h} does not resolve`); }
+    else if (w) { if (!whatif.products[w[1]]) fail(ctx, `Start here link ${h} does not resolve`); }
+    else fail(ctx, `Start here link ${h} is not an explorer or what-if link`);
+  }
+  // the two picked by script: a refusal A5 got right (A1f 0) and a miss where A0 scored above 0
+  const byk = new Map(questions.map((x) => [x.k, x]));
+  const r = byk.get(links[2].replace("explore.html#q=", "")), wq = byk.get(links[3].replace("explore.html#q=", ""));
+  if (!(r && r.t === "unanswerable" && r.s.A5 === 100 && r.s.A1f === 0)) fail(ctx, "Start here item 3 is not an unanswerable question with A5 100 and A1f 0");
+  if (!(wq && wq.t !== "unanswerable" && wq.s.A5 === 0 && wq.s.A0 > 0)) fail(ctx, "Start here item 4 is not a question with A5 0 and A0 above 0");
 }
+
+const ctx_graph = [];
+// labels the graph must show (matched against its text and its text alternative)
+const GRAPH_EXPECT = {
+  "SecurityForce/ans/21": ["Julia Miller", "inaccurate api endpoint mapping", "token expiry mismanagement issue", "Bug", "BugEvent", "Person"],
+  "SupportForce/ans/3": ["Alice Davis", "Hannah Taylor", "ortaix technical specifications document", "Document", "Person"],
+};
 
 async function exploreChecks(page, ctx, key) {
   await page.goto(BASE + "explore.html#q=" + key, { waitUntil: "networkidle" });
@@ -217,6 +248,31 @@ async function exploreChecks(page, ctx, key) {
   const text = await page.$eval("#detail", (e) => e.textContent);
   for (const id of q.gold.ids) if (!text.includes(id)) fail(ctx, `${key}: gold id ${id} not rendered`);
   for (const id of q.arms.A5.answer_ids) if (!text.includes(id)) fail(ctx, `${key}: A5 id ${id} not rendered`);
+  // the graph picture: renders, names every answer entity, and the expected node labels are present
+  if (!(await page.$("#detail .gv-svg"))) fail(ctx, `${key}: graph picture did not render`);
+  else {
+    const g = await page.$eval("#detail .gv", (e) => ({
+      svg: e.querySelector("svg").textContent.replace(/\s+/g, " "),
+      alt: e.textContent.replace(/\s+/g, " "),
+      nodes: e.querySelectorAll(".gv-node").length,
+      answers: e.querySelectorAll(".gv-answer").length,
+      aria: e.querySelector("svg").getAttribute("aria-label"),
+      edgesText: e.querySelectorAll("ul.sr-only li").length,
+    }));
+    if (!g.aria || !/nodes in \d+ column/.test(g.aria)) fail(ctx, `${key}: graph has no aria-label`);
+    const names = q.arms.A5.answer_names || [];
+    names.forEach((nm, i) => { if (nm && !g.svg.includes(nm)) fail(ctx, `${key}: graph lacks answer node "${nm}"`); });
+    if (g.answers !== q.arms.A5.answer_ids.length) fail(ctx, `${key}: graph has ${g.answers} answer nodes, A5 gave ${q.arms.A5.answer_ids.length}`);
+    if (key === "SecurityForce/ans/21") {
+      const li = await page.$$eval("#detail .gv ul.sr-only li", (e) => e.map((x) => x.textContent));
+      const cnt = (t) => li.filter((x) => x.includes(` ${t} `)).length;
+      const solid = await page.$$eval("#detail .gv .gv-edge:not(.gv-unknown)", (e) => e.length);
+      if (cnt("FIXES") !== 2 || cnt("OPENED") !== 2 || cnt("HAS_EVENT") !== 4 || solid !== 8 || li.length !== 8) fail(ctx, `${key}: edges FIXES ${cnt("FIXES")}, OPENED ${cnt("OPENED")}, HAS_EVENT ${cnt("HAS_EVENT")}, solid ${solid}, total ${li.length}; want 2, 2, 4, 8, 8`);
+    }
+    for (const label of (GRAPH_EXPECT[key] || [])) if (!g.alt.includes(label)) fail(ctx, `${key}: graph lacks "${label}"`);
+    if (g.nodes > 30) fail(ctx, `${key}: graph draws ${g.nodes} nodes`);
+    ctx_graph.push(`${key}: ${g.nodes} nodes, ${g.answers} answer nodes, ${g.edgesText} edges`);
+  }
   // default list order is the dataset order
   if (!ctx.includes("390")) {
     const keys = await page.$$eval("#qlist a code", (els) => els.map((e) => e.textContent));
@@ -280,6 +336,7 @@ for (const vp of VARIANTS) for (const theme of THEMES) {
     await page.$eval(".q-details", (d) => { d.open = true; }).catch(() => {});
     await page.waitForTimeout(100);
     await textChecks(page, ctx);
+    await (await page.$("#detail .gv"))?.screenshot({ path: path.join(SHOTS, `graph-${tag}-${key.split("/")[0]}.png`) });
     await page.screenshot({ path: path.join(SHOTS, `explore-${tag}-${key.split("/")[0]}.png`), fullPage: vp.w < 500 });
     if (vp.w === 1440) await page.screenshot({ path: path.join(SHOTS, `explore-${tag}-${key.split("/")[0]}-full.png`), fullPage: true });
     summary.push(`${ctx}: ${n} Cypher blocks`);
@@ -308,6 +365,15 @@ for (const vp of VARIANTS) for (const theme of THEMES) {
   await page.goto(BASE + "whatif.html", { waitUntil: "networkidle" });
   await page.waitForSelector(".people > li", { timeout: 15000 }).catch(() => fail(ctx, "people list did not render"));
   await textChecks(page, ctx);
+  await page.goto(BASE + "whatif.html#p=SupportForce", { waitUntil: "networkidle" });
+  await page.reload({ waitUntil: "networkidle" });
+  await page.waitForSelector(".people details[open] .gv-svg", { timeout: 15000 }).catch(() => fail(ctx, "what-if graph did not render for the open person"));
+  const wg = await page.$eval(".people details[open] .gv", (e) => ({ t: e.querySelector("svg").textContent, leaving: e.querySelector(".gv-leaving")?.textContent || "", n: e.querySelectorAll(".gv-node").length }));
+  if (!/Julia Smith/.test(wg.leaving)) fail(ctx, `what-if graph leaving node is "${wg.leaving}", want Julia Smith`);
+  if (wg.n !== 4) fail(ctx, `what-if graph for Julia Smith has ${wg.n} nodes, want 4 (the person and 3 newly unowned items)`);
+  if (vp.w === 1440 && theme === "light") await page.screenshot({ path: path.join(SHOTS, `whatif-${tag}-graph.png`), fullPage: false });
+  await page.goto(BASE + "whatif.html", { waitUntil: "networkidle" });
+  await page.waitForSelector(".people > li", { timeout: 15000 });
   await page.screenshot({ path: path.join(SHOTS, `whatif-${tag}.png`), fullPage: true });
   await page.click("#tab-leads");
   await page.waitForTimeout(100);
@@ -334,6 +400,7 @@ await browser.close();
 server.close();
 
 console.log(summary.join("\n"));
+console.log([...new Set(ctx_graph)].join("\n"));
 if (notes.length) console.log(notes.join("\n"));
 if (failures.length) {
   console.log(`\nFAIL: ${failures.length} problem(s)`);

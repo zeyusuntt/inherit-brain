@@ -744,3 +744,39 @@ details[open] > .person-sum .toggle .show, details:not([open]) > .person-sum .to
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* graph picture of a path (graphview.js). Accent only on A5's answer nodes. */
+.gv { position: relative; margin: 0; }
+.gv-scroll { position: relative; overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 8px; }
+.gv-svg { display: block; max-width: none; }
+.gv-compact .gv-svg { max-width: 100%; height: auto; }
+.gv-edge { fill: none; stroke: var(--mark); stroke-width: 1.2; opacity: 0.8; }
+.gv-unknown { stroke-dasharray: 3 3; opacity: 0.6; }
+.gv-arrowhead { fill: var(--mark); }
+.gv-node rect { fill: var(--bg); stroke: var(--line-strong); stroke-width: 1; }
+.gv-name { font: 500 12.5px var(--font-sans); fill: var(--ink); }
+.gv-sub { font: 400 10px var(--font-mono); fill: var(--ink-3); font-variant-ligatures: none; }
+.gv-answer rect { fill: var(--accent-wash); stroke: var(--accent); stroke-width: 1.5; }
+.gv-answer .gv-name { fill: var(--accent-ink); }
+.gv-leaving rect { fill: var(--surface-2); stroke: var(--ink); stroke-width: 1.5; }
+.gv-rel { font: 400 9.5px var(--font-mono); fill: var(--ink-3); stroke: var(--surface); stroke-width: 4px; paint-order: stroke; font-variant-ligatures: none; }
+.gv-mark { font: 700 12px var(--font-sans); }
+.gv-ok { fill: var(--ok); }
+.gv-bad { fill: var(--bad); }
+.gv figcaption { margin-top: 6px; }
+.gv-sec { margin: 0 0 14px; }
+.specimen .gv { margin: 0 0 16px; }
+.person-body .gv { margin-bottom: 12px; }
+
+/* start here: numbered one-line deep links, dividers not cards */
+.block.start { padding: 44px 0 52px; }
+.start-list { list-style: none; counter-reset: st; margin-top: 18px; border-top: 1px solid var(--line); }
+.start-list li { counter-increment: st; display: grid; grid-template-columns: 32px minmax(0, 5fr) minmax(0, 7fr); gap: 4px 20px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+.start-list li::before { content: counter(st); font-variant-numeric: tabular-nums; color: var(--ink-3); font-size: 14px; }
+.start-list a { font-weight: 560; }
+.start-list span { color: var(--ink-2); line-height: 1.5; }
+@media (max-width: 760px) {
+  .start-list li { grid-template-columns: 24px minmax(0, 1fr); }
+  .start-list span { grid-column: 2; }
+}
+.person-body, .person-body > *, .people > li, .wi-grid > section, .gv { min-width: 0; max-width: 100%; }

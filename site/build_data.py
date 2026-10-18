@@ -327,7 +327,7 @@ def row_preview(row: dict) -> dict:
     for k in ("answer", "name", "title"):
         if k in keep and isinstance(keep[k], str):
             keep[k] = cut(keep[k], 160)
-    keep["refs"] = list(row.get("refs") or [])[:4]
+    keep["refs"] = list(row.get("refs") or [])[:16]
     keep["evidence"] = list(row.get("evidence") or [])[:3]
     return keep
 
@@ -345,11 +345,29 @@ def tool_path(envs: list, ops: list, st: dict[str, set]) -> tuple[list[dict], bo
             c["error"] = cut(e["error"], 300)
         else:
             c["truncated"] = bool(e.get("truncated"))
-            c["top_rows"] = [row_preview(r) for r in rows[:5]]
+            c["top_rows"] = [row_preview(r) for r in rows[:12]]
             if e.get("note"):
                 c["note"] = cut(e["note"], 300)
         calls.append(c)
     return calls, ambiguous
+
+
+_GRAPHS: dict = {}
+EDGE_QUERY = ("MATCH (a)-[r]->(b) WHERE a.id IN $ids AND b.id IN $ids "
+              "RETURN a.id, type(r), b.id ORDER BY a.id, type(r), b.id LIMIT 200")
+
+
+def add_edges(call: dict, product: str) -> None:
+    """The real edges among the nodes a call's exported rows reference, read from herb:<product> as the read-only
+    agent user, so the demo's path picture draws only edges that exist in the graph."""
+    ids = sorted({r for row in call.get("top_rows") or [] for r in row.get("refs") or []})
+    if len(ids) < 2:
+        return
+    if product not in _GRAPHS:
+        from inherit.tools.depth1 import agent_graph
+        _GRAPHS[product] = agent_graph(product)
+    res = _GRAPHS[product].ro_query(EDGE_QUERY, {"ids": ids})
+    call["edges"] = [[a, t, b] for a, t, b in res.result_set]
 
 
 def tool_evidence_ids(envs: list) -> list[str]:
@@ -438,6 +456,8 @@ def build_questions_and_products() -> dict:
                 envs, diag = a5env[slot]
                 calls, amb = tool_path(envs, rec.tool_ops, st)
                 ambiguous_slots += amb
+                for c in calls:
+                    add_edges(c, product)
                 final_ev = list(rec.final.evidence_ids)[:10]
                 extra = [x for x in tool_evidence_ids(envs) if x not in final_ev][:MAX_TOOL_EVIDENCE]
                 for rid in final_ev + extra:

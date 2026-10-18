@@ -6,6 +6,7 @@ import {
 } from "./common.js";
 import { forestRow, forestAxis, scatter, dumbbell, intervalStrip } from "./charts.js";
 import { highlightCypher, firstPattern } from "./cypher.js";
+import { buildAnswerGraph, renderGraph } from "./graphview.js";
 import { renderSchema, EDGES_NOT_DRAWN } from "./schema.js";
 
 initTheme();
@@ -333,6 +334,7 @@ function specimenHTML(q) {
   return `
     <p class="micro" style="margin-bottom:6px">${esc(HERO_KEY.split("/")[0])}, ${esc(q.type)} question, ${q.seen ? "seen in development" : "never seen in development"}</p>
     <p class="specimen-q">${escClean(q.text)}</p>
+    ${renderGraph(buildAnswerGraph(q), { compact: true, cap: 16, title: "The path in the graph" })}
     <ol class="path" aria-label="A5's path">
       ${steps}
       <li class="p-answer"><p class="p-title">Answer: ${a5.answer_ids.length} employee ids, ${inGold} of ${gold.size} gold ids, score <span class="a5">${f1(a5.score)}</span></p>

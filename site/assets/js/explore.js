@@ -4,6 +4,7 @@ import {
   initTheme, getJSON, esc, escClean, clean, f1, int, ARM_ORDER, ARM_NAME, OUTCOME, TYPE_LABEL,
 } from "./common.js";
 import { highlightCypher } from "./cypher.js";
+import { buildAnswerGraph, renderGraph } from "./graphview.js";
 
 initTheme();
 
@@ -273,6 +274,12 @@ function stepHTML(s, evidence) {
     ${queries}</li>`;
 }
 
+function graphSection(q) {
+  let fig = "";
+  try { fig = renderGraph(buildAnswerGraph(q), { title: "The path in the graph" }); } catch (e) { console.error(e); fig = ""; }
+  return fig ? `<section class="d-sec" aria-labelledby="h-graph"><h2 id="h-graph">The path in the graph</h2>${fig}</section>` : "";
+}
+
 function detailHTML(q, row, evidence) {
   const pos = state.filtered.findIndex((x) => x.k === q.k);
   const prev = pos > 0 ? state.filtered[pos - 1].k : null;
@@ -330,6 +337,8 @@ function detailHTML(q, row, evidence) {
     <section class="d-sec" aria-labelledby="h-ans"><h2 id="h-ans">Answers</h2>${a5HTML}
       <ul class="arm-list" aria-label="Other arms">${others}</ul>
       ${notRun.length ? `<p class="micro" style="margin-top:8px">Not run on this question: ${notRun.join(", ")} (product subsets).</p>` : ""}</section>
+
+    ${graphSection(q)}
 
     <section class="d-sec" aria-labelledby="h-path"><h2 id="h-path">A5's path <span class="dim">${path.length} tool ${path.length === 1 ? "call" : "calls"}, in order</span></h2>${pathHTML}${diag}</section>
 
