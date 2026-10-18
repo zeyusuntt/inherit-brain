@@ -155,6 +155,10 @@ flowchart LR
 
 The schema is defined in [src/inherit/graph/schema.py](src/inherit/graph/schema.py) and [src/inherit/ontology.py](src/inherit/ontology.py).
 
+The same reopened-bug path in FalkorDB Browser (6.0.2, graph `herb:SecurityForce`): Julia Miller opened two PRs, each FIXES a bug, and each bug has a REOPENED event; 7 nodes, 6 edges, 7.7 ms.
+
+![FalkorDB Browser showing Julia Miller, her two fix PRs, the bugs they fix and the REOPENED events](docs/blog/falkordb-browser.png)
+
 ## The Cypher and graph algorithms it depends on
 
 The agent never writes Cypher. It picks one of nine tools, and each tool runs fixed, parameterised Cypher through `GRAPH.RO_QUERY` as a read-only database user. [docs/CYPHER.md](docs/CYPHER.md) lists every query verbatim, with a recorded example for each tool the held-out run called.

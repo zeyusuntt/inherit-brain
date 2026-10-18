@@ -50,3 +50,5 @@ carries the mandatory property, because the node exists without it after `CREATE
 
 The client calls `INFO` when it connects, so a build user restricted to GRAPH commands fails with
 "no permissions to run the 'info' command" until `+INFO` is granted.
+
+The same holds for FalkorDB Browser: logging in as a user restricted to `(~herb:p +GRAPH.RO_QUERY)` fails with `NOPERM ... 'info' command`, so a read-only agent user cannot be used to look at its own graph in the Browser. A Browser mode that skips INFO, or a documented minimal ACL for Browser users, would let teams give analysts the same read-only user the agent has.

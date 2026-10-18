@@ -50,6 +50,10 @@ RETURN p.eid, p.name, p.role, b.id, pr.link, op.src, fx.src + hs.src, [rs.id]
 
 Cypher joins the bug, its fixing PR, the author, and a resolution followed by a reopening. Python then counts distinct PR links per author and keeps every tie at the maximum. Julia Miller had two fixing PRs across the four matched bugs, which gave HERB's gold answer. Retrieval named four other engineers. The complete answer took 9.43 seconds across four model calls; the main join took 13.0 ms in this recording.
 
+Here is the same path in FalkorDB Browser, queried directly on the product graph: Julia Miller, her two fix PRs, the bugs they fix, and each bug's REOPENED event.
+
+![FalkorDB Browser: Julia Miller opened two PRs, each FIXES a bug, each bug has a REOPENED event](https://raw.githubusercontent.com/zeyusuntt/inherit-brain/main/docs/blog/falkordb-browser.png)
+
 `resolve_entity` uses full-text search (`db.idx.fulltext.queryNodes`) as a fallback for bugs, features, documents and competitors. Person resolution matches employee IDs and normalised names, with meeting evidence for speakers. The `herb_v1.statusAt(events, $as_of)` UDF computes status from recorded events at a cutoff date. My `bridges` tool ranks directed betweenness on collaboration edges; its ranking depends on their orientation, and no held-out question called it.
 
 For "if this person leaves", a separate what-if user may use GRAPH.COPY to copy its product's graph into a scratch namespace, delete a person in the copy, and diff who owns the open bugs and PRs before and after. On SupportForce, if Julia Smith leaves, two open bugs and one open pull request have no owner left. My independent Python check reported no mismatches. This feature computes consequences from recorded ownership and dependencies; it was outside the scored question run.
