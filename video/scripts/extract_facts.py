@@ -92,6 +92,7 @@ def walk_graph(product: dict) -> dict:
         "answer": [{"eid": eid, "name": name, "in_gold": eid in gold} for eid, name in answered],
         "n_gold": len(gold), "n_correct": sum(eid in gold for eid, _ in answered), "score": a5["score"],
         "alice_davis": alice,
+        "documents": next(x["params"]["docs"] for x in step["queries"] if "docs" in x["params"]),
     }
 
 

@@ -52,6 +52,15 @@ EXTRA_AFTER_S = {"intro": 0.8, "walk_graph": 0.6, "results": 1.5, "audit": 0.8, 
 SAY_AS = {"GRAPH.COPY": "graph copy", "Qwen3": "Chwen three", "Hi, I'm Zeyu.": "Hi, I'm Zay-yoo."}
 
 
+# Recording only: where the narrator's words differ from the script and both whisper models (large-v3-turbo
+# and small.en) hear the same different word, the captions follow what he said. (beat, written, said)
+AS_SPOKEN = [
+    ("intro", "Hi, I'm Zeyu.", "Hey, I'm Zeyu."),
+    ("benchmark", "Salesforce's HERB benchmark", "Salesforce HERB benchmark"),
+    ("results", "twenty-six, with twelve times", "twenty-six, and twelve times"),
+]
+
+
 def paragraphs() -> list[str]:
     text = SCRIPT.read_text(encoding="utf-8")
     start = next((m.start() for m in re.finditer(r"^## The narration \(", text, re.M)), None)
@@ -289,17 +298,28 @@ def texts_pauses(texts: list[str]) -> float:
     return sum(t.count("/") for t in texts) * 1.0
 
 
-def narration(recording: Path) -> None:
-    """Time the beats to the narrator's own recording, cleaned and loudness-normalised."""
+def narration(recording: Path, already_clean: bool = False) -> None:
+    """Time the beats to the narrator's own recording, cleaned and loudness-normalised.
+
+    `already_clean`: the recording comes from assemble_narration.py, which has denoised it and
+    normalised it to -16 LUFS; only the leading silence is trimmed, so it is not processed twice."""
     texts = paragraphs()
+    for beat, written, said in AS_SPOKEN:
+        index = BEATS.index(beat)
+        if written not in texts[index]:
+            raise SystemExit(f"AS_SPOKEN: {written!r} is not in the {beat} paragraph")
+        texts[index] = texts[index].replace(written, said)
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
         tmpdir = Path(tmp)
         cleaned = tmpdir / "cleaned.wav"
-        # High-pass rumble, light FFT denoise, then broadcast loudness (-16 LUFS, -1.5 dBTP).
+        # High-pass rumble, light FFT denoise, then broadcast loudness (-16 LUFS, -1.5 dBTP); an assembled
+        # take only loses its leading silence.
+        chain = "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.15"
+        if not already_clean:
+            chain += ",highpass=f=80,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11"
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(recording), "-ac", "1", "-ar", str(SAMPLE_RATE),
-                        "-af", "silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.15,"
-                        "highpass=f=80,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11", str(cleaned)], check=True)
+                        "-af", chain, str(cleaned)], check=True)
         script_tokens, mapped, heard = _align(cleaned, texts, tmpdir)
         matched_heard = set(mapped.values())
         # Lead-in: the cold open needs LEAD_IN_S before the first word.
@@ -316,6 +336,13 @@ def narration(recording: Path) -> None:
             beats.append({"id": beat, "text": text, "start_s": round(start, 3), "end_s": round(end, 3),
                           "words": _display_words(text, index, script_tokens, mapped, heard, shift, start, end)})
         extra = [(t, round(s + shift, 2), round(e + shift, 2)) for i, (t, s, e) in enumerate(heard) if i not in matched_heard]
+        # Script words with no heard counterpart, placed after the last matched word before them.
+        missing = []
+        for i, (beat_index, token) in enumerate(script_tokens):
+            if i in mapped:
+                continue
+            before = [mapped[j] for j in range(i) if j in mapped]
+            missing.append((token, BEATS[beat_index], round(heard[before[-1]][2] + shift, 2) if before else 0.0))
         voice_end = _duration(cleaned) + shift
         total = max(voice_end, beats[-1]["end_s"]) + END_HOLD_S
         out = AUDIO_DIR / "narration.wav"
@@ -329,14 +356,16 @@ def narration(recording: Path) -> None:
         "lead_in_s": round(beats[0]["start_s"], 3),
         "end_hold_s": END_HOLD_S,
         "total_s": round(total, 3),
-        "alignment": {"script_words_matched": round(coverage, 3), "unmatched_heard_words": extra},
+        "alignment": {"script_words_matched": round(coverage, 3), "unmatched_heard_words": extra, "unmatched_script_words": missing},
         "beats": beats,
     }
     DATA.write_text(json.dumps(timeline, indent=2) + "\n", encoding="utf-8")
     print(f"narration {total:.1f}s, {coverage:.0%} of script words matched, {len(extra)} extra words heard -> {DATA.relative_to(ROOT)}")
     if extra:
         print("extra words heard (ad-libs or stumbles to cut in assemble_narration.py):",
-              " ".join(f"{t}@{s}" for t, s, _ in extra[:40]))
+              " ".join(f"{t}@{s}" for t, s, _ in extra[:60]))
+    if missing:
+        print("script words not heard (skipped, changed or misheard):", " ".join(f"{t}@{s}" for t, _, s in missing[:60]))
     if total > LIMIT_S:
         print("WARNING: longer than 2:59; trim a pause or a sentence before rendering")
 
@@ -347,6 +376,6 @@ if __name__ == "__main__":
         rate = int(sys.argv[2]) if len(sys.argv) > 2 else 150
         scratch(rate)
     elif mode == "narration" and len(sys.argv) > 2:
-        narration(Path(sys.argv[2]))
+        narration(Path(sys.argv[2]), already_clean="--clean" in sys.argv[3:])
     else:
-        raise SystemExit("usage: timeline.py scratch [WPM] | timeline.py narration RECORDING")
+        raise SystemExit("usage: timeline.py scratch [WPM] | timeline.py narration RECORDING [--clean]")

@@ -4,7 +4,7 @@
 // Usage, from video/: node scripts/capture.mjs [name ...]   (no names = all), then node scripts/manifest.mjs
 import {chromium} from 'playwright';
 import {spawn} from 'node:child_process';
-import {mkdir, writeFile} from 'node:fs/promises';
+import {copyFile, mkdir, writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 
 const PORT = Number(process.env.SITE_PORT ?? 8765);
@@ -15,16 +15,19 @@ const SITE = resolve('..', 'site');
 const ELEMENTS = 'h1, h2, h3, h4, .chip, .step, .step-head, .kv, pre.cypher, .qblock, .q-details, table.rows, table.rows tr, '
   + '.ans-a5, .ans-head, .chips, .gold, .arm-list, .arm-list li, .d-q, .d-tags, .d-nav, .qlist li, .ex-side, .ex-count, .filters, '
   + '.steps, .diag, .evidence li, .people > li, .person-sum, .person-body, .items li, .wi-head, .wi-foot, .wi-side, .wi-tabs, '
-  + '.hero-copy, .specimen, #scores, .scores, .removal-claim, .file, .gist, .blob-wrapper, .gist-meta, table.highlight';
+  + '.hero-copy, .specimen, #scores, .scores, .removal-claim, .file, .gist, .blob-wrapper, .gist-meta, table.highlight, '
+  + 'figure.gv, .gv-svg, section.d-sec, .gv-scroll, g.gv-node';
 
 export const PAGES = {
-  explore_q3: {path: 'explore.html#q=SupportForce/ans/3', ready: '.step', open: 'details.q-details',
-    find: ['doc_people', 'AUTHORED', 'SUGGESTED', 'eid_6e2f3e2b', 'eid_e5e36dc1', 'Alice Davis', 'Gold answer', "A5's path", 'evidence', 'First 5 of 10 rows.']},
-  explore_check: {path: 'explore.html#q=CoachForce/ans/11', ready: '.step', open: 'details.q-details',
-    find: ['Gold answer', 'Answers', "A5's path", 'A5 inherit-brain', 'GRAPH.RO_QUERY', 'Evidence']},
+  explore_q3: {path: 'explore.html#q=SupportForce/ans/3', ready: '.gv-svg', open: 'details.q-details',
+    find: ['doc_people', 'AUTHORED', 'SUGGESTED', 'eid_6e2f3e2b', 'eid_e5e36dc1', 'Alice Davis', 'Gold answer', "A5's path", 'evidence', 'First 5 of 10 rows.', 'The path in the graph']},
+  explore_check: {path: 'explore.html#q=SecurityForce/ans/21', ready: '.gv-svg', open: 'details.q-details',
+    find: ['Gold answer', 'Answers', "A5's path", 'A5 inherit-brain', 'GRAPH.RO_QUERY', 'Evidence', 'The path in the graph', 'HAS_EVENT', 'FIXES', 'OPENED']},
   whatif: {path: 'whatif.html', ready: '.people', select: ['#wi-product', 'SupportForce'],
     find: ['Julia Smith', 'Newly unowned (3)', 'Incorrect Error Log Parsing', 'Inefficient Query Execution Plan', 'Integrate User Testing Session Scheduling', 'GRAPH.COPY']},
   index: {path: 'index.html', ready: '.specimen .chip', find: ['80.0', '39.2', '26.0', 'inherit-brain']},
+  // A file, not a page: the FalkorDB Browser screenshot in docs/blog (3200x2000, treated as 2x like the captures).
+  falkordb_browser: {file: '../docs/blog/falkordb-browser.png'},
   gist: {url: 'https://gist.github.com/zeyusuntt/3012ee12697e7afade6d820e95d6bd67', wait: 5000,
     find: ['d8f4363276e972bbfb9bc2714fcceae128ddede4d163b00ffe4aaac602eadffd', 'PREREG', 'sha256']},
 };
@@ -46,6 +49,13 @@ const context = await browser.newContext({viewport: {width: 1440, height: 900}, 
 try {
   for (const name of todo) {
     const spec = PAGES[name];
+    if (spec.file) {
+      await copyFile(spec.file, `public/captures/${name}.png`);
+      await copyFile(spec.file, `public/captures/${name}-full.png`);
+      await writeFile(`public/captures/${name}.json`, JSON.stringify({url: spec.file.replace('../', ''), status: null, boxes: [], needles: [], missing: []}, null, 1));
+      console.log(name, 'copied from', spec.file);
+      continue;
+    }
     const page = await context.newPage();
     const url = spec.url ?? BASE + spec.path;
     let status = null;
@@ -73,7 +83,8 @@ try {
       for (const el of document.querySelectorAll(selector)) {
         const r = el.getBoundingClientRect();
         if (r.width === 0 || r.height === 0) continue;
-        boxes.push({tag: el.tagName.toLowerCase(), cls: String(el.className || ''), text: (el.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+        // SVG nodes have no innerText and an object className: read the attribute and the text content (their <title> names them).
+        boxes.push({tag: el.tagName.toLowerCase(), cls: el.getAttribute('class') || '', text: (el.innerText ?? el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 200),
           x: r.x + window.scrollX, y: r.y + window.scrollY, width: r.width, height: r.height});
       }
       const needles = [];

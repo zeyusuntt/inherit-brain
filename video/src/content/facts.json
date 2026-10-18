@@ -819,6 +819,11 @@
   "alice_davis": [
    "eid_6e2f3e2b",
    "eid_e5e36dc1"
+  ],
+  "documents": [
+   "Document:final_ortaix_technical_specifications_document",
+   "Document:latest_ortaix_technical_specifications_document",
+   "Document:ortaix_technical_specifications_document"
   ]
  },
  "bug_board": {

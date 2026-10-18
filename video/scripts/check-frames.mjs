@@ -100,6 +100,15 @@ test('intro: wordmark, then the schema; every brief label and edge is drawn by t
   for(const n of ['Person','Document','Meeting','Message','PR','Bug','BugEvent','Feature','Customer']) assert.ok(end.includes('data-node="'+n+'" data-lit="true"'),n);
   for(const e of ['AUTHORED','SUGGESTED','REVIEWED','OPENED','FIXES','HAS_EVENT','REPORTED_BY','ATTENDED','POSTED']) assert.ok(end.includes('data-edge="'+e+'"'),e);
 });
+test('walk_graph: the path picture arrives on "It walks the graph" and gives way to the id checklist',()=>{
+  const w=at('walk_graph','It walks the graph'), t=at('walk_graph','Ten people');
+  assert.ok(!shot('walk_graph',w-10).includes('data-path-picture'));
+  const html=shot('walk_graph',w+12);
+  assert.ok(html.includes('data-path-picture'));
+  assert.ok(plain(html).includes('The path in the graph'));
+  assert.ok(!shot('walk_graph',t+12).includes('data-path-picture'));
+  assert.ok(plain(shot('walk_graph',t+12)).includes('All 10 ids returned'));
+});
 test('walk_graph: the Alice Davis rows are named with both ids on their cue',()=>{
   const a=at('walk_graph','two different people');
   assert.deepEqual(facts.walk_graph.alice_davis.slice().sort(),['eid_6e2f3e2b','eid_e5e36dc1']);
@@ -158,10 +167,22 @@ test('falkordb: the four items appear as named; the Cypher and the what-if count
   const cypher=plain(shot('falkordb',f('its history')+12));
   for(const s of ['[fx:FIXES]','[op:OPENED]','[hs:HAS_EVENT]','SecurityForce/ans/21']) assert.ok(cypher.includes(s),s);
   assert.ok((shot('falkordb',f('its history')+12).match(/data-lit="true"/g)??[]).length>=5);
+  const browserAt=f('in one query');
+  assert.ok(!shot('falkordb',browserAt-1).includes('data-stage="browser"'));
+  for(let frame=browserAt;frame<browserAt+Math.round(3.2*timeline.fps);frame++) assert.ok(shot('falkordb',frame).includes('data-stage="browser"'),'FalkorDB Browser on screen at '+frame);
+  const browser=plain(shot('falkordb',browserAt+60));
+  assert.ok(browser.includes('the same path in FalkorDB Browser'));
+  assert.ok(browser.includes('7 nodes, 6 edges') && browser.includes('7.7 ms'));
+  assert.ok(shot('falkordb',browserAt+60).includes('data-camera="falkordb_browser"'));
   const end=plain(shot('falkordb',win('falkordb').durationInFrames-1));
   assert.ok(end.includes('If Julia Smith leaves'));
   assert.ok(end.includes('2 open bugs') && end.includes('1 pull request'));
   assert.equal(facts.whatif.bugs,2); assert.equal(facts.whatif.prs,1);
+});
+test('check_it shows the path picture of SecurityForce/ans/21 on "Every answer"',()=>{
+  const html=shot('check_it',at('check_it','Every answer')+15);
+  assert.ok(html.includes('data-camera="explore_check"'));
+  assert.ok(html.includes('data-mark="the answer"'));
 });
 test('check_it ends on the site address',()=>{
   assert.ok(plain(shot('check_it',win('check_it').durationInFrames-1)).includes('zeyusuntt.github.io/inherit-brain'));

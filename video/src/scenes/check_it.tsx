@@ -8,16 +8,19 @@ import {cuer, type SceneProps} from './types';
 const NAME = 'explore_check' as const;
 const CAM = {left: layout.margin, top: 190, width: layout.width, height: 1020};
 
-// The explorer in motion on another held-out question: the list and the question, the path's
-// Cypher, then the gold answer beside every arm's answer and score; then the link.
+// The explorer in motion on another held-out question (SecurityForce/ans/21): the list and the
+// question, its path picture (BugEvent, Bug, PR, Person by HAS_EVENT, FIXES, OPENED), then the gold
+// answer beside every arm's answer and score; then the link.
 export function CheckIt(p: SceneProps) {
   const frame = useCurrentFrame();
   const cue = cuer(p);
-  const query = cue('every query');
+  const path = cue('Every answer');
   const gold = cue('gold answer');
   const link = cue('The link is below');
-  const step1 = union(element(NAME, 'step-head', 'resolve_entity'), element(NAME, 'q-details', 'MATCH (p:Product)'));
-  const answers = union(element(NAME, 'gold'), element(NAME, 'arm-list'), needle(NAME, 'Gold answer'));
+  const figure = union(needle(NAME, 'The path in the graph'), element(NAME, 'gv-svg'));
+  const armList = element(NAME, 'arm-list');
+  const answers = union(element(NAME, 'gold'), needle(NAME, 'Gold answer'), rect(armList.x, armList.y, armList.w, 130));
+  const person = element(NAME, 'gv-node', 'Person:');
   const dim = interpolate(frame, [link, link + 12], [0, 1], clamp);
   return <AbsoluteFill style={{background: palette.page}}>
     <div style={{position: 'absolute', left: layout.margin, top: layout.top, display: 'flex', gap: 28, alignItems: 'baseline'}}>
@@ -26,10 +29,9 @@ export function CheckIt(p: SceneProps) {
     </div>
     <div style={{position: 'absolute', ...CAM}}>
       <Camera name={NAME} width={CAM.width} height={CAM.height}
-        keys={[{at: 0, rect: rect(40, 70, 1360, 830)}, {at: query, rect: pad(step1, 16, 12)}, {at: gold, rect: pad(answers, 16, 12)}]}
+        keys={[{at: 0, rect: rect(40, 70, 1360, 830)}, {at: path, rect: pad(figure, 16, 14)}, {at: gold, rect: pad(answers, 16, 12)}]}
         marks={[
-          {rect: needle(NAME, 'GRAPH.RO_QUERY', 0), at: query + 6, until: gold, kind: 'underline'},
-          {rect: needle(NAME, 'GRAPH.RO_QUERY', 1), at: query + 10, until: gold, kind: 'underline'},
+          {rect: person, at: path + 10, until: gold, label: 'the answer', labelSide: 'top'},
           {rect: element(NAME, 'gold'), at: gold + 6, color: palette.ink, label: "HERB's gold answer", labelSide: 'top'},
           {rect: element(NAME, 'ans-head'), at: gold + 14, label: 'every arm, scored', labelSide: 'right'},
         ]}/>

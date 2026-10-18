@@ -2,10 +2,26 @@ import {AbsoluteFill, interpolate, useCurrentFrame} from 'remotion';
 import {facts} from '../content';
 import {fonts, layout, palette, radius} from '../theme';
 import {Appear, clamp} from '../components/Motion';
-import {Camera, element, needle, pad, rect, union} from '../components/Camera';
-import {cuer, type SceneProps} from './types';
+import {Camera, element, pad, rect, union} from '../components/Camera';
+import {cuer, FPS, type SceneProps} from './types';
 
 const STAGE_TOP = 350;
+const BROWSER_MIN_S = 3.4;
+// docs/blog/falkordb-browser.png: FalkorDB 6.0.2 Browser on herb:SecurityForce, running the bug_board
+// path for Julia Miller (eid_c38fe0e7). The values below are read off that screenshot (its status bar
+// says Nodes: 7, Edges: 6, RT: 7.678125ms); node centres are in its CSS pixels (the PNG is 2x).
+const BROWSER = {version: '6.0.2', graph: 'herb:SecurityForce', nodes: 7, edges: 6, ms: '7.7',
+  path: ['Julia Miller', 'OPENED 2 PRs', 'that FIXES 2 bugs', 'each with a REOPENED event']};
+const BROWSER_GRAPH = {x: 488, y: 262, w: 940, h: 590};
+const BROWSER_NODES: {x: number; y: number; label: string; step: number; side: 'top' | 'bottom' | 'right'}[] = [
+  {x: 1016, y: 788, label: 'Julia Miller', step: 0, side: 'top'},
+  {x: 860, y: 584, label: 'PR', step: 1, side: 'top'},
+  {x: 1270, y: 784, label: 'PR', step: 1, side: 'top'},
+  {x: 642, y: 458, label: 'Bug', step: 2, side: 'top'},
+  {x: 1365, y: 548, label: 'Bug', step: 2, side: 'right'},
+  {x: 531, y: 670, label: 'REOPENED', step: 3, side: 'bottom'},
+  {x: 1290, y: 318, label: 'REOPENED', step: 3, side: 'right'},
+];
 const ITEM_W = layout.width / 4;
 
 function Item({n, title, detail, at, active}: {n: number; title: string; detail: string; at: number; active: boolean}) {
@@ -41,13 +57,18 @@ export function Falkordb(p: SceneProps) {
   const cue = cuer(p);
   const at = [cue('a separate graph per product'), cue('a read-only user'), cue('Cypher that joins'), cue('GRAPH.COPY')];
   const active = at.filter((x) => frame >= x).length;
+  // After the Cypher, the same path in FalkorDB Browser, for at least BROWSER_MIN_S; the what-if stage
+  // follows once that has run and GRAPH.COPY has been named.
+  const browserAt = cue('in one query');
+  const copyStage = Math.max(at[3], browserAt + Math.round(BROWSER_MIN_S * FPS));
+  const stage = frame >= copyStage ? 'copy' : frame >= browserAt ? 'browser' : active === 3 ? 'cypher' : active === 2 ? 'acl' : 'graphs';
   const bb = facts.bug_board, wi = facts.whatif;
   const julia = cue('If Julia Smith leaves'), bugs = cue('two open bugs'), pr = cue('a pull request');
   const graphs = [...facts.products.development, ...facts.products.held_out].sort();
-  // An item's row on the what-if page: its title's line, across the people table's width.
-  const table = element('whatif', 'wi-head');
-  const itemRows = wi.items.map((it) => { const n = needle('whatif', it.title); return rect(table.x, n.y - 4, table.w, 40); });
-  const juliaRow = union(element('whatif', 'person-sum', 'Julia Smith'), ...itemRows);
+  // The what-if page's path picture: the person who leaves and the items only they own.
+  const juliaNode = element('whatif', 'gv-node', `Person: ${wi.person.name}`);
+  const itemNodes = wi.items.map((it) => element('whatif', 'gv-node', `${it.kind}: ${it.title}`));
+  const juliaRow = union(element('whatif', 'person-sum', wi.person.name), element('whatif', 'gv-svg'));
   return <AbsoluteFill style={{background: palette.page}}>
     <div style={{position: 'absolute', left: layout.margin, top: layout.top, fontFamily: fonts.sans, fontSize: 40, fontWeight: 500, color: palette.ink3}}>FalkorDB doing real work</div>
     <Item n={1} title="A graph per product" detail={`herb:<product> x ${graphs.length}`} at={at[0]} active={active === 1}/>
@@ -55,11 +76,11 @@ export function Falkordb(p: SceneProps) {
     <Item n={3} title="One Cypher query" detail={bb.tool} at={at[2]} active={active === 3}/>
     <Item n={4} title="GRAPH.COPY" detail="if someone leaves" at={at[3]} active={active === 4}/>
 
-    {active <= 1 && <div data-stage="graphs" style={{position: 'absolute', left: layout.margin, right: layout.margin, top: STAGE_TOP, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', rowGap: 14, columnGap: 40}}>
+    {stage === 'graphs' && <div data-stage="graphs" style={{position: 'absolute', left: layout.margin, right: layout.margin, top: STAGE_TOP, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', rowGap: 14, columnGap: 40}}>
       {graphs.map((g, i) => <div key={g} style={{fontFamily: fonts.mono, fontSize: 38, color: palette.ink2, opacity: interpolate(frame, [i * 1.5, i * 1.5 + 8], [0, 1], clamp)}}>herb:{g}</div>)}
     </div>}
 
-    {active === 2 && <Appear at={at[1]} style={{position: 'absolute', left: layout.margin, right: layout.margin, top: STAGE_TOP + 40}}>
+    {stage === 'acl' && <Appear at={at[1]} style={{position: 'absolute', left: layout.margin, right: layout.margin, top: STAGE_TOP + 40}}>
       <div style={{fontFamily: fonts.mono, fontSize: 56, lineHeight: 1.7, color: palette.ink, background: palette.codeBg, borderRadius: radius, padding: '40px 56px'}}>
         <div><span style={{color: palette.ink3}}>user  </span>agent_&lt;product&gt;</div>
         <div><span style={{color: palette.ink3}}>rule  </span>(~herb:&lt;product&gt; <span style={{color: palette.accentInk, fontWeight: 650}}>+GRAPH.RO_QUERY</span>)</div>
@@ -67,7 +88,7 @@ export function Falkordb(p: SceneProps) {
       <div style={{fontFamily: fonts.sans, fontSize: 52, fontWeight: 500, color: palette.ink2, marginTop: 50}}>The agent connects as this user: it can read one product's graph and nothing else.</div>
     </Appear>}
 
-    {active === 3 && <Appear at={at[2]} style={{position: 'absolute', left: layout.margin, right: layout.margin, top: STAGE_TOP}}>
+    {stage === 'cypher' && <Appear at={at[2]} style={{position: 'absolute', left: layout.margin, right: layout.margin, top: STAGE_TOP}}>
       <div style={{fontFamily: fonts.sans, fontSize: 40, color: palette.ink3, marginBottom: 20}}>
         <span style={{fontFamily: fonts.mono, color: palette.ink2}}>{bb.tool}</span>, as run for <span style={{fontFamily: fonts.mono}}>{bb.key}</span>: {bb.command}, {bb.rows} rows, {bb.ms.toFixed(1)} ms
       </div>
@@ -81,7 +102,20 @@ export function Falkordb(p: SceneProps) {
       <div style={{fontFamily: fonts.sans, fontSize: 46, fontWeight: 500, color: palette.ink2, marginTop: 36}}>Reopened bugs, the PRs that fixed them, who opened each PR, and the RESOLVED and REOPENED events, in one read-only query.</div>
     </Appear>}
 
-    {active === 4 && <Appear at={at[3]} style={{position: 'absolute', left: layout.margin, right: layout.margin, top: STAGE_TOP - 10}}>
+    {stage === 'browser' && <Appear at={browserAt} style={{position: 'absolute', left: layout.margin, right: layout.margin, top: STAGE_TOP - 10}}>
+      <div data-stage="browser" style={{fontFamily: fonts.sans, fontSize: 40, color: palette.ink3}}>the same path in FalkorDB Browser</div>
+      <div style={{marginTop: 18, display: 'flex', gap: 56}}>
+        <Camera name="falkordb_browser" fadeEdges="left" width={1560} height={800} keys={[{at: 0, rect: BROWSER_GRAPH}]}
+          marks={BROWSER_NODES.map((n, i) => ({rect: rect(n.x - 24, n.y - 24, 48, 48), at: browserAt + 8 + n.step * 8 + i, color: palette.ink2, label: n.label, labelSide: n.side}))}/>
+        <div style={{flex: 1, paddingTop: 10}}>
+          <div style={{fontFamily: fonts.mono, fontSize: 36, color: palette.ink3, lineHeight: 1.4}}>FalkorDB {BROWSER.version}<br/>{BROWSER.graph}</div>
+          {BROWSER.path.map((line, i) => <Appear key={line} at={browserAt + 8 + i * 8}><div style={{fontFamily: fonts.sans, fontSize: i === 0 ? 60 : 52, fontWeight: 650, color: palette.ink, marginTop: i === 0 ? 50 : 18}}>{line}</div></Appear>)}
+          <Appear at={browserAt + 44}><div data-browser-stats style={{fontFamily: fonts.mono, fontSize: 40, color: palette.ink2, marginTop: 50, lineHeight: 1.4}}>{BROWSER.nodes} nodes, {BROWSER.edges} edges<br/>{BROWSER.ms} ms</div></Appear>
+        </div>
+      </div>
+    </Appear>}
+
+    {stage === 'copy' && <Appear at={copyStage} style={{position: 'absolute', left: layout.margin, right: layout.margin, top: STAGE_TOP - 10}}>
       <div style={{display: 'flex', alignItems: 'baseline', gap: 30}}>
         <span style={{fontFamily: fonts.mono, fontSize: 40, color: palette.ink, background: palette.codeBg, borderRadius: radius, padding: '6px 18px'}}>GRAPH.COPY herb:&lt;p&gt; whatif:&lt;p&gt;:&lt;uuid4 hex&gt;</span>
         <span style={{fontFamily: fonts.sans, fontSize: 38, color: palette.ink3}}>on a copy, as its own ACL user; not part of the scored run</span>
@@ -90,10 +124,10 @@ export function Falkordb(p: SceneProps) {
         <Camera name="whatif" width={1640} height={780}
           keys={[{at: 0, rect: rect(110, 86, 1220, 570)}, {at: julia, rect: pad(juliaRow, 24, 20)}]}
           marks={[
-            {rect: needle('whatif', 'Julia Smith'), at: julia + 6, kind: 'underline', color: palette.ink},
-            {rect: itemRows[0], at: bugs, color: palette.bad},
-            {rect: itemRows[1], at: bugs + 6, color: palette.bad},
-            {rect: itemRows[2], at: pr, color: palette.bad},
+            {rect: juliaNode, at: julia + 6, color: palette.ink},
+            {rect: itemNodes[0], at: bugs, color: palette.bad},
+            {rect: itemNodes[1], at: bugs + 6, color: palette.bad},
+            {rect: itemNodes[2], at: pr, color: palette.bad},
           ]}/>
         <div style={{flex: 1, paddingTop: 30}}>
           <div style={{fontFamily: fonts.sans, fontSize: 40, color: palette.ink3}}>{wi.product}, what-if page</div>

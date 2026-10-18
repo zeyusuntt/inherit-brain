@@ -38,7 +38,7 @@ const MOVE = 22;
 // A real page, framed by a camera that moves between rectangles of the page (CSS pixels of the
 // full-page capture). Marks are highlight boxes on real elements, drawn in page coordinates.
 // `fadeEdges` fades the left and right edges, so a crop that cuts lines of text reads as deliberate.
-export function Camera({name, keys, marks = [], width, height, children, full = true, fadeEdges = false}: {name: CaptureName; keys: Key[]; marks?: Mark[]; width: number; height: number; children?: ReactNode; full?: boolean; fadeEdges?: boolean}) {
+export function Camera({name, keys, marks = [], width, height, children, full = true, fadeEdges = false}: {name: CaptureName; keys: Key[]; marks?: Mark[]; width: number; height: number; children?: ReactNode; full?: boolean; fadeEdges?: boolean | 'left'}) {
   const frame = useCurrentFrame();
   const size = full ? captures[name].full : captures[name].viewport;
   let i = 0;
@@ -53,7 +53,7 @@ export function Camera({name, keys, marks = [], width, height, children, full = 
   const left = width / 2 - (r.x + r.w / 2) * s;
   const top = height / 2 - (r.y + r.h / 2) * s;
   return <div data-camera={name} style={{width, height, position: 'relative', overflow: 'hidden', borderRadius: radius, background: palette.page, border: `2px solid ${palette.line}`, boxShadow: '0 18px 60px rgba(22,24,28,0.08)'}}>
-    <div style={{position: 'absolute', inset: 0, ...(fadeEdges ? edgeFade : {})}}>
+    <div style={{position: 'absolute', inset: 0, ...(fadeEdges === 'left' ? leftFade : fadeEdges ? edgeFade : {})}}>
     <div style={{position: 'absolute', left, top, width: size.w * s, height: size.h * s}}>
       <Img src={staticFile(`captures/${name}${full ? '-full' : ''}.png`)} style={{position: 'absolute', inset: 0, width: '100%', height: '100%'}}/>
       {marks.map((m, k) => {
@@ -79,3 +79,5 @@ export function Camera({name, keys, marks = [], width, height, children, full = 
 const clamp01 = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
 const edgeMask = 'linear-gradient(to right, transparent 0%, #000 6%, #000 94%, transparent 100%)';
 const edgeFade = {maskImage: edgeMask, WebkitMaskImage: edgeMask} as const;
+const leftMask = 'linear-gradient(to right, transparent 0%, #000 6%)';
+const leftFade = {maskImage: leftMask, WebkitMaskImage: leftMask} as const;
