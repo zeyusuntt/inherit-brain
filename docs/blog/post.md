@@ -13,6 +13,8 @@ I built inherit-brain for Graph Hacks, Track 3: Company Brain. I used Salesforce
 Recorded demo, including answers and tool traces: https://zeyusuntt.github.io/inherit-brain/
 Code: https://github.com/zeyusuntt/inherit-brain
 
+{% embed https://youtu.be/D2tpskFWl8A %}
+
 ## What it does
 
 inherit-brain turns a product's records into one FalkorDB graph per product: people, documents, meetings, Slack messages, pull requests, bugs and their event histories, features, customers, and who did what to which. An agent answers questions by calling nine read-only tools. Each tool runs fixed, parameterised Cypher; the model never writes a query.
