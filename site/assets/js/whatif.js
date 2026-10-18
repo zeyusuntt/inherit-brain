@@ -76,7 +76,8 @@ async function main() {
   }
   const names = Object.keys(data.products);
   $("wi-product").innerHTML = names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
-  const s = storedProduct();
+  const h = new URLSearchParams(location.hash.slice(1)).get("p");  // deep link: whatif.html#p=<product>
+  const s = h && data.products[h] ? h : storedProduct();
   const first = names.find((n) => data.products[n].owners.some((o) => o.counts.affected > 0)) || names[0];
   $("wi-product").value = s && data.products[s] ? s : first;
   $("defs").innerHTML = `<p><b>Definitions.</b> ${escClean(data.definitions)}</p><p><b>Basis.</b> ${escClean(data.basis)}</p><p><b>Who is listed.</b> ${escClean(data.owners_note)}</p>`;

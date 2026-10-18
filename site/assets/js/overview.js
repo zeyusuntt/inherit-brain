@@ -98,7 +98,7 @@ function renderRemoval(ov, A, hyp) {
     <tbody>
       ${row("Model", "Qwen3-30B-A3B-Instruct-2507 on Nebius", "Same")}
       ${row("Limits", `<span data-lit="arms.A0.description">12 tool calls</span>, <span data-lit="arms.A0.description">60,000 input tokens</span> per question`, "Same")}
-      ${row(`Tools<span class="only">The only change</span>`, "Nine read-only typed tools; each runs fixed Cypher on the product's FalkorDB graph", "The HERB paper's retrieval tools over the raw records", "diff")}
+      ${row(`Tools and data<span class="only">What differs</span>`, "Nine read-only typed tools; each runs fixed Cypher on the product's FalkorDB graph, built from the extracted facts", "HERB's own retrieval tools over the raw records", "diff")}
       ${row("Primary endpoint", `<span class="big a5">${v("arms.A5.primary", A.A5.primary)}</span>`, `<span class="big">${v("arms.A0.primary", A.A0.primary)}</span>`)}
       ${row("Median input tokens", v("arms.A5.median_input_tokens", A.A5.median_input_tokens, "int"), v("arms.A0.median_input_tokens", A.A0.median_input_tokens, "int"))}
       ${row("Stopped on the token budget", v("arms.A5.budget_stop_rate", A.A5.budget_stop_rate, "raw"), v("arms.A0.budget_stop_rate", A.A0.budget_stop_rate, "raw"))}
