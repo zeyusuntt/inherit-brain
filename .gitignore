@@ -18,7 +18,10 @@ video/node_modules/
 video/out/
 video/build/
 video/public/audio/
+video/public/captures/
+video/recordings/
 *.m4a
 *.MOV
 *.wav
 .models/
+.dev_article.json
