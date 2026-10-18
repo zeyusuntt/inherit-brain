@@ -52,13 +52,15 @@ def _env() -> dict[str, str]:
 @lru_cache(maxsize=1)
 def load_settings() -> Settings:
     env = _env()
-    budget = float(env["NEBIUS_BUDGET_USD"])
+    budget = float(env.get("NEBIUS_BUDGET_USD", "0"))  # no .env (a no-key checkout): a zero budget
     if not math.isfinite(budget) or budget < 0 or budget > PROJECT_CAP_USD:
         raise ValueError(f"NEBIUS_BUDGET_USD must be between 0 and {PROJECT_CAP_USD}")
     return Settings(
         nebius_base_url=env.get("NEBIUS_BASE_URL", "https://api.tokenfactory.nebius.com/v1/"),
         budget_usd=budget,
         proxy_port=int(env.get("PROXY_PORT", "8787")),
+        falkor_urls={"4.22": env.get("FALKOR_URL_4_22", "redis://localhost:6379"),
+                     "6.0": env.get("FALKOR_URL_6_0", "redis://localhost:6380")},
     )
 
 
