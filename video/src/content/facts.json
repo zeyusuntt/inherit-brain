@@ -1,0 +1,876 @@
+{
+ "source": "video/scripts/extract_facts.py from site/data, PREREG.md and results/RESULTS.md; do not edit by hand",
+ "n_questions": 1203,
+ "n_products_held_out": 24,
+ "products": {
+  "development": [
+   "ActionGenie",
+   "AnomalyForce",
+   "ContentForce",
+   "KnowledgeForce",
+   "LeadForce",
+   "TrendForce"
+  ],
+  "held_out": [
+   "AutoTuneForce",
+   "CoachForce",
+   "CollaborateForce",
+   "CollaborationForce",
+   "ConnectForce",
+   "ContextForce",
+   "EdgeForce",
+   "ExplainabilityForce",
+   "FeedbackForce",
+   "FlowForce",
+   "ForecastForce",
+   "InsightForce",
+   "MonitorForce",
+   "PersonalizeForce",
+   "PitchForce",
+   "ProposalForce",
+   "SearchFlow",
+   "SearchForce",
+   "SecurityForce",
+   "SentimentForce",
+   "SummarizeForce",
+   "SupportForce",
+   "VizForce",
+   "WorkFlowGenie"
+  ]
+ },
+ "prereg": {
+  "sha256": "d8f4363276e972bbfb9bc2714fcceae128ddede4d163b00ffe4aaac602eadffd",
+  "short": "d8f43632",
+  "posted_utc": "2026-10-17 02:50 UTC",
+  "gist_url": "https://gist.github.com/zeyusuntt/3012ee12697e7afade6d820e95d6bd67",
+  "wayback_url": "https://web.archive.org/web/20261017025021/https://gist.github.com/zeyusuntt/3012ee12697e7afade6d820e95d6bd67",
+  "commit": "bb5dcce"
+ },
+ "model": "Qwen3-30B-A3B on Nebius",
+ "model_id": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+ "arms": [
+  {
+   "id": "A5",
+   "name": "inherit-brain",
+   "n": 1203,
+   "primary": 80.0
+  },
+  {
+   "id": "A0",
+   "name": "HERB's retrieval tools, same loop",
+   "n": 1203,
+   "primary": 39.2
+  },
+  {
+   "id": "A1f",
+   "name": "The whole product in one prompt",
+   "n": 1203,
+   "primary": 26.0
+  },
+  {
+   "id": "A0v",
+   "name": "HERB's hybrid RAG",
+   "n": 1203,
+   "primary": 19.2
+  },
+  {
+   "id": "A4",
+   "name": "Depth-1 cards",
+   "n": 280,
+   "primary": 27.3
+  },
+  {
+   "id": "A4c",
+   "name": "Cards with a chain",
+   "n": 275,
+   "primary": 28.2
+  },
+  {
+   "id": "A0f",
+   "name": "Retrieval over cards",
+   "n": 275,
+   "primary": 42.3
+  },
+  {
+   "id": "A2",
+   "name": "FalkorDB GraphRAG-SDK",
+   "n": 254,
+   "primary": 24.0
+  }
+ ],
+ "scores": {
+  "A5": 80.0,
+  "A0": 39.2,
+  "A1f": 26.0
+ },
+ "tokens": {
+  "A5": 10117,
+  "A1f": 125947,
+  "ratio": 12
+ },
+ "h1": {
+  "diff": 40.8,
+  "lo": 35.7,
+  "hi": 46.2
+ },
+ "by_seen": {
+  "seen": {
+   "n": 610,
+   "diff": 57.9,
+   "lo": 51.8,
+   "hi": 63.7
+  },
+  "unseen": {
+   "n": 593,
+   "diff": 20.1,
+   "lo": 12.9,
+   "hi": 26.5
+  }
+ },
+ "audit": [
+  {
+   "round": 1,
+   "rubric": "v1",
+   "failed": [
+    {
+     "label": "bug events",
+     "value": "42/50",
+     "note": null
+    },
+    {
+     "label": "review relations",
+     "value": "36/50",
+     "note": null
+    },
+    {
+     "label": "bug recall",
+     "value": "104/146",
+     "note": null
+    },
+    {
+     "label": "reviewer recall",
+     "value": "8/15",
+     "note": null
+    }
+   ],
+   "passed_text": "names 50/50, newly unowned 30/30, dependency edges 27/30, affected paths 2/2",
+   "result": "failed"
+  },
+  {
+   "round": 2,
+   "rubric": "v2",
+   "failed": [
+    {
+     "label": "review relations",
+     "value": "41/50",
+     "note": null
+    },
+    {
+     "label": "dependency edges",
+     "value": "25/30",
+     "note": null
+    },
+    {
+     "label": "affected paths",
+     "value": "0/2",
+     "note": null
+    },
+    {
+     "label": "reviewer recall",
+     "value": "0/0",
+     "note": "no reviewers in the sampled documents"
+    }
+   ],
+   "passed_text": "bug events 49/50, names 50/50, newly unowned 30/30, bug recall 111/115",
+   "result": "failed"
+  },
+  {
+   "round": 3,
+   "rubric": "v3",
+   "failed": [
+    {
+     "label": "reviewer recall",
+     "value": "8/24",
+     "note": null
+    }
+   ],
+   "passed_text": "every precision gate, bug recall 119/124",
+   "result": "failed"
+  },
+  {
+   "round": 4,
+   "rubric": "v3",
+   "failed": [
+    {
+     "label": "reviewer recall",
+     "value": "24/52",
+     "note": null
+    }
+   ],
+   "passed_text": "every precision gate, bug recall 47/48",
+   "result": "failed"
+  },
+  {
+   "round": 5,
+   "rubric": "v4",
+   "failed": [
+    {
+     "label": "review relations",
+     "value": "39/50",
+     "note": null
+    }
+   ],
+   "passed_text": "every other precision gate, bug recall 142/146, reviewer recall 35/39",
+   "result": "failed"
+  },
+  {
+   "round": 6,
+   "rubric": "v5",
+   "failed": [],
+   "passed_text": "all (table below)",
+   "result": "passed"
+  }
+ ],
+ "audit_final": [
+  {
+   "label": "bug events",
+   "value": "50/50"
+  },
+  {
+   "label": "review relations",
+   "value": "50/50"
+  },
+  {
+   "label": "names",
+   "value": "50/50"
+  },
+  {
+   "label": "newly unowned",
+   "value": "30/30"
+  },
+  {
+   "label": "dependency edges",
+   "value": "29/30"
+  },
+  {
+   "label": "bug recall",
+   "value": "75/76"
+  },
+  {
+   "label": "reviewer recall",
+   "value": "42/48"
+  }
+ ],
+ "cold_open": {
+  "product": "SupportForce",
+  "first": "2026-03-21",
+  "last": "2026-12-05",
+  "columns": [
+   {
+    "kind": "Slack message",
+    "label": "Slack",
+    "records": [
+     {
+      "id": "20260322-1-e866f",
+      "where": "#planning-MuleSoftAISupportAssistant",
+      "author": "Julia Miller",
+      "ts": "2026-03-22 12:30",
+      "text": "@eid_f3569cc7 Sounds great, Hannah! I think we should start with an overview of the product and its unique selling..."
+     },
+     {
+      "id": "20260324-2-fd339",
+      "where": "#planning-MuleSoftAISupportAssistant",
+      "author": "Julia Smith",
+      "ts": "2026-03-24 07:06",
+      "text": "Agreed, Alice. We should also include a section on the target audience. Who exactly are we building this for? 🤔"
+     },
+     {
+      "id": "20260324-10-f05ca",
+      "where": "#planning-MuleSoftAISupportAssistant",
+      "author": "David Smith",
+      "ts": "2026-03-24 07:35",
+      "text": "I'll also add a section on user feedback and testing. It's crucial to iterate based on real user input. 🗣️"
+     },
+     {
+      "id": "20260324-7-0c016",
+      "where": "#planning-ortAIX",
+      "author": "Julia Garcia",
+      "ts": "2026-03-24 11:09",
+      "text": "Yes, and perhaps in the Growth Opportunities section, we could highlight potential international markets where ortAIX..."
+     },
+     {
+      "id": "20260331-1-2be4a",
+      "where": "#planning-MuleSoftAISupportAssistant",
+      "author": "Bob Miller",
+      "ts": "2026-03-31 21:01",
+      "text": "Hey @eid_c8ebc4b0, sounds good! We should start by defining the core functionalities. What do you think should be our..."
+     },
+     {
+      "id": "20260331-6-5d891",
+      "where": "#planning-MuleSoftAISupportAssistant",
+      "author": "Emma Miller",
+      "ts": "2026-03-31 21:13",
+      "text": "Good point, David. We should also consider accessibility features. I'll take a look at some best practices."
+     },
+     {
+      "id": "20260405-6-2653d",
+      "where": "#planning-ortAIX",
+      "author": "Emma Taylor",
+      "ts": "2026-04-05 09:09",
+      "text": "Good call, Alice. Also, in the Challenges section, we might want to elaborate on our strategy for data privacy. Given..."
+     },
+     {
+      "id": "20260407-5-30c8b",
+      "where": "#planning-MuleSoftAISupportAssistant",
+      "author": "George Miller",
+      "ts": "2026-04-07 18:25",
+      "text": "Great point, Ian. We should include both automated and manual testing approaches. I'll start drafting that section. 👍"
+     },
+     {
+      "id": "20260416-3-113cc",
+      "where": "#planning-ortAIX",
+      "author": "Julia Garcia",
+      "ts": "2026-04-16 23:02",
+      "text": "I agree with David. @eid_5636d3f5. Additionally, in the 'User Experience' section, it might be beneficial to include a..."
+     },
+     {
+      "id": "20260428-5-d9e63",
+      "where": "#planning-ortAIX",
+      "author": "Alice Davis",
+      "ts": "2026-04-28 20:17",
+      "text": "That sounds good, Emma. One more thing, in the Growth Opportunities section, should we mention any specific technology..."
+     },
+     {
+      "id": "20260512-3-a1d95",
+      "where": "#planning-ortAIX",
+      "author": "Alice Martinez",
+      "ts": "2026-05-12 10:41",
+      "text": "I agree with both suggestions. Additionally, in the 'Future Growth and Expansion' section, could we elaborate more on..."
+     },
+     {
+      "id": "20260823-5-96be5",
+      "where": "#bug-hannahmiller-SupportForce",
+      "author": "Hannah Miller",
+      "ts": "2026-08-23 10:24",
+      "text": "Awesome, thanks! Lastly, we have 'Inefficient Error Log Parsing'. The UI stalls when parsing complex logs, affecting..."
+     },
+     {
+      "id": "20260915-1-540c9",
+      "where": "#bug-hannahmiller-SupportForce",
+      "author": "Hannah Miller",
+      "ts": "2026-09-15 22:52",
+      "text": "First up, we have an issue titled 'Incorrect Error Log Parsing'. The AI assistant is misinterpreting certain error log..."
+     },
+     {
+      "id": "20260922-5-a1d35",
+      "where": "#bug-davidjohnson-SupportForce",
+      "author": "David Johnson",
+      "ts": "2026-09-22 17:05",
+      "text": "Awesome, thanks! Lastly, we have a 'JWT Token Expiry Mismanagement' issue. The API gateway isn't refreshing JWT tokens..."
+     },
+     {
+      "id": "20261007-3-f0898",
+      "where": "#bug-hannahmiller-SupportForce",
+      "author": "Hannah Miller",
+      "ts": "2026-10-08 01:25",
+      "text": "Great, thanks! Next, we have 'Faulty Log Pattern Recognition'. The AI assistant is failing to correctly identify and..."
+     },
+     {
+      "id": "20261016-3-08b00",
+      "where": "#bug-hannahmiller-SupportForce",
+      "author": "Hannah Miller",
+      "ts": "2026-10-17 04:10",
+      "text": "Great, thanks! Next, we have 'Memory Bloat from Cached Queries'. Cached query results aren't being managed..."
+     }
+    ]
+   },
+   {
+    "kind": "Meeting segment",
+    "label": "Meetings",
+    "records": [
+     {
+      "id": "ortAIX_planning_1#5",
+      "where": "Market Research Report ortAIX_planning_1",
+      "author": "Alice Martinez",
+      "ts": "2026-03-30 20:12",
+      "text": "Thanks, Julia. I think the report is comprehensive, but I noticed that the Product Overview section could benefit from..."
+     },
+     {
+      "id": "ortAIX_planning_1#8",
+      "where": "Market Research Report ortAIX_planning_1",
+      "author": "Fiona Miller",
+      "ts": "2026-03-30 20:12",
+      "text": "That's a good idea, Ian. Also, in the Market Trends section, we might want to include more recent data or case studies..."
+     },
+     {
+      "id": "ortAIX_planning_2#8",
+      "where": "Product Vision Document ortAIX_planning_2",
+      "author": "Hannah Miller",
+      "ts": "2026-04-10 11:49",
+      "text": "Can we get a clarification on the 'context-aware' solutions? The example provided is helpful, but it might be..."
+     },
+     {
+      "id": "ortAIX_planning_2#11",
+      "where": "Product Vision Document ortAIX_planning_2",
+      "author": "David Johnson",
+      "ts": "2026-04-10 11:49",
+      "text": "I agree with Hannah. Addressing integration challenges could be crucial. Additionally, in the Growth Opportunities..."
+     },
+     {
+      "id": "ortAIX_planning_3#6",
+      "where": "Product Requirements Document ortAIX_planning_3",
+      "author": "Hannah Brown",
+      "ts": "2026-04-22 04:06",
+      "text": "I agree with Hannah. Also, in the product overview, can we clarify what 'context-aware solutions' specifically entail?..."
+     },
+     {
+      "id": "ortAIX_planning_3#8",
+      "where": "Product Requirements Document ortAIX_planning_3",
+      "author": "David Taylor",
+      "ts": "2026-04-22 04:06",
+      "text": "I think the target audience is well-defined, but we might want to consider adding a subsection on potential secondary..."
+     },
+     {
+      "id": "ortAIX_planning_3#11",
+      "where": "Product Requirements Document ortAIX_planning_3",
+      "author": "Fiona Miller",
+      "ts": "2026-04-22 04:06",
+      "text": "The features are comprehensive, but I think the 'User Feedback Learning' could be elaborated on. How exactly does..."
+     },
+     {
+      "id": "ortAIX_planning_4#7",
+      "where": "Technical Specifications Document...",
+      "author": "Hannah Brown",
+      "ts": "2026-05-03 20:01",
+      "text": "I have a suggestion regarding the Security and Compliance section. It mentions quarterly security audits. Given the..."
+     },
+     {
+      "id": "ortAIX_planning_4#11",
+      "where": "Technical Specifications Document...",
+      "author": "David Johnson",
+      "ts": "2026-05-03 20:01",
+      "text": "In the Growth Opportunities section, it talks about potential partnerships. Could we be more specific about the..."
+     },
+     {
+      "id": "ortAIX_planning_5#15",
+      "where": "System Design Document ortAIX_planning_5",
+      "author": "David Davis",
+      "ts": "2026-05-15 12:52",
+      "text": "I see your point, Hannah T. Maybe we could also outline a timeline for these growth initiatives to give a sense of our..."
+     },
+     {
+      "id": "ortAIX_planning_5#13",
+      "where": "System Design Document ortAIX_planning_5",
+      "author": "Alice Smith",
+      "ts": "2026-05-15 12:52",
+      "text": "On security and compliance, could we add more about our response plan for potential data breaches? It would reassure..."
+     },
+     {
+      "id": "ortAIX_planning_5#8",
+      "where": "System Design Document ortAIX_planning_5",
+      "author": "David Taylor",
+      "ts": "2026-05-15 12:52",
+      "text": "I see your point, Hannah B. Maybe we could include a section on API security protocols, detailing any advanced..."
+     },
+     {
+      "id": "product_dev_ortAIX_2#5",
+      "where": "product-planning product_dev_ortAIX_2",
+      "author": "Alice Martinez",
+      "ts": "2026-05-24 02:46",
+      "text": "Sounds good, Alice. Let's start with the User Feedback Mechanisms task. Fiona, this one's assigned to you, right?"
+     },
+     {
+      "id": "product_dev_SupportForce_4#9",
+      "where": "product-planning product_dev_SupportForce_4",
+      "author": "Alice Davis",
+      "ts": "2026-06-09 18:16",
+      "text": "Great, David. Please keep us updated on your progress. Now, moving on to the Dynamic Scaling task. George, you're..."
+     },
+     {
+      "id": "product_dev_SupportForce_5#4",
+      "where": "product-planning product_dev_SupportForce_5",
+      "author": "Alice Davis",
+      "ts": "2026-06-20 17:50",
+      "text": "Alright team, let's kick off this sprint review. First up, let's discuss the completed PRs. The 'Integrate User..."
+     },
+     {
+      "id": "product_dev_SupportForce_6#6",
+      "where": "product-planning product_dev_SupportForce_6",
+      "author": "Alice Martinez",
+      "ts": "2026-06-29 11:53",
+      "text": "Absolutely, Ian. This is a significant step forward for SupportForce. Now, let's move on to the pending tasks. First,..."
+     }
+    ]
+   },
+   {
+    "kind": "Document",
+    "label": "Documents",
+    "records": [
+     {
+      "id": "ortaix_market_research_report",
+      "where": "Market Research Report",
+      "author": "Julia Smith",
+      "ts": "2026-03-21 03:29",
+      "text": "Executive Summary: This market research report provides an in-depth analysis of the MuleSoft AI Support Assistant,..."
+     },
+     {
+      "id": "final_ortaix_market_research_report",
+      "where": "Market Research Report",
+      "author": "Julia Smith",
+      "ts": "2026-03-27 08:38",
+      "text": "Executive Summary: This market research report provides an in-depth analysis of the MuleSoft AI Support Assistant,..."
+     },
+     {
+      "id": "latest_ortaix_market_research_report",
+      "where": "Market Research Report",
+      "author": "Julia Smith",
+      "ts": "2026-03-31 21:30",
+      "text": "Executive Summary: This market research report provides an in-depth analysis of the MuleSoft AI Support Assistant,..."
+     },
+     {
+      "id": "ortaix_product_vision_document",
+      "where": "Product Vision Document",
+      "author": "David Brown",
+      "ts": "2026-04-03 21:34",
+      "text": "Product Vision Statement: The MuleSoft AI Support Assistant, ortAIX, aims to revolutionize the troubleshooting process..."
+     },
+     {
+      "id": "final_ortaix_product_vision_document",
+      "where": "Product Vision Document",
+      "author": "David Brown",
+      "ts": "2026-04-08 04:21",
+      "text": "Product Vision Statement: The MuleSoft AI Support Assistant, ortAIX, aims to revolutionize the troubleshooting process..."
+     },
+     {
+      "id": "latest_ortaix_product_vision_document",
+      "where": "Product Vision Document",
+      "author": "David Brown",
+      "ts": "2026-04-12 12:35",
+      "text": "Product Vision Statement: The MuleSoft AI Support Assistant, ortAIX, aims to revolutionize the troubleshooting process..."
+     },
+     {
+      "id": "ortaix_product_requirements_document",
+      "where": "Product Requirements Document",
+      "author": "Alice Martinez",
+      "ts": "2026-04-14 13:01",
+      "text": "Introduction: The MuleSoft AI Support Assistant, ortAIX, is a cutting-edge solution designed to revolutionize the..."
+     },
+     {
+      "id": "final_ortaix_product_requirements_document",
+      "where": "Product Requirements Document",
+      "author": "Alice Martinez",
+      "ts": "2026-04-19 18:04",
+      "text": "Introduction: The MuleSoft AI Support Assistant, ortAIX, is a cutting-edge solution designed to revolutionize the..."
+     },
+     {
+      "id": "latest_ortaix_product_requirements_document",
+      "where": "Product Requirements Document",
+      "author": "Alice Martinez",
+      "ts": "2026-04-23 06:58",
+      "text": "Introduction: The MuleSoft AI Support Assistant, ortAIX, is a cutting-edge solution designed to revolutionize the..."
+     },
+     {
+      "id": "ortaix_technical_specifications_document",
+      "where": "Technical Specifications Document",
+      "author": "Emma Garcia",
+      "ts": "2026-04-25 09:08",
+      "text": "Introduction: The MuleSoft AI Support Assistant (ortAIX) is an innovative AI-driven solution designed to enhance..."
+     },
+     {
+      "id": "final_ortaix_technical_specifications_document",
+      "where": "Technical Specifications Document",
+      "author": "Emma Garcia",
+      "ts": "2026-04-30 11:51",
+      "text": "Introduction: The MuleSoft AI Support Assistant (ortAIX) is an innovative AI-driven solution designed to enhance..."
+     },
+     {
+      "id": "latest_ortaix_technical_specifications_document",
+      "where": "Technical Specifications Document",
+      "author": "Emma Garcia",
+      "ts": "2026-05-06 21:11",
+      "text": "Introduction: The MuleSoft AI Support Assistant (ortAIX) is an innovative AI-driven solution designed to enhance..."
+     },
+     {
+      "id": "ortaix_system_design_document",
+      "where": "System Design Document",
+      "author": "Hannah Miller",
+      "ts": "2026-05-08 21:30",
+      "text": "Introduction: The MuleSoft AI Support Assistant (ortAIX) is an innovative AI-driven solution designed to enhance..."
+     },
+     {
+      "id": "final_ortaix_system_design_document",
+      "where": "System Design Document",
+      "author": "Hannah Miller",
+      "ts": "2026-05-13 03:55",
+      "text": "Introduction: The MuleSoft AI Support Assistant (ortAIX) is an innovative AI-driven solution designed to enhance..."
+     },
+     {
+      "id": "latest_ortaix_system_design_document",
+      "where": "System Design Document",
+      "author": "Hannah Miller",
+      "ts": "2026-05-16 13:01",
+      "text": "Introduction: The MuleSoft AI Support Assistant (ortAIX) is an innovative AI-driven solution designed to enhance..."
+     }
+    ]
+   },
+   {
+    "kind": "PR",
+    "label": "Pull requests",
+    "records": [
+     {
+      "id": "github_com_salesforce_ortAIX_pull_3",
+      "where": "Integrate User Testing Session Scheduling",
+      "author": "Julia Smith",
+      "ts": "2026-06-02 17:59",
+      "text": "Add functionality to allow users to schedule user testing sessions directly from the UI. This includes a calendar view..."
+     },
+     {
+      "id": "github_com_salesforce_ortAIX_pull_4",
+      "where": "Implement AWS Auto Scaling Group for ortAIX",
+      "author": "Julia Smith",
+      "ts": "2026-06-05 08:35",
+      "text": "Set up an AWS Auto Scaling Group to automatically adjust the number of EC2 instances running ortAIX based on demand...."
+     },
+     {
+      "id": "github_com_salesforce_ortAIX_pull_5",
+      "where": "Revert PR# 4: Address Security Risks in IAM...",
+      "author": "Julia Smith",
+      "ts": "2026-06-05 08:35",
+      "text": "This revert PR addresses the security concerns identified in PR# 4, which introduced overly permissive IAM roles and..."
+     },
+     {
+      "id": "github_com_salesforce_ortAIX_pull_6",
+      "where": "Integrate User Testing Session Scheduling",
+      "author": "David Miller",
+      "ts": "2026-06-12 03:31",
+      "text": "Add functionality to allow users to schedule user testing sessions directly from the UI. This includes a calendar view..."
+     },
+     {
+      "id": "github_com_salesforce_ortAIX_pull_8",
+      "where": "Revert PR# 6: Scheduling Feature Implementation",
+      "author": "David Miller",
+      "ts": "2026-06-13 20:22",
+      "text": "This revert is necessary due to a change in product direction. The focus has shifted towards enhancing existing..."
+     },
+     {
+      "id": "github_com_salesforce_ortAIX_pull_10",
+      "where": "Integrate AWS Elastic Load Balancer with ortAIX",
+      "author": "Fiona Miller",
+      "ts": "2026-06-25 20:42",
+      "text": "Deploy an AWS Elastic Load Balancer to distribute incoming traffic across multiple EC2 instances running ortAIX,..."
+     },
+     {
+      "id": "github_com_salesforce_ortAIX_pull_13",
+      "where": "Ensure GDPR and CCPA Compliance for User...",
+      "author": "Julia Smith",
+      "ts": "2026-07-08 11:10",
+      "text": "Implement necessary measures to ensure that all user feedback and testing data collection complies with GDPR and CCPA..."
+     },
+     {
+      "id": "github_com_salesforce_ortAIX_pull_15",
+      "where": "Ensure GDPR and CCPA Compliance for User...",
+      "author": "David Garcia",
+      "ts": "2026-07-13 21:42",
+      "text": "Implement necessary measures to ensure that all user feedback and testing data collection complies with GDPR and CCPA..."
+     },
+     {
+      "id": "github_com_salesforce_ortAIX_pull_17",
+      "where": "Implement CloudWatch Monitoring for ortAIX",
+      "author": "Julia Smith",
+      "ts": "2026-07-23 09:33",
+      "text": "Set up AWS CloudWatch to monitor the performance and health of ortAIX, providing insights into system behavior and..."
+     },
+     {
+      "id": "github_com_salesforce_ortAIX_pull_18",
+      "where": "Revert PR# 17: CloudWatch Monitoring...",
+      "author": "Julia Smith",
+      "ts": "2026-07-23 09:33",
+      "text": "This reverts PR# 17 due to identified security risks associated with logging sensitive data. The revert is necessary..."
+     },
+     {
+      "id": "github_com_salesforce_SupportForce_pull_31",
+      "where": "Implement Log Cleanup and Archiving to Prevent...",
+      "author": "Hannah Taylor",
+      "ts": "2026-09-01 03:24",
+      "text": "### Summary This Pull Request addresses the issue of unbounded log growth in the database due to the lack of a cleanup..."
+     },
+     {
+      "id": "github_com_salesforce_SupportForce_pull_32",
+      "where": "Relax CORS Policy to Allow Legitimate Client...",
+      "author": "Julia Garcia",
+      "ts": "2026-09-09 15:59",
+      "text": "### Summary This pull request addresses the issue of overly restrictive CORS policies that were blocking legitimate..."
+     },
+     {
+      "id": "github_com_salesforce_SupportForce_pull_34",
+      "where": "Implement Automatic Database Defragmentation...",
+      "author": "Hannah Taylor",
+      "ts": "2026-09-26 21:06",
+      "text": "### Summary This Pull Request addresses the issue of data fragmentation caused by frequent updates to database records..."
+     },
+     {
+      "id": "github_com_salesforce_SupportForce_pull_35",
+      "where": "Fix Log Correlation by Enhancing Contextual...",
+      "author": "Alice Williams",
+      "ts": "2026-09-30 15:44",
+      "text": "### Summary This Pull Request addresses the issue of erroneous log correlation where the AI assistant inaccurately..."
+     },
+     {
+      "id": "github_com_salesforce_SupportForce_pull_36",
+      "where": "Fix JWT Token Refresh Logic to Prevent...",
+      "author": "Charlie Garcia",
+      "ts": "2026-10-02 06:53",
+      "text": "### Summary This pull request addresses the issue of JWT tokens not being refreshed in a timely manner, which was..."
+     },
+     {
+      "id": "github_com_salesforce_SupportForce_pull_38",
+      "where": "Fix Improper Access Control in API...",
+      "author": "Charlie Garcia",
+      "ts": "2026-10-14 23:42",
+      "text": "### Summary This pull request addresses a critical issue where the API authentication mechanism was not enforcing..."
+     }
+    ]
+   }
+  ]
+ },
+ "walk_graph": {
+  "key": "SupportForce/ans/3",
+  "text": "Find employee IDs of the authors and key reviewers of the Technical Specifications Document for the SupportForce product?",
+  "tool": "doc_people",
+  "params": {
+   "document_type": "Technical Specifications Document",
+   "return": "people"
+  },
+  "rows": 10,
+  "ms": 21.9,
+  "n_queries": 3,
+  "queries": [
+   {
+    "command": "GRAPH.RO_QUERY",
+    "cypher": "MATCH (d:Document) RETURN d.id, d.source_id, d.type, d.release_scope",
+    "rows": 15
+   },
+   {
+    "command": "GRAPH.RO_QUERY",
+    "cypher": "MATCH (p:Person)-[au:AUTHORED]->(d:Document) WHERE d.id IN $docs AND ($role IS NULL OR p.role = $role) RETURN p.eid, p.name, p.role, d.id, au.src",
+    "rows": 3
+   },
+   {
+    "command": "GRAPH.RO_QUERY",
+    "cypher": "MATCH (p:Person)-[s:SUGGESTED]->(d:Document) WHERE d.id IN $docs AND s.kind IN ['suggestion', 'review_question'] AND ($role IS NULL OR p.role = $role) RETURN p.eid, p.name, p.role, d.id, s.kind, s.section, s.text, s.ambiguous, s.src",
+    "rows": 16
+   }
+  ],
+  "answer": [
+   {
+    "eid": "eid_294ba09d",
+    "name": "Alice Martinez",
+    "in_gold": true
+   },
+   {
+    "eid": "eid_3c2f2069",
+    "name": "Emma Garcia",
+    "in_gold": true
+   },
+   {
+    "eid": "eid_4e8b2cdc",
+    "name": "Hannah Taylor",
+    "in_gold": true
+   },
+   {
+    "eid": "eid_51f50b3a",
+    "name": "Hannah Brown",
+    "in_gold": true
+   },
+   {
+    "eid": "eid_5636d3f5",
+    "name": "David Jones",
+    "in_gold": true
+   },
+   {
+    "eid": "eid_610a4c21",
+    "name": "Alice Martinez",
+    "in_gold": true
+   },
+   {
+    "eid": "eid_6e2f3e2b",
+    "name": "Alice Davis",
+    "in_gold": true
+   },
+   {
+    "eid": "eid_71bfb0a9",
+    "name": "David Taylor",
+    "in_gold": true
+   },
+   {
+    "eid": "eid_aedadd3e",
+    "name": "David Johnson",
+    "in_gold": true
+   },
+   {
+    "eid": "eid_e5e36dc1",
+    "name": "Alice Davis",
+    "in_gold": true
+   }
+  ],
+  "n_gold": 10,
+  "n_correct": 10,
+  "score": 100.0,
+  "alice_davis": [
+   "eid_6e2f3e2b",
+   "eid_e5e36dc1"
+  ]
+ },
+ "bug_board": {
+  "key": "SecurityForce/ans/21",
+  "tool": "bug_board",
+  "command": "GRAPH.RO_QUERY",
+  "rows": 4,
+  "ms": 13.0,
+  "lines": [
+   "MATCH (b:Bug) WHERE b.reopened = true",
+   "  AND ($components IS NULL OR b.component IN $components)",
+   "  AND ($companies IS NULL OR any(x IN b.companies WHERE x IN $companies))",
+   "MATCH (pr:PR)-[fx:FIXES]->(b)",
+   "MATCH (p:Person)-[op:OPENED]->(pr)",
+   "MATCH (b)-[hs:HAS_EVENT]->(rs:BugEvent) WHERE rs.type = 'RESOLVED' AND pr.link IN rs.fix_pr_links",
+   "MATCH (b)-[:HAS_EVENT]->(ro:BugEvent) WHERE ro.type = 'REOPENED' AND ro.ts > rs.ts",
+   "RETURN p.eid, p.name, p.role, b.id, pr.link, op.src, fx.src + hs.src, [rs.id]"
+  ]
+ },
+ "whatif": {
+  "product": "SupportForce",
+  "person": {
+   "eid": "eid_11732422",
+   "name": "Julia Smith",
+   "role": "Software Engineer"
+  },
+  "counts": {
+   "already_unowned": 0,
+   "newly_unowned": 3,
+   "affected": 0
+  },
+  "items": [
+   {
+    "kind": "Bug",
+    "title": "Incorrect Error Log Parsing",
+    "id": "Bug:SupportForce:ch-force-076b01:incorrect-error-log-parsing"
+   },
+   {
+    "kind": "Bug",
+    "title": "Inefficient Query Execution Plan",
+    "id": "Bug:SupportForce:ch-force-076b01:inefficient-query-execution-plan"
+   },
+   {
+    "kind": "PR",
+    "title": "Integrate User Testing Session Scheduling",
+    "id": "PR:https://github.com/salesforce/ortAIX/pull/3"
+   }
+  ],
+  "bugs": 2,
+  "prs": 1
+ },
+ "site_url": "https://zeyusuntt.github.io/inherit-brain/",
+ "site_label": "zeyusuntt.github.io/inherit-brain",
+ "repo_label": "github.com/zeyusuntt/inherit-brain"
+}

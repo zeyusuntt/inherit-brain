@@ -1,0 +1,38 @@
+{
+  "name": "inherit-brain-video",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The inherit-brain demo video (Graph Hacks 2026, Track 3), built with Remotion from the demo site and the frozen run's numbers.",
+  "scripts": {
+    "qr": "node scripts/generate-qr.mjs",
+    "facts": "python3 scripts/extract_facts.py",
+    "capture": "node scripts/capture.mjs && node scripts/manifest.mjs",
+    "prestudio": "npm run qr",
+    "prestill": "npm run qr",
+    "prestills": "npm run qr",
+    "prerender": "npm run qr",
+    "check": "tsc --noEmit && node --test scripts/check-video.mjs && node scripts/check-frames.mjs",
+    "stills": "node scripts/render-stills.mjs",
+    "contact-sheet": "node scripts/contact-sheet.mjs",
+    "studio": "remotion studio src/index.ts",
+    "still": "remotion still src/index.ts InheritBrain out/still.png",
+    "render": "remotion render src/index.ts InheritBrain out/inherit-brain-draft.mp4 --concurrency=4"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "5.3.0",
+    "@fontsource-variable/geist-mono": "5.3.0",
+    "@remotion/cli": "4.0.532",
+    "qrcode": "1.5.4",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "remotion": "4.0.532"
+  },
+  "devDependencies": {
+    "@remotion/bundler": "4.0.532",
+    "@remotion/renderer": "4.0.532",
+    "@types/qrcode": "1.5.6",
+    "@types/react": "19.1.8",
+    "playwright": "1.63.0",
+    "typescript": "5.8.3"
+  }
+}

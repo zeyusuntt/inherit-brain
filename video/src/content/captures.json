@@ -1,0 +1,3680 @@
+{
+ "explore_check": {
+  "url": "explore.html#q=CoachForce/ans/11",
+  "viewport": {
+   "w": 1440,
+   "h": 900
+  },
+  "full": {
+   "w": 1440,
+   "h": 3702
+  },
+  "boxes": [
+   {
+    "tag": "h1",
+    "cls": "",
+    "text": "Every held-out answer",
+    "x": 64,
+    "y": 85,
+    "width": 250.9375,
+    "height": 38.390625
+   },
+   {
+    "tag": "aside",
+    "cls": "ex-side",
+    "text": "Product All products AutoTuneForce CoachForce CollaborateForce CollaborationForce ConnectForce ContextForce EdgeForce ExplainabilityForce FeedbackForce FlowForce ForecastForce InsightForce MonitorForc",
+    "x": 64,
+    "y": 141.390625,
+    "width": 420,
+    "height": 750
+   },
+   {
+    "tag": "form",
+    "cls": "filters",
+    "text": "Product All products AutoTuneForce CoachForce CollaborateForce CollaborationForce ConnectForce ContextForce EdgeForce ExplainabilityForce FeedbackForce FlowForce ForecastForce InsightForce MonitorForc",
+    "x": 64,
+    "y": 141.390625,
+    "width": 420,
+    "height": 144.375
+   },
+   {
+    "tag": "div",
+    "cls": "ex-count",
+    "text": "1,203 of 1,203 questions Random question",
+    "x": 64,
+    "y": 285.765625,
+    "width": 420,
+    "height": 57.390625
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/11 PR never seen Can you find links to PRs related to the disaster recovery strategy in CoachForce that were not approved? 100.0",
+    "x": 64,
+    "y": 344.15625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/12 PR never seen Can you provide links to the approved PRs for implementing the disaster recovery strategy in CoachForce? 100.0",
+    "x": 64,
+    "y": 457.53125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/13 person Find the employee ID of engineer with the highest number of approved feature development PRs in CoachForce? 100.0",
+    "x": 64,
+    "y": 570.90625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/14 person Find the employee ID of engineer with the highest number of unapproved feature development PRs in CoachForce? 100.0",
+    "x": 64,
+    "y": 684.28125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/15 content Find features for CoachForce that were discussed but not implemented? 20.0",
+    "x": 64,
+    "y": 797.65625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/16 person Find employee IDs of team members who were responsible for features in CoachForce that were discussed but not implemented? 0.0",
+    "x": 64,
+    "y": 911.03125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/17 person Find the employee IDs of engineers who authored maximum number of PRs in CoachForce for bug fixes that are now reopened by customers. 0.0",
+    "x": 64,
+    "y": 1024.40625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/18 person Find the employee IDs of engineers who dismissed maximum bugs in CoachForce that are now reopened by customers. 100.0",
+    "x": 64,
+    "y": 1137.78125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/19 company Find the name of company that has the maximum number of reopened bugs in CoachForce. 100.0",
+    "x": 64,
+    "y": 1251.15625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/20 company Find the name of company that has the maximum number of active bugs in CoachForce. 100.0",
+    "x": 64,
+    "y": 1364.53125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/ans/21 person Find employee IDs of engineers who are assigned to the highest number of active bugs in CoachForce. 100.0",
+    "x": 64,
+    "y": 1477.90625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/0 unanswerable never seen What are the employee IDs of team members who shared demos of CoachForce's competitor products? 100.0",
+    "x": 64,
+    "y": 1591.28125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/1 unanswerable Find the demo URLs shared by team members for CoachForce's competitor products? 100.0",
+    "x": 64,
+    "y": 1704.65625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/2 unanswerable never seen Find employee IDs of Chief Product Officers who reviewed the Market Research Report for CoachForce? 100.0",
+    "x": 64,
+    "y": 1818.03125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/3 unanswerable never seen Find employee IDs of QA Specialists who reviewed the Market Research Report for CoachForce? 100.0",
+    "x": 64,
+    "y": 1931.40625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/4 unanswerable never seen Find employee IDs of Product Managers who reviewed the Product Vision Document for CoachForce? 0.0",
+    "x": 64,
+    "y": 2044.78125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/5 unanswerable never seen Find employee IDs of Technical Architects who reviewed the Product Vision Document for CoachForce? 100.0",
+    "x": 64,
+    "y": 2158.15625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/6 unanswerable never seen Find employee IDs of Chief Product Officers who reviewed the Product Requirements Document for CoachForce? 100.0",
+    "x": 64,
+    "y": 2271.53125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/7 unanswerable never seen Find employee IDs of Technical Architects who reviewed the Product Requirements Document for CoachForce? 100.0",
+    "x": 64,
+    "y": 2384.90625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/8 unanswerable never seen Find employee IDs of Marketing Managers who reviewed the Product Requirements Document for CoachForce? 100.0",
+    "x": 64,
+    "y": 2498.28125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/9 unanswerable never seen Find employee IDs of UX Researchers who reviewed the Technical Specifications Document for CoachForce? 100.0",
+    "x": 64,
+    "y": 2611.65625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/10 unanswerable never seen Find employee IDs of Marketing Managers who reviewed the Technical Specifications Document for CoachForce? 100.0",
+    "x": 64,
+    "y": 2725.03125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CoachForce/unans/11 unanswerable never seen Find employee IDs of Engineering Leads who reviewed the System Design Document for CoachForce? 100.0",
+    "x": 64,
+    "y": 2838.40625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/0 content What are the changes suggested by Engineering Lead to improve the Market Research Report for CollaborateForce? 70.0",
+    "x": 64,
+    "y": 2951.78125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/1 content What are the changes suggested by Marketing Manager to improve the Market Research Report for CollaborateForce? 85.0",
+    "x": 64,
+    "y": 3065.15625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/2 content What are the changes suggested by UX Researcher to improve the Market Research Report for CollaborateForce? 85.0",
+    "x": 64,
+    "y": 3178.53125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/3 content What are the changes suggested by Engineering Lead to improve the Product Vision Document for CollaborateForce? 85.0",
+    "x": 64,
+    "y": 3291.90625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/4 content What are the changes suggested by Chief Product Officer to improve the Product Vision Document for CollaborateForce? 80.0",
+    "x": 64,
+    "y": 3405.28125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/5 content What are the changes suggested by UX Researcher to improve the Product Vision Document for CollaborateForce? 75.0",
+    "x": 64,
+    "y": 3518.65625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/6 content What are the changes suggested by Engineering Lead to improve the Product Requirements Document for CollaborateForce? 75.0",
+    "x": 64,
+    "y": 3632.03125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/7 content What are the changes suggested by QA Specialist to improve the Product Requirements Document for CollaborateForce? 75.0",
+    "x": 64,
+    "y": 3745.40625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/8 content What are the changes suggested by UX Researcher to improve the Product Requirements Document for CollaborateForce? 100.0",
+    "x": 64,
+    "y": 3858.78125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/9 content never seen What are the changes suggested by Engineering Lead to improve the Technical Specifications Document for CollaborateForce? 90.0",
+    "x": 64,
+    "y": 3972.15625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/10 content never seen What are the changes suggested by QA Specialist to improve the Technical Specifications Document for CollaborateForce? 60.0",
+    "x": 64,
+    "y": 4085.53125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/11 content never seen What are the changes suggested by Product Manager to improve the Technical Specifications Document for CollaborateForce? 85.0",
+    "x": 64,
+    "y": 4198.90625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/12 content What are the unique features of CollaborateForce's competitor products? 90.0",
+    "x": 64,
+    "y": 4312.28125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/13 content What are the weaknesses of CollaborateForce's competitor products? 85.0",
+    "x": 64,
+    "y": 4425.65625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/14 person Find employee IDs of team members who provided insights on the strengths and weaknesses of CollaborateForce's competitor products? 100.0",
+    "x": 64,
+    "y": 4539.03125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/15 person Find employee IDs of team members who shared demos of CollaborateForce's competitor products? 100.0",
+    "x": 64,
+    "y": 4652.40625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "CollaborateForce/ans/16 URL Find the demo URLs shared by team members for CollaborateForce's competitor products? 100.0",
+    "x": 64,
+    "y": 4765.78125,
+    "width": 420,
+    "height": 112.375
+   },
+   {
+    "tag": "div",
+    "cls": "d-nav",
+    "text": "CoachForce/ans/11 Previous Next",
+    "x": 516,
+    "y": 141.390625,
+    "width": 860,
+    "height": 36.390625
+   },
+   {
+    "tag": "h2",
+    "cls": "d-q",
+    "text": "Can you find links to PRs related to the disaster recovery strategy in CoachForce that were not approved?",
+    "x": 516,
+    "y": 195.78125,
+    "width": 820.78125,
+    "height": 65
+   },
+   {
+    "tag": "p",
+    "cls": "d-tags",
+    "text": "CoachForce PR question Its question string never appeared in development.",
+    "x": 516,
+    "y": 272.78125,
+    "width": 860,
+    "height": 24
+   },
+   {
+    "tag": "h2",
+    "cls": "",
+    "text": "Gold answer",
+    "x": 516,
+    "y": 330.78125,
+    "width": 860,
+    "height": 24
+   },
+   {
+    "tag": "div",
+    "cls": "gold",
+    "text": "https://github.com/salesforce/CoFoAIX/pull/4 https://github.com/salesforce/CoFoAIX/pull/12 https://github.com/salesforce/CoFoAIX/pull/20",
+    "x": 516,
+    "y": 364.78125,
+    "width": 860,
+    "height": 63.75
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "https://github.com/salesforce/CoFoAIX/pull/4 https://github.com/salesforce/CoFoAIX/pull/12 https://github.com/salesforce/CoFoAIX/pull/20",
+    "x": 532,
+    "y": 368.78125,
+    "width": 844,
+    "height": 55.75
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "https://github.com/salesforce/CoFoAIX/pull/4",
+    "x": 532,
+    "y": 368.78125,
+    "width": 348,
+    "height": 24.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "https://github.com/salesforce/CoFoAIX/pull/12",
+    "x": 886,
+    "y": 368.78125,
+    "width": 355.5,
+    "height": 24.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "https://github.com/salesforce/CoFoAIX/pull/20",
+    "x": 532,
+    "y": 399.65625,
+    "width": 355.5,
+    "height": 24.875
+   },
+   {
+    "tag": "h2",
+    "cls": "",
+    "text": "Answers",
+    "x": 516,
+    "y": 489.375,
+    "width": 860,
+    "height": 24
+   },
+   {
+    "tag": "div",
+    "cls": "ans-a5",
+    "text": "A5 inherit-brain 100.0 answered The following PRs related to the disaster recovery strategy in CoachForce were not approved: https://github.com/salesforce/CoFoAIX/pull/12, https://github.com/salesforc",
+    "x": 516,
+    "y": 523.375,
+    "width": 860,
+    "height": 200.90625
+   },
+   {
+    "tag": "p",
+    "cls": "ans-head",
+    "text": "A5 inherit-brain 100.0 answered",
+    "x": 535,
+    "y": 538.375,
+    "width": 824,
+    "height": 25.59375
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "✓ https://github.com/salesforce/CoFoAIX/pull/12 , in the gold answer ✓ https://github.com/salesforce/CoFoAIX/pull/20 , in the gold answer ✓ https://github.com/salesforce/CoFoAIX/pull/4 , in the gold a",
+    "x": 535,
+    "y": 651.53125,
+    "width": 824,
+    "height": 57.75
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ https://github.com/salesforce/CoFoAIX/pull/12 , in the gold answer",
+    "x": 535,
+    "y": 651.53125,
+    "width": 373.28125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ https://github.com/salesforce/CoFoAIX/pull/20 , in the gold answer",
+    "x": 914.28125,
+    "y": 651.53125,
+    "width": 373.28125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ https://github.com/salesforce/CoFoAIX/pull/4 , in the gold answer",
+    "x": 535,
+    "y": 683.40625,
+    "width": 365.78125,
+    "height": 25.875
+   },
+   {
+    "tag": "ul",
+    "cls": "arm-list",
+    "text": "A0 33.3 answered The PR related to the disaster recovery strategy in CoachForce that was not approved is https://github.com/salesforce/CoFoAIX/pull/20. It was closed with a 'CHANGES_REQUESTED' review,",
+    "x": 516,
+    "y": 734.28125,
+    "width": 860,
+    "height": 188.984375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "A0 33.3 answered The PR related to the disaster recovery strategy in CoachForce that was not approved is https://github.com/salesforce/CoFoAIX/pull/20. It was closed with a 'CHANGES_REQUESTED' review,",
+    "x": 516,
+    "y": 735.28125,
+    "width": 860,
+    "height": 41.796875
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "",
+    "x": 578,
+    "y": 926.859375,
+    "width": 798,
+    "height": 57.75
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "",
+    "x": 578,
+    "y": 926.859375,
+    "width": 373.28125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 957.28125,
+    "y": 926.859375,
+    "width": 368.53125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 578,
+    "y": 958.734375,
+    "width": 368.53125,
+    "height": 25.875
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "A1f 40.0 answered The PRs related to the disaster recovery strategy in CoachForce that were not approved are: https://github.com/salesforce/CoFoAIX/pull/20 and https://github.com/salesforce/CoFoAIX/pu",
+    "x": 516,
+    "y": 777.078125,
+    "width": 860,
+    "height": 41.796875
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "",
+    "x": 578,
+    "y": 899.09375,
+    "width": 798,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "",
+    "x": 578,
+    "y": 899.09375,
+    "width": 373.28125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 957.28125,
+    "y": 899.09375,
+    "width": 368.53125,
+    "height": 25.875
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "A0v 0.0 refused (no answer in the records) I could not find information in the records to answer this question.",
+    "x": 516,
+    "y": 818.875,
+    "width": 860,
+    "height": 62.59375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "A2 80.0 answered Yes, the PR https://github.com/salesforce/CoFoAIX/pull/4, which aims to implement regular data backups, was not approved due to the lack of monitoring for backup logs and incomplete d",
+    "x": 516,
+    "y": 881.46875,
+    "width": 860,
+    "height": 41.796875
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "",
+    "x": 578,
+    "y": 1049.859375,
+    "width": 798,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "",
+    "x": 578,
+    "y": 1049.859375,
+    "width": 365.78125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "",
+    "x": 949.78125,
+    "y": 1049.859375,
+    "width": 373.28125,
+    "height": 25.875
+   },
+   {
+    "tag": "h2",
+    "cls": "",
+    "text": "A5's path 2 tool calls, in order",
+    "x": 516,
+    "y": 984.109375,
+    "width": 860,
+    "height": 24
+   },
+   {
+    "tag": "ol",
+    "cls": "steps",
+    "text": "1 resolve_entity call 1 1 rows, 10.8 ms text disaster recovery strategy kinds [\"feature\"] answer name evidence Feature:CoachForce:disaster recovery strategy disaster recovery strategy none 2 Cypher qu",
+    "x": 516,
+    "y": 1018.109375,
+    "width": 860,
+    "height": 1958.265625
+   },
+   {
+    "tag": "li",
+    "cls": "step",
+    "text": "1 resolve_entity call 1 1 rows, 10.8 ms text disaster recovery strategy kinds [\"feature\"] answer name evidence Feature:CoachForce:disaster recovery strategy disaster recovery strategy none 2 Cypher qu",
+    "x": 516,
+    "y": 1018.109375,
+    "width": 860,
+    "height": 472.078125
+   },
+   {
+    "tag": "div",
+    "cls": "step-head",
+    "text": "resolve_entity call 1 1 rows, 10.8 ms",
+    "x": 550,
+    "y": 1018.109375,
+    "width": 826,
+    "height": 23.1875
+   },
+   {
+    "tag": "dl",
+    "cls": "kv",
+    "text": "text disaster recovery strategy kinds [\"feature\"]",
+    "x": 550,
+    "y": 1049.296875,
+    "width": 826,
+    "height": 42
+   },
+   {
+    "tag": "table",
+    "cls": "rows",
+    "text": "answer name evidence Feature:CoachForce:disaster recovery strategy disaster recovery strategy none",
+    "x": 550,
+    "y": 1105.296875,
+    "width": 826,
+    "height": 60.796875
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "answer name evidence",
+    "x": 550,
+    "y": 1105.296875,
+    "width": 826,
+    "height": 28.5
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "Feature:CoachForce:disaster recovery strategy disaster recovery strategy none",
+    "x": 550,
+    "y": 1133.796875,
+    "width": 826,
+    "height": 31.796875
+   },
+   {
+    "tag": "details",
+    "cls": "q-details",
+    "text": "2 Cypher queries Query 1 GRAPH.RO_QUERY 1 rows 4.6 ms MATCH (p:Product) RETURN p.id, p.name, p.aliases, p.previous_names params {} Query 2 GRAPH.RO_QUERY 70 rows 6.3 ms MATCH (n:Feature) RETURN n.id, ",
+    "x": 550,
+    "y": 1174.09375,
+    "width": 826,
+    "height": 288.09375
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 1 GRAPH.RO_QUERY 1 rows 4.6 ms MATCH (p:Product) RETURN p.id, p.name, p.aliases, p.previous_names params {}",
+    "x": 550,
+    "y": 1205.6875,
+    "width": 826,
+    "height": 123.25
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (p:Product) RETURN p.id, p.name, p.aliases, p.previous_names",
+    "x": 550,
+    "y": 1231.6875,
+    "width": 826,
+    "height": 71.25
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 2 GRAPH.RO_QUERY 70 rows 6.3 ms MATCH (n:Feature) RETURN n.id, n.name AS nm0, n.company AS nm1, n.title AS nm2, n.type AS nm3, n.document_type AS nm4, n.source_id AS nm5, n.link AS nm6, n.eid AS",
+    "x": 550,
+    "y": 1338.9375,
+    "width": 826,
+    "height": 123.25
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (n:Feature) RETURN n.id, n.name AS nm0, n.company AS nm1, n.title AS nm2, n.type AS nm3, n.document_type AS nm4, n.source_id AS nm5, n.link AS nm6, n.eid AS nm7, n.title AS m0, n.aliases AS m1, ",
+    "x": 550,
+    "y": 1364.9375,
+    "width": 826,
+    "height": 71.25
+   },
+   {
+    "tag": "li",
+    "cls": "step",
+    "text": "2 pr_board call 2 3 rows, 11.0 ms feature disaster recovery strategy approval unapproved state any return links answer title evidence https://github.com/salesforce/CoFoAIX/pull/12 Set Up Automated Fai",
+    "x": 516,
+    "y": 1490.1875,
+    "width": 860,
+    "height": 1486.1875
+   },
+   {
+    "tag": "div",
+    "cls": "step-head",
+    "text": "pr_board call 2 3 rows, 11.0 ms",
+    "x": 550,
+    "y": 1490.1875,
+    "width": 826,
+    "height": 23.1875
+   },
+   {
+    "tag": "dl",
+    "cls": "kv",
+    "text": "feature disaster recovery strategy approval unapproved state any return links",
+    "x": 550,
+    "y": 1521.375,
+    "width": 826,
+    "height": 86
+   },
+   {
+    "tag": "table",
+    "cls": "rows",
+    "text": "answer title evidence https://github.com/salesforce/CoFoAIX/pull/12 Set Up Automated Failover Mechanisms github_com_salesforce_CoFoAIX_pull_12 https://github.com/salesforce/CoFoAIX/pull/20 Establish R",
+    "x": 550,
+    "y": 1621.375,
+    "width": 826,
+    "height": 186.78125
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "answer title evidence",
+    "x": 550,
+    "y": 1621.375,
+    "width": 826,
+    "height": 28.5
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "https://github.com/salesforce/CoFoAIX/pull/12 Set Up Automated Failover Mechanisms github_com_salesforce_CoFoAIX_pull_12",
+    "x": 550,
+    "y": 1649.875,
+    "width": 826,
+    "height": 52.59375
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "https://github.com/salesforce/CoFoAIX/pull/20 Establish Recovery Time Objective (RTO) and Recovery Point Objective (RPO) github_com_salesforce_CoFoAIX_pull_20",
+    "x": 550,
+    "y": 1702.46875,
+    "width": 826,
+    "height": 52.59375
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "https://github.com/salesforce/CoFoAIX/pull/4 Implement Regular Data Backups github_com_salesforce_CoFoAIX_pull_4",
+    "x": 550,
+    "y": 1755.0625,
+    "width": 826,
+    "height": 52.59375
+   },
+   {
+    "tag": "details",
+    "cls": "q-details",
+    "text": "6 Cypher queries Query 1 GRAPH.RO_QUERY 1 rows 2.2 ms MATCH (p:Product) RETURN p.id, p.name, p.aliases, p.previous_names params {} Query 2 GRAPH.RO_QUERY 70 rows 4.1 ms MATCH (f:Feature) RETURN f.id, ",
+    "x": 550,
+    "y": 1816.15625,
+    "width": 826,
+    "height": 1132.21875
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 1 GRAPH.RO_QUERY 1 rows 2.2 ms MATCH (p:Product) RETURN p.id, p.name, p.aliases, p.previous_names params {}",
+    "x": 550,
+    "y": 1847.75,
+    "width": 826,
+    "height": 123.25
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (p:Product) RETURN p.id, p.name, p.aliases, p.previous_names",
+    "x": 550,
+    "y": 1873.75,
+    "width": 826,
+    "height": 71.25
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 2 GRAPH.RO_QUERY 70 rows 4.1 ms MATCH (f:Feature) RETURN f.id, f.title, f.topic, f.aliases, f.details params {}",
+    "x": 550,
+    "y": 1981,
+    "width": 826,
+    "height": 123.25
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (f:Feature) RETURN f.id, f.title, f.topic, f.aliases, f.details",
+    "x": 550,
+    "y": 2007,
+    "width": 826,
+    "height": 71.25
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 3 GRAPH.RO_QUERY 3 rows 1.7 ms MATCH (pr:PR) MATCH (pr)-[:ABOUT]->(f:Feature) WHERE pr.repo_scope = 'product' AND pr.approval = $approval AND f.id IN $features RETURN DISTINCT pr.link, pr.title,",
+    "x": 550,
+    "y": 2114.25,
+    "width": 826,
+    "height": 186.5
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (pr:PR) MATCH (pr)-[:ABOUT]->(f:Feature) WHERE pr.repo_scope = 'product' AND pr.approval = $approval AND f.id IN $features RETURN DISTINCT pr.link, pr.title, pr.approval, pr.merged, pr.state, pr",
+    "x": 550,
+    "y": 2140.25,
+    "width": 826,
+    "height": 112.5
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 4 GRAPH.RO_QUERY 3 rows 0.9 ms MATCH (p:Person)-[op:OPENED]->(pr:PR) WHERE pr.link IN $links RETURN pr.link, p.eid, p.name, p.role, op.src params {\"links\":[\"https://github.com/salesforce/CoFoAIX",
+    "x": 550,
+    "y": 2310.75,
+    "width": 826,
+    "height": 205.875
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (p:Person)-[op:OPENED]->(pr:PR) WHERE pr.link IN $links RETURN pr.link, p.eid, p.name, p.role, op.src",
+    "x": 550,
+    "y": 2336.75,
+    "width": 826,
+    "height": 91.875
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 5 GRAPH.RO_QUERY 3 rows 1.2 ms MATCH (pr:PR)-[a:ABOUT]->(f:Feature) WHERE pr.link IN $links RETURN pr.link, f.id, f.title, a.src params {\"links\":[\"https://github.com/salesforce/CoFoAIX/pull/12\",",
+    "x": 550,
+    "y": 2526.625,
+    "width": 826,
+    "height": 205.875
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (pr:PR)-[a:ABOUT]->(f:Feature) WHERE pr.link IN $links RETURN pr.link, f.id, f.title, a.src",
+    "x": 550,
+    "y": 2552.625,
+    "width": 826,
+    "height": 91.875
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 6 GRAPH.RO_QUERY 0 rows 0.9 ms MATCH (rv:PR)-[r:REVERTS]->(pr:PR) WHERE pr.link IN $links RETURN pr.link, rv.link, r.reason, r.applied, r.src params {\"links\":[\"https://github.com/salesforce/CoFo",
+    "x": 550,
+    "y": 2742.5,
+    "width": 826,
+    "height": 205.875
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (rv:PR)-[r:REVERTS]->(pr:PR) WHERE pr.link IN $links RETURN pr.link, rv.link, r.reason, r.applied, r.src",
+    "x": 550,
+    "y": 2768.5,
+    "width": 826,
+    "height": 91.875
+   },
+   {
+    "tag": "p",
+    "cls": "diag",
+    "text": "3 model calls 2 tool calls 14,601 input tokens 5.4 s latency",
+    "x": 516,
+    "y": 2986.375,
+    "width": 860,
+    "height": 20.796875
+   },
+   {
+    "tag": "h2",
+    "cls": "",
+    "text": "Evidence 3 cited, 0 more from tool rows",
+    "x": 516,
+    "y": 3041.171875,
+    "width": 860,
+    "height": 24
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "PR Set Up Automated Failover Mechanisms George Davis 2026-07-13T00:36:00 github_com_salesforce_CoFoAIX_pull_12 cited in the answer This PR implements automated failover mechanisms to ensure platform a",
+    "x": 516,
+    "y": 3075.171875,
+    "width": 860,
+    "height": 141.15625
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "PR Establish Recovery Time Objective (RTO) and Recovery Point Objective (RPO) George Davis 2026-08-05T23:54:00 github_com_salesforce_CoFoAIX_pull_20 cited in the answer This PR defines and implements ",
+    "x": 516,
+    "y": 3228.328125,
+    "width": 860,
+    "height": 118.765625
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "PR Implement Regular Data Backups George Davis 2026-06-23T17:44:00 github_com_salesforce_CoFoAIX_pull_4 cited in the answer This PR introduces a system for regular data backups to ensure data integrit",
+    "x": 516,
+    "y": 3359.09375,
+    "width": 860,
+    "height": 118.765625
+   }
+  ],
+  "needles": [
+   {
+    "needle": "A5's path",
+    "x": 747.21875,
+    "y": 99,
+    "width": 61,
+    "height": 16
+   },
+   {
+    "needle": "Gold answer",
+    "x": 516,
+    "y": 333.78125,
+    "width": 89.59375,
+    "height": 17
+   },
+   {
+    "needle": "Answers",
+    "x": 516,
+    "y": 492.375,
+    "width": 61.9375,
+    "height": 17
+   },
+   {
+    "needle": "A5 inherit-brain",
+    "x": 535,
+    "y": 541.375,
+    "width": 122.484375,
+    "height": 19
+   },
+   {
+    "needle": "A5's path",
+    "x": 516,
+    "y": 987.109375,
+    "width": 67.859375,
+    "height": 17
+   },
+   {
+    "needle": "GRAPH.RO_QUERY",
+    "x": 606.703125,
+    "y": 1208.6875,
+    "width": 114.390625,
+    "height": 14
+   },
+   {
+    "needle": "GRAPH.RO_QUERY",
+    "x": 609.640625,
+    "y": 1341.9375,
+    "width": 114.390625,
+    "height": 14
+   },
+   {
+    "needle": "GRAPH.RO_QUERY",
+    "x": 606.703125,
+    "y": 1850.75,
+    "width": 114.390625,
+    "height": 14
+   },
+   {
+    "needle": "GRAPH.RO_QUERY",
+    "x": 609.640625,
+    "y": 1984,
+    "width": 114.390625,
+    "height": 14
+   },
+   {
+    "needle": "GRAPH.RO_QUERY",
+    "x": 609.5625,
+    "y": 2117.25,
+    "width": 114.390625,
+    "height": 14
+   },
+   {
+    "needle": "GRAPH.RO_QUERY",
+    "x": 609.84375,
+    "y": 2313.75,
+    "width": 114.390625,
+    "height": 14
+   },
+   {
+    "needle": "GRAPH.RO_QUERY",
+    "x": 609.734375,
+    "y": 2529.625,
+    "width": 114.390625,
+    "height": 14
+   },
+   {
+    "needle": "GRAPH.RO_QUERY",
+    "x": 609.703125,
+    "y": 2745.5,
+    "width": 114.390625,
+    "height": 14
+   },
+   {
+    "needle": "Evidence",
+    "x": 516,
+    "y": 3044.171875,
+    "width": 65.921875,
+    "height": 17
+   }
+  ],
+  "missing": []
+ },
+ "explore_q3": {
+  "url": "explore.html#q=SupportForce/ans/3",
+  "viewport": {
+   "w": 1440,
+   "h": 900
+  },
+  "full": {
+   "w": 1440,
+   "h": 4522
+  },
+  "boxes": [
+   {
+    "tag": "h1",
+    "cls": "",
+    "text": "Every held-out answer",
+    "x": 64,
+    "y": 85,
+    "width": 250.9375,
+    "height": 38.390625
+   },
+   {
+    "tag": "aside",
+    "cls": "ex-side",
+    "text": "Product All products AutoTuneForce CoachForce CollaborateForce CollaborationForce ConnectForce ContextForce EdgeForce ExplainabilityForce FeedbackForce FlowForce ForecastForce InsightForce MonitorForc",
+    "x": 64,
+    "y": 141.390625,
+    "width": 420,
+    "height": 750
+   },
+   {
+    "tag": "form",
+    "cls": "filters",
+    "text": "Product All products AutoTuneForce CoachForce CollaborateForce CollaborationForce ConnectForce ContextForce EdgeForce ExplainabilityForce FeedbackForce FlowForce ForecastForce InsightForce MonitorForc",
+    "x": 64,
+    "y": 141.390625,
+    "width": 420,
+    "height": 144.375
+   },
+   {
+    "tag": "div",
+    "cls": "ex-count",
+    "text": "1,203 of 1,203 questions Random question",
+    "x": 64,
+    "y": 285.765625,
+    "width": 420,
+    "height": 57.390625
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SummarizeForce/unans/41 unanswerable Find bugs reported by DataSolutions in SummarizeForce that did not require any fixes? 100.0",
+    "x": 64,
+    "y": -384.84375,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SummarizeForce/unans/42 unanswerable Find bugs reported by ComputeWorks in SummarizeForce that did not require any fixes? 100.0",
+    "x": 64,
+    "y": -271.46875,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SummarizeForce/unans/43 unanswerable Find bugs reported by TechCorp in SummarizeForce that did not require any fixes? 100.0",
+    "x": 64,
+    "y": -158.09375,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SummarizeForce/unans/44 unanswerable Find bugs reported by NextGenTech in SummarizeForce that did not require any fixes? 100.0",
+    "x": 64,
+    "y": -44.71875,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SummarizeForce/unans/45 unanswerable Find bugs reported by AITransformers in SummarizeForce that did not require any fixes? 100.0",
+    "x": 64,
+    "y": 68.65625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/0 person Find employee IDs of the authors and key reviewers of the Market Research Report for the SupportForce product? 69.6",
+    "x": 64,
+    "y": 182.03125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/1 person Find employee IDs of the authors and key reviewers of the Product Vision Document for the SupportForce product? 83.3",
+    "x": 64,
+    "y": 295.40625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/2 person Find employee IDs of the authors and key reviewers of the Product Requirements Document for the SupportForce product? 81.3",
+    "x": 64,
+    "y": 408.78125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/3 person Find employee IDs of the authors and key reviewers of the Technical Specifications Document for the SupportForce product? 100.0",
+    "x": 64,
+    "y": 522.15625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/4 person Find employee IDs of the authors and key reviewers of the System Design Document for the SupportForce product? 72.7",
+    "x": 64,
+    "y": 635.53125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/5 content never seen What new features about dynamic scaling are added to SupportForce? 85.0",
+    "x": 64,
+    "y": 748.90625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/6 content What features could not be added to SupportForce due to security risks? 85.0",
+    "x": 64,
+    "y": 862.28125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/7 content What features could not be added to SupportForce due to change in product direction? 30.0",
+    "x": 64,
+    "y": 975.65625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/8 company never seen Find the names of companies were affected by issues in the Log Analysis Module in SupportForce that led to inaccurate solutions and prolonged downtime? 85.7",
+    "x": 64,
+    "y": 1089.03125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/9 person never seen Find the employee ID of engineers who resolved issues with the Log Analysis Module in SupportForce that were causing users to receive inaccurate solutions and lead",
+    "x": 64,
+    "y": 1202.40625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/10 company never seen Find the names of companies were affected by issues in the User Interface of SupportForce that caused delays and potential data loss, reducing productivity? 100.",
+    "x": 64,
+    "y": 1315.78125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/11 person never seen What is the employee ID of engineers who resolved the User Interface issues in SupportForce that were causing delays and potential data loss, reducing productivit",
+    "x": 64,
+    "y": 1429.15625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/12 company never seen Find the names of companies were affected by issues in the API Gateway of SupportForce that caused unreliable access to the AI assistant's features and interrupt",
+    "x": 64,
+    "y": 1542.53125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/13 person never seen What is the employee ID of engineers who resolved issues with the API Gateway in SupportForce that were causing unreliable access to the AI assistant's features a",
+    "x": 64,
+    "y": 1655.90625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/14 company never seen Find the names of companies were affected by issues in the database management of SupportForce that caused performance degradation and potential system crashes? ",
+    "x": 64,
+    "y": 1769.28125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/15 person never seen Find the employee ID of engineers who resolved issues with the Database Management in SupportForce that were degrading system performance and potentially causing ",
+    "x": 64,
+    "y": 1882.65625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/16 company never seen Find the names of companies were affected by issues in the Security Module of SupportForce that posed a significant risk by allowing arbitrary code execution or ",
+    "x": 64,
+    "y": 1996.03125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/17 person never seen What is the employee ID of engineers who resolved the security module issue in SupportForce that posed a risk of arbitrary code execution and data access? 100.0",
+    "x": 64,
+    "y": 2109.40625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/18 PR Find all PR links submitted by eid_b9189afb to resolve bugs reported by FusionTech in SupportForce 100.0",
+    "x": 64,
+    "y": 2222.78125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/19 PR Find all PR links submitted by eid_ccdffb93 to resolve bugs reported by DataSolutions in SupportForce 100.0",
+    "x": 64,
+    "y": 2336.15625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/20 PR Find all PR links submitted by eid_8605f7ee to resolve bugs reported by DataSolutions in SupportForce 100.0",
+    "x": 64,
+    "y": 2449.53125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/21 person Find the employee ID of engineers who resolved the maximum number of customer bugs in SupportForce 100.0",
+    "x": 64,
+    "y": 2562.90625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/22 company Find the name of company that has the maximum number of resolved bugs in SupportForce 100.0",
+    "x": 64,
+    "y": 2676.28125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/23 company Find the name of company that has the maximum number of unresolved bugs in SupportForce? 100.0",
+    "x": 64,
+    "y": 2789.65625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/ans/24 person Find employee IDs of engineers who are currently working on the highest number of unresolved customer bugs in SupportForce. 100.0",
+    "x": 64,
+    "y": 2903.03125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/unans/0 unanswerable never seen What are the employee IDs of team members who shared demos of SupportForce's competitor products? 100.0",
+    "x": 64,
+    "y": 3016.40625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/unans/1 unanswerable Find the demo URLs shared by team members for SupportForce's competitor products? 100.0",
+    "x": 64,
+    "y": 3129.78125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/unans/2 unanswerable never seen Find employee IDs of Technical Architects who reviewed the Market Research Report for SupportForce? 100.0",
+    "x": 64,
+    "y": 3243.15625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/unans/3 unanswerable never seen Find employee IDs of Product Managers who reviewed the Product Vision Document for SupportForce? 0.0",
+    "x": 64,
+    "y": 3356.53125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/unans/4 unanswerable never seen Find employee IDs of Product Managers who reviewed the Product Requirements Document for SupportForce? 0.0",
+    "x": 64,
+    "y": 3469.90625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/unans/5 unanswerable never seen Find employee IDs of Marketing Managers who reviewed the Product Requirements Document for SupportForce? 100.0",
+    "x": 64,
+    "y": 3583.28125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/unans/6 unanswerable never seen Find employee IDs of Technical Architects who reviewed the Technical Specifications Document for SupportForce? 0.0",
+    "x": 64,
+    "y": 3696.65625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/unans/7 unanswerable never seen Find employee IDs of Marketing Managers who reviewed the Technical Specifications Document for SupportForce? 100.0",
+    "x": 64,
+    "y": 3810.03125,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/unans/8 unanswerable never seen Find employee IDs of UX Researchers who reviewed the System Design Document for SupportForce? 100.0",
+    "x": 64,
+    "y": 3923.40625,
+    "width": 420,
+    "height": 113.375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "SupportForce/unans/9 unanswerable never seen What new features about user feedback mechanisms are added to SupportForce? 0.0",
+    "x": 64,
+    "y": 4036.78125,
+    "width": 420,
+    "height": 112.375
+   },
+   {
+    "tag": "div",
+    "cls": "d-nav",
+    "text": "SupportForce/ans/3 Previous Next",
+    "x": 516,
+    "y": 141.390625,
+    "width": 860,
+    "height": 36.390625
+   },
+   {
+    "tag": "h2",
+    "cls": "d-q",
+    "text": "Find employee IDs of the authors and key reviewers of the Technical Specifications Document for the SupportForce product?",
+    "x": 516,
+    "y": 195.78125,
+    "width": 820.78125,
+    "height": 65
+   },
+   {
+    "tag": "p",
+    "cls": "d-tags",
+    "text": "SupportForce person question Its question string also appears in the development set.",
+    "x": 516,
+    "y": 272.78125,
+    "width": 860,
+    "height": 24
+   },
+   {
+    "tag": "h2",
+    "cls": "",
+    "text": "Gold answer",
+    "x": 516,
+    "y": 330.78125,
+    "width": 860,
+    "height": 24
+   },
+   {
+    "tag": "div",
+    "cls": "gold",
+    "text": "Alice Davis eid_e5e36dc1 David Jones eid_5636d3f5 Alice Martinez eid_610a4c21 Alice Davis eid_6e2f3e2b David Johnson eid_aedadd3e Alice Martinez eid_294ba09d Hannah Brown eid_51f50b3a David Taylor eid",
+    "x": 516,
+    "y": 364.78125,
+    "width": 860,
+    "height": 97.625
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "Alice Davis eid_e5e36dc1 David Jones eid_5636d3f5 Alice Martinez eid_610a4c21 Alice Davis eid_6e2f3e2b David Johnson eid_aedadd3e Alice Martinez eid_294ba09d Hannah Brown eid_51f50b3a David Taylor eid",
+    "x": 532,
+    "y": 368.78125,
+    "width": 844,
+    "height": 89.625
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "Alice Davis eid_e5e36dc1",
+    "x": 532,
+    "y": 368.78125,
+    "width": 180.40625,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "David Jones eid_5636d3f5",
+    "x": 718.40625,
+    "y": 368.78125,
+    "width": 188.15625,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "Alice Martinez eid_610a4c21",
+    "x": 912.5625,
+    "y": 368.78125,
+    "width": 200.46875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "Alice Davis eid_6e2f3e2b",
+    "x": 1119.03125,
+    "y": 368.78125,
+    "width": 180.40625,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "David Johnson eid_aedadd3e",
+    "x": 532,
+    "y": 400.65625,
+    "width": 202.90625,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "Alice Martinez eid_294ba09d",
+    "x": 740.90625,
+    "y": 400.65625,
+    "width": 200.46875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "Hannah Brown eid_51f50b3a",
+    "x": 947.375,
+    "y": 400.65625,
+    "width": 202.375,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "David Taylor eid_71bfb0a9",
+    "x": 1155.75,
+    "y": 400.65625,
+    "width": 188,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "Hannah Taylor eid_4e8b2cdc",
+    "x": 532,
+    "y": 432.53125,
+    "width": 200.171875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip",
+    "text": "Emma Garcia eid_3c2f2069",
+    "x": 738.171875,
+    "y": 432.53125,
+    "width": 193.546875,
+    "height": 25.875
+   },
+   {
+    "tag": "h2",
+    "cls": "",
+    "text": "Answers",
+    "x": 516,
+    "y": 523.25,
+    "width": 860,
+    "height": 24
+   },
+   {
+    "tag": "div",
+    "cls": "ans-a5",
+    "text": "A5 inherit-brain 100.0 answered The authors and key reviewers of the Technical Specifications Document for the SupportForce product are Alice Martinez (Engineering Lead), Emma Garcia (Technical Archit",
+    "x": 516,
+    "y": 557.25,
+    "width": 860,
+    "height": 287.84375
+   },
+   {
+    "tag": "p",
+    "cls": "ans-head",
+    "text": "A5 inherit-brain 100.0 answered",
+    "x": 535,
+    "y": 572.25,
+    "width": 824,
+    "height": 25.59375
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "✓ Alice Martinez eid_294ba09d , in the gold answer ✓ Emma Garcia eid_3c2f2069 , in the gold answer ✓ Hannah Taylor eid_4e8b2cdc , in the gold answer ✓ Hannah Brown eid_51f50b3a , in the gold answer ✓ ",
+    "x": 535,
+    "y": 708.59375,
+    "width": 824,
+    "height": 121.5
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ Alice Martinez eid_294ba09d , in the gold answer",
+    "x": 535,
+    "y": 708.59375,
+    "width": 218.25,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ Emma Garcia eid_3c2f2069 , in the gold answer",
+    "x": 759.25,
+    "y": 708.59375,
+    "width": 211.328125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ Hannah Taylor eid_4e8b2cdc , in the gold answer",
+    "x": 976.578125,
+    "y": 708.59375,
+    "width": 217.953125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ Hannah Brown eid_51f50b3a , in the gold answer",
+    "x": 535,
+    "y": 740.46875,
+    "width": 220.15625,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ David Jones eid_5636d3f5 , in the gold answer",
+    "x": 761.15625,
+    "y": 740.46875,
+    "width": 205.9375,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ Alice Martinez eid_610a4c21 , in the gold answer",
+    "x": 973.09375,
+    "y": 740.46875,
+    "width": 218.25,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ Alice Davis eid_6e2f3e2b , in the gold answer",
+    "x": 535,
+    "y": 772.34375,
+    "width": 198.1875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ David Taylor eid_71bfb0a9 , in the gold answer",
+    "x": 739.1875,
+    "y": 772.34375,
+    "width": 205.78125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ David Johnson eid_aedadd3e , in the gold answer",
+    "x": 950.96875,
+    "y": 772.34375,
+    "width": 220.6875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ Alice Davis eid_e5e36dc1 , in the gold answer",
+    "x": 535,
+    "y": 804.21875,
+    "width": 198.1875,
+    "height": 25.875
+   },
+   {
+    "tag": "ul",
+    "cls": "arm-list",
+    "text": "A0 18.2 partial answer The author of the Technical Specifications Document for the SupportForce product is Emma Garcia (eid_3c2f2069), who holds the role of Technical Architect. However, the key revie",
+    "x": 516,
+    "y": 855.09375,
+    "width": 860,
+    "height": 126.390625
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "A0 18.2 partial answer The author of the Technical Specifications Document for the SupportForce product is Emma Garcia (eid_3c2f2069), who holds the role of Technical Architect. However, the key revie",
+    "x": 516,
+    "y": 856.09375,
+    "width": 860,
+    "height": 41.796875
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "",
+    "x": 578,
+    "y": 1001.296875,
+    "width": 798,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "",
+    "x": 578,
+    "y": 1001.296875,
+    "width": 211.328125,
+    "height": 25.875
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "A1f 26.7 answered The authors of the Technical Specifications Document for the SupportForce product are Emma Garcia and David Davis. The key reviewers are Hannah Miller, David Johnson, and David Brown",
+    "x": 516,
+    "y": 897.890625,
+    "width": 860,
+    "height": 41.796875
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "",
+    "x": 578,
+    "y": 1019.90625,
+    "width": 798,
+    "height": 57.75
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "",
+    "x": 578,
+    "y": 1019.90625,
+    "width": 211.328125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 795.328125,
+    "y": 1019.90625,
+    "width": 197.65625,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 998.984375,
+    "y": 1019.90625,
+    "width": 210.203125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "",
+    "x": 578,
+    "y": 1051.78125,
+    "width": 220.6875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 804.6875,
+    "y": 1051.78125,
+    "width": 203.234375,
+    "height": 25.875
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "A0v 6.5 answered The authors and key reviewers of the Technical Specifications Document for the SupportForce product are eid_3c2f2069, eid_11732422, eid_f2474622, eid_80cffa39, eid_6dca8945, eid_2977e",
+    "x": 516,
+    "y": 939.6875,
+    "width": 860,
+    "height": 41.796875
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "",
+    "x": 578,
+    "y": 1154.453125,
+    "width": 798,
+    "height": 217.125
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "",
+    "x": 578,
+    "y": 1154.453125,
+    "width": 211.328125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 795.328125,
+    "y": 1154.453125,
+    "width": 194.6875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 996.015625,
+    "y": 1154.453125,
+    "width": 227.203125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 578,
+    "y": 1186.328125,
+    "width": 203.03125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 787.03125,
+    "y": 1186.328125,
+    "width": 211.0625,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 1004.09375,
+    "y": 1186.328125,
+    "width": 196.671875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 578,
+    "y": 1218.203125,
+    "width": 198.40625,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 782.40625,
+    "y": 1218.203125,
+    "width": 196.671875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 985.078125,
+    "y": 1218.203125,
+    "width": 182.3125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 578,
+    "y": 1250.078125,
+    "width": 207.109375,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 791.109375,
+    "y": 1250.078125,
+    "width": 202.25,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 999.359375,
+    "y": 1250.078125,
+    "width": 196.828125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 578,
+    "y": 1281.953125,
+    "width": 210.109375,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 794.109375,
+    "y": 1281.953125,
+    "width": 212.3125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 1012.421875,
+    "y": 1281.953125,
+    "width": 201.5625,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 578,
+    "y": 1313.828125,
+    "width": 216.71875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 800.71875,
+    "y": 1313.828125,
+    "width": 212.109375,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 1018.828125,
+    "y": 1313.828125,
+    "width": 197.046875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 578,
+    "y": 1345.703125,
+    "width": 201.1875,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 785.1875,
+    "y": 1345.703125,
+    "width": 198.03125,
+    "height": 25.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip bad",
+    "text": "",
+    "x": 989.21875,
+    "y": 1345.703125,
+    "width": 190.953125,
+    "height": 25.875
+   },
+   {
+    "tag": "h2",
+    "cls": "",
+    "text": "A5's path 1 tool call, in order",
+    "x": 516,
+    "y": 1042.328125,
+    "width": 860,
+    "height": 24
+   },
+   {
+    "tag": "ol",
+    "cls": "steps",
+    "text": "1 doc_people call 1 10 rows, 21.9 ms document_type Technical Specifications Document return people answer name role evidence eid_294ba09d Alice Martinez Engineering Lead ortAIX_planning_4#5 eid_3c2f20",
+    "x": 516,
+    "y": 1076.328125,
+    "width": 860,
+    "height": 1003.625
+   },
+   {
+    "tag": "li",
+    "cls": "step",
+    "text": "1 doc_people call 1 10 rows, 21.9 ms document_type Technical Specifications Document return people answer name role evidence eid_294ba09d Alice Martinez Engineering Lead ortAIX_planning_4#5 eid_3c2f20",
+    "x": 516,
+    "y": 1076.328125,
+    "width": 860,
+    "height": 1003.625
+   },
+   {
+    "tag": "div",
+    "cls": "step-head",
+    "text": "doc_people call 1 10 rows, 21.9 ms",
+    "x": 550,
+    "y": 1076.328125,
+    "width": 826,
+    "height": 23.1875
+   },
+   {
+    "tag": "dl",
+    "cls": "kv",
+    "text": "document_type Technical Specifications Document return people",
+    "x": 550,
+    "y": 1107.515625,
+    "width": 826,
+    "height": 42
+   },
+   {
+    "tag": "table",
+    "cls": "rows",
+    "text": "answer name role evidence eid_294ba09d Alice Martinez Engineering Lead ortAIX_planning_4#5 eid_3c2f2069 Emma Garcia Technical Architect final_ortaix_technical_specifications_document latest_ortaix_tec",
+    "x": 550,
+    "y": 1163.515625,
+    "width": 826,
+    "height": 250.375
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "answer name role evidence",
+    "x": 550,
+    "y": 1163.515625,
+    "width": 826,
+    "height": 28.5
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "eid_294ba09d Alice Martinez Engineering Lead ortAIX_planning_4#5",
+    "x": 550,
+    "y": 1192.015625,
+    "width": 826,
+    "height": 31.796875
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "eid_3c2f2069 Emma Garcia Technical Architect final_ortaix_technical_specifications_document latest_ortaix_technical_specifications_document ortaix_technical_specifications_document",
+    "x": 550,
+    "y": 1223.8125,
+    "width": 826,
+    "height": 73.390625
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "eid_4e8b2cdc Hannah Taylor Product Manager ortAIX_planning_4#9",
+    "x": 550,
+    "y": 1297.203125,
+    "width": 826,
+    "height": 31.796875
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "eid_51f50b3a Hannah Brown QA Specialist ortAIX_planning_4#7",
+    "x": 550,
+    "y": 1329,
+    "width": 826,
+    "height": 31.796875
+   },
+   {
+    "tag": "tr",
+    "cls": "",
+    "text": "eid_5636d3f5 David Jones QA Specialist 20260428-2-dc76b 20260428-6-f7110",
+    "x": 550,
+    "y": 1360.796875,
+    "width": 826,
+    "height": 52.59375
+   },
+   {
+    "tag": "details",
+    "cls": "q-details",
+    "text": "3 Cypher queries Query 1 GRAPH.RO_QUERY 15 rows 8.3 ms MATCH (d:Document) RETURN d.id, d.source_id, d.type, d.release_scope params {} Query 2 GRAPH.RO_QUERY 3 rows 4.9 ms MATCH (p:Person)-[au:AUTHORED",
+    "x": 550,
+    "y": 1444.734375,
+    "width": 826,
+    "height": 607.21875
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 1 GRAPH.RO_QUERY 15 rows 8.3 ms MATCH (d:Document) RETURN d.id, d.source_id, d.type, d.release_scope params {}",
+    "x": 550,
+    "y": 1476.328125,
+    "width": 826,
+    "height": 123.25
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (d:Document) RETURN d.id, d.source_id, d.type, d.release_scope",
+    "x": 550,
+    "y": 1502.328125,
+    "width": 826,
+    "height": 71.25
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 2 GRAPH.RO_QUERY 3 rows 4.9 ms MATCH (p:Person)-[au:AUTHORED]->(d:Document) WHERE d.id IN $docs AND ($role IS NULL OR p.role = $role) RETURN p.eid, p.name, p.role, d.id, au.src params {\"docs\":[\"",
+    "x": 550,
+    "y": 1609.578125,
+    "width": 826,
+    "height": 205.875
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (p:Person)-[au:AUTHORED]->(d:Document) WHERE d.id IN $docs AND ($role IS NULL OR p.role = $role) RETURN p.eid, p.name, p.role, d.id, au.src",
+    "x": 550,
+    "y": 1635.578125,
+    "width": 826,
+    "height": 91.875
+   },
+   {
+    "tag": "div",
+    "cls": "qblock",
+    "text": "Query 3 GRAPH.RO_QUERY 16 rows 8.8 ms MATCH (p:Person)-[s:SUGGESTED]->(d:Document) WHERE d.id IN $docs AND s.kind IN ['suggestion', 'review_question'] AND ($role IS NULL OR p.role = $role) RETURN p.ei",
+    "x": 550,
+    "y": 1825.453125,
+    "width": 826,
+    "height": 226.5
+   },
+   {
+    "tag": "pre",
+    "cls": "code cypher",
+    "text": "MATCH (p:Person)-[s:SUGGESTED]->(d:Document) WHERE d.id IN $docs AND s.kind IN ['suggestion', 'review_question'] AND ($role IS NULL OR p.role = $role) RETURN p.eid, p.name, p.role, d.id, s.kind, s.sec",
+    "x": 550,
+    "y": 1851.453125,
+    "width": 826,
+    "height": 112.5
+   },
+   {
+    "tag": "p",
+    "cls": "diag",
+    "text": "2 model calls 1 tool calls 10,373 input tokens 10.4 s latency",
+    "x": 516,
+    "y": 2089.953125,
+    "width": 860,
+    "height": 20.796875
+   },
+   {
+    "tag": "h2",
+    "cls": "",
+    "text": "Evidence 10 cited, 5 more from tool rows",
+    "x": 516,
+    "y": 2144.75,
+    "width": 860,
+    "height": 24
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Meeting segment Technical Specifications Document ortAIX_planning_4, line 5 Alice Martinez 2026-05-03T20:01:00 ortAIX_planning_4#5 cited in the answer Thanks, Emma. I think the document is well-struct",
+    "x": 516,
+    "y": 2178.75,
+    "width": 860,
+    "height": 141.15625
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Document Technical Specifications Document (final_ortaix_technical_specifications_document) Emma Garcia 2026-04-30T11:51:00 final_ortaix_technical_specifications_document cited in the answer Introduct",
+    "x": 516,
+    "y": 2331.90625,
+    "width": 860,
+    "height": 208.328125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Document Technical Specifications Document (latest_ortaix_technical_specifications_document) Emma Garcia 2026-05-06T21:11:00 latest_ortaix_technical_specifications_document cited in the answer Introdu",
+    "x": 516,
+    "y": 2552.234375,
+    "width": 860,
+    "height": 208.328125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Document Technical Specifications Document (ortaix_technical_specifications_document) Emma Garcia 2026-04-25T09:08:00 ortaix_technical_specifications_document cited in the answer Introduction: The Mul",
+    "x": 516,
+    "y": 2772.5625,
+    "width": 860,
+    "height": 208.328125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Slack message #planning-ortAIX David Jones 2026-04-28T20:08:00 20260428-2-dc76b cited in the answer @eid_e5e36dc1, good point! Also, in the Security and Compliance section, could we add more details a",
+    "x": 516,
+    "y": 2992.890625,
+    "width": 860,
+    "height": 97.578125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Slack message #planning-ortAIX David Jones 2026-04-28T20:18:00 20260428-6-f7110 cited in the answer I second that. Mentioning potential partners could highlight our proactive approach to growth. Also,",
+    "x": 516,
+    "y": 3102.46875,
+    "width": 860,
+    "height": 97.578125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Slack message #planning-ortAIX Alice Martinez 2026-04-28T20:10:00 20260428-3-6787b cited in the answer I agree with David. Adding specifics about audit frequency could strengthen that section. Additio",
+    "x": 516,
+    "y": 3212.046875,
+    "width": 860,
+    "height": 97.578125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Slack message #planning-ortAIX Alice Martinez 2026-04-28T20:19:00 20260428-7-1d131 cited in the answer Agreed with both points. Highlighting our strategy for AI advancements could be a strong addition",
+    "x": 516,
+    "y": 3321.625,
+    "width": 860,
+    "height": 97.578125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Slack message #planning-ortAIX Alice Davis 2026-04-28T20:07:00 20260428-1-79591 cited in the answer Thanks for sharing, Emma! I noticed in the System Architecture section, we mention a multi-core proc",
+    "x": 516,
+    "y": 3431.203125,
+    "width": 860,
+    "height": 97.578125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Slack message #planning-ortAIX Alice Davis 2026-04-28T20:17:00 20260428-5-d9e63 cited in the answer That sounds good, Emma. One more thing, in the Growth Opportunities section, should we mention any s",
+    "x": 516,
+    "y": 3540.78125,
+    "width": 860,
+    "height": 97.578125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Meeting segment Technical Specifications Document ortAIX_planning_4, line 9 Hannah Taylor 2026-05-03T20:01:00 ortAIX_planning_4#9 in a tool row Regarding the User Experience section, I noticed it ment",
+    "x": 516,
+    "y": 3650.359375,
+    "width": 860,
+    "height": 119.765625
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Meeting segment Technical Specifications Document ortAIX_planning_4, line 7 Hannah Brown 2026-05-03T20:01:00 ortAIX_planning_4#7 in a tool row I have a suggestion regarding the Security and Compliance",
+    "x": 516,
+    "y": 3782.125,
+    "width": 860,
+    "height": 119.765625
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Meeting segment Technical Specifications Document ortAIX_planning_4, line 15 Alice Davis 2026-05-03T20:01:00 ortAIX_planning_4#15 in a tool row One last thing, in the Challenges section, it mentions i",
+    "x": 516,
+    "y": 3913.890625,
+    "width": 860,
+    "height": 119.765625
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Meeting segment Technical Specifications Document ortAIX_planning_4, line 13 David Taylor 2026-05-03T20:01:00 ortAIX_planning_4#13 in a tool row I see your point, but I think we should also consider t",
+    "x": 516,
+    "y": 4045.65625,
+    "width": 860,
+    "height": 119.765625
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Meeting segment Technical Specifications Document ortAIX_planning_4, line 11 David Johnson 2026-05-03T20:01:00 ortAIX_planning_4#11 in a tool row In the Growth Opportunities section, it talks about po",
+    "x": 516,
+    "y": 4177.421875,
+    "width": 860,
+    "height": 119.765625
+   }
+  ],
+  "needles": [
+   {
+    "needle": "A5's path",
+    "x": 747.21875,
+    "y": 99,
+    "width": 61,
+    "height": 16
+   },
+   {
+    "needle": "Gold answer",
+    "x": 516,
+    "y": 333.78125,
+    "width": 89.59375,
+    "height": 17
+   },
+   {
+    "needle": "Alice Davis",
+    "x": 541,
+    "y": 373.78125,
+    "width": 66.40625,
+    "height": 15
+   },
+   {
+    "needle": "eid_e5e36dc1",
+    "x": 613.40625,
+    "y": 373.78125,
+    "width": 90,
+    "height": 15
+   },
+   {
+    "needle": "Alice Davis",
+    "x": 1128.03125,
+    "y": 373.78125,
+    "width": 66.40625,
+    "height": 15
+   },
+   {
+    "needle": "eid_6e2f3e2b",
+    "x": 1200.4375,
+    "y": 373.78125,
+    "width": 90,
+    "height": 15
+   },
+   {
+    "needle": "Alice Davis",
+    "x": 956.296875,
+    "y": 655.21875,
+    "width": 74.09375,
+    "height": 16
+   },
+   {
+    "needle": "Alice Davis",
+    "x": 796.703125,
+    "y": 678.40625,
+    "width": 74.078125,
+    "height": 16
+   },
+   {
+    "needle": "Alice Davis",
+    "x": 561.78125,
+    "y": 777.34375,
+    "width": 66.40625,
+    "height": 15
+   },
+   {
+    "needle": "eid_6e2f3e2b",
+    "x": 634.1875,
+    "y": 777.34375,
+    "width": 90,
+    "height": 15
+   },
+   {
+    "needle": "Alice Davis",
+    "x": 561.78125,
+    "y": 809.21875,
+    "width": 66.40625,
+    "height": 15
+   },
+   {
+    "needle": "eid_e5e36dc1",
+    "x": 634.1875,
+    "y": 809.21875,
+    "width": 90,
+    "height": 15
+   },
+   {
+    "needle": "A5's path",
+    "x": 516,
+    "y": 1045.328125,
+    "width": 67.859375,
+    "height": 17
+   },
+   {
+    "needle": "doc_people",
+    "x": 550,
+    "y": 1078.328125,
+    "width": 87,
+    "height": 18
+   },
+   {
+    "needle": "evidence",
+    "x": 945.0625,
+    "y": 1170.515625,
+    "width": 53.421875,
+    "height": 14
+   },
+   {
+    "needle": "First 5 of 10 rows.",
+    "x": 550,
+    "y": 1418.890625,
+    "width": 105.84375,
+    "height": 15
+   },
+   {
+    "needle": "AUTHORED",
+    "x": 724.5,
+    "y": 1652.578125,
+    "width": 60,
+    "height": 15
+   },
+   {
+    "needle": "SUGGESTED",
+    "x": 717,
+    "y": 1868.453125,
+    "width": 67.5,
+    "height": 15
+   },
+   {
+    "needle": "eid_e5e36dc1",
+    "x": 543.78125,
+    "y": 3035.6875,
+    "width": 90.78125,
+    "height": 16
+   },
+   {
+    "needle": "Alice Davis",
+    "x": 748.15625,
+    "y": 3447.203125,
+    "width": 63.859375,
+    "height": 14
+   },
+   {
+    "needle": "Alice Davis",
+    "x": 748.15625,
+    "y": 3556.78125,
+    "width": 63.859375,
+    "height": 14
+   },
+   {
+    "needle": "Alice Davis",
+    "x": 1020.40625,
+    "y": 3929.890625,
+    "width": 63.859375,
+    "height": 14
+   }
+  ],
+  "missing": []
+ },
+ "gist": {
+  "url": "https://gist.github.com/zeyusuntt/3012ee12697e7afade6d820e95d6bd67",
+  "viewport": {
+   "w": 1440,
+   "h": 900
+  },
+  "full": {
+   "w": 1440,
+   "h": 1024
+  },
+  "boxes": [
+   {
+    "tag": "h1",
+    "cls": "wb-break-word f3 text-normal mb-md-0 mb-1",
+    "text": "zeyusuntt/inherit-brain-prereg.md",
+    "x": 72,
+    "y": 156,
+    "width": 322.515625,
+    "height": 32
+   },
+   {
+    "tag": "div",
+    "cls": "file my-2",
+    "text": "Raw inherit-brain-prereg.md inherit-brain: pre-registration hash inherit-brain is a company brain on FalkorDB, evaluated on Salesforce's HERB benchmark (Graph Hacks, Track 3). Before any held-out ques",
+    "x": 230,
+    "y": 324,
+    "width": 980,
+    "height": 485.59375
+   },
+   {
+    "tag": "h1",
+    "cls": "heading-element",
+    "text": "inherit-brain: pre-registration hash",
+    "x": 271,
+    "y": 406,
+    "width": 898,
+    "height": 50.59375
+   },
+   {
+    "tag": "h2",
+    "cls": "sr-only",
+    "text": "Footer",
+    "x": 16,
+    "y": 957.59375,
+    "width": 1,
+    "height": 1
+   },
+   {
+    "tag": "h3",
+    "cls": "sr-only",
+    "text": "Footer navigation",
+    "x": 428.609375,
+    "y": 961.59375,
+    "width": 1,
+    "height": 1
+   }
+  ],
+  "needles": [
+   {
+    "needle": "PREREG",
+    "x": 458.25,
+    "y": 297,
+    "width": 53.421875,
+    "height": 17
+   },
+   {
+    "needle": "sha256",
+    "x": 539.9375,
+    "y": 297,
+    "width": 48.421875,
+    "height": 17
+   },
+   {
+    "needle": "PREREG",
+    "x": 974.203125,
+    "y": 515.59375,
+    "width": 60.21875,
+    "height": 18
+   },
+   {
+    "needle": "PREREG",
+    "x": 303,
+    "y": 627.59375,
+    "width": 60.203125,
+    "height": 18
+   },
+   {
+    "needle": "sha256",
+    "x": 394.953125,
+    "y": 627.59375,
+    "width": 54.484375,
+    "height": 18
+   },
+   {
+    "needle": "d8f4363276e972bbfb9bc2714fcceae128ddede4d163b00ffe4aaac602eadffd",
+    "x": 463.5,
+    "y": 629.59375,
+    "width": 524.03125,
+    "height": 16
+   },
+   {
+    "needle": "PREREG",
+    "x": 271,
+    "y": 723.59375,
+    "width": 60.203125,
+    "height": 18
+   },
+   {
+    "needle": "sha256",
+    "x": 795.921875,
+    "y": 723.59375,
+    "width": 54.484375,
+    "height": 18
+   }
+  ],
+  "missing": []
+ },
+ "index": {
+  "url": "index.html",
+  "viewport": {
+   "w": 1440,
+   "h": 900
+  },
+  "full": {
+   "w": 1440,
+   "h": 9255
+  },
+  "boxes": [
+   {
+    "tag": "div",
+    "cls": "hero-copy",
+    "text": "Graph Hacks 2026 · Track 3: Company Brain Ask the product you inherited. inherit-brain turns a product team's Slack, meetings, documents and pull requests into a FalkorDB graph, and answers questions ",
+    "x": 144,
+    "y": 117,
+    "width": 634.65625,
+    "height": 711.171875
+   },
+   {
+    "tag": "h1",
+    "cls": "h1",
+    "text": "Ask the product you inherited.",
+    "x": 144,
+    "y": 157.390625,
+    "width": 580.421875,
+    "height": 142.78125
+   },
+   {
+    "tag": "div",
+    "cls": "scores animate",
+    "text": "80.0 inherit-brain (A5) 39.2 HERB's retrieval tools, same model and loop (A0) 26.0 The whole product in the prompt, with 12x the tokens (A1f)",
+    "x": 144,
+    "y": 473.734375,
+    "width": 634.65625,
+    "height": 165.5625
+   },
+   {
+    "tag": "aside",
+    "cls": "specimen",
+    "text": "One of 1,203 questions, chosen to show a path SupportForce, person question, seen in development Find employee IDs of the authors and key reviewers of the Technical Specifications Document for the Sup",
+    "x": 842.65625,
+    "y": 117,
+    "width": 453.328125,
+    "height": 714.703125
+   },
+   {
+    "tag": "div",
+    "cls": "chips",
+    "text": "✓ eid_294ba09d Alice Martinez, in the gold answer ✓ eid_3c2f2069 Emma Garcia, in the gold answer ✓ eid_4e8b2cdc Hannah Taylor, in the gold answer ✓ eid_51f50b3a Hannah Brown, in the gold answer ✓ eid_",
+    "x": 891.65625,
+    "y": 539.15625,
+    "width": 381.328125,
+    "height": 139.375
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ eid_294ba09d Alice Martinez, in the gold answer",
+    "x": 891.65625,
+    "y": 539.15625,
+    "width": 123.78125,
+    "height": 23.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ eid_3c2f2069 Emma Garcia, in the gold answer",
+    "x": 1020.4375,
+    "y": 539.15625,
+    "width": 123.78125,
+    "height": 23.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ eid_4e8b2cdc Hannah Taylor, in the gold answer",
+    "x": 891.65625,
+    "y": 568.03125,
+    "width": 123.78125,
+    "height": 23.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ eid_51f50b3a Hannah Brown, in the gold answer",
+    "x": 1020.4375,
+    "y": 568.03125,
+    "width": 123.78125,
+    "height": 23.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ eid_5636d3f5 David Jones, in the gold answer",
+    "x": 891.65625,
+    "y": 596.90625,
+    "width": 123.78125,
+    "height": 23.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ eid_610a4c21 Alice Martinez, in the gold answer",
+    "x": 1020.4375,
+    "y": 596.90625,
+    "width": 123.78125,
+    "height": 23.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ eid_6e2f3e2b Alice Davis, in the gold answer",
+    "x": 891.65625,
+    "y": 625.78125,
+    "width": 123.78125,
+    "height": 23.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ eid_71bfb0a9 David Taylor, in the gold answer",
+    "x": 1020.4375,
+    "y": 625.78125,
+    "width": 123.78125,
+    "height": 23.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ eid_aedadd3e David Johnson, in the gold answer",
+    "x": 891.65625,
+    "y": 654.65625,
+    "width": 123.78125,
+    "height": 23.875
+   },
+   {
+    "tag": "span",
+    "cls": "chip ok",
+    "text": "✓ eid_e5e36dc1 Alice Davis, in the gold answer",
+    "x": 1020.4375,
+    "y": 654.65625,
+    "width": 123.78125,
+    "height": 23.875
+   },
+   {
+    "tag": "h2",
+    "cls": "h2",
+    "text": "The removal test",
+    "x": 144,
+    "y": 1000.703125,
+    "width": 1152,
+    "height": 36.796875
+   },
+   {
+    "tag": "p",
+    "cls": "removal-claim",
+    "text": "Swap the graph tools for retrieval and the same model loses 40.8 points.",
+    "x": 144,
+    "y": 1055.5,
+    "width": 604.640625,
+    "height": 81.59375
+   },
+   {
+    "tag": "h2",
+    "cls": "h2",
+    "text": "Results",
+    "x": 144,
+    "y": 1863.046875,
+    "width": 1152,
+    "height": 36.796875
+   },
+   {
+    "tag": "h2",
+    "cls": "h2",
+    "text": "Where it is weaker",
+    "x": 144,
+    "y": 4354.140625,
+    "width": 1152,
+    "height": 36.796875
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "The lead shrinks on questions never seen in development.",
+    "x": 276,
+    "y": 4495.828125,
+    "width": 500,
+    "height": 23.09375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "PR questions are A5's weakest type.",
+    "x": 276,
+    "y": 4721.921875,
+    "width": 416,
+    "height": 23.09375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "Typed depth-1 access did worse than retrieval over the same cards.",
+    "x": 880,
+    "y": 4721.921875,
+    "width": 416,
+    "height": 46.1875
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "H3 rests on one multi-hop family.",
+    "x": 276,
+    "y": 4875.109375,
+    "width": 416,
+    "height": 23.09375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "The judge is the same model.",
+    "x": 880,
+    "y": 4875.109375,
+    "width": 416,
+    "height": 23.09375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "The comparison runs under a fixed budget.",
+    "x": 276,
+    "y": 5053.203125,
+    "width": 416,
+    "height": 23.09375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "A1f's score is partly a format failure.",
+    "x": 880,
+    "y": 5053.203125,
+    "width": 416,
+    "height": 23.09375
+   },
+   {
+    "tag": "h2",
+    "cls": "h2",
+    "text": "How it works",
+    "x": 144,
+    "y": 5381.296875,
+    "width": 1152,
+    "height": 36.796875
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "HERB records",
+    "x": 144,
+    "y": 5474.09375,
+    "width": 210.390625,
+    "height": 25.59375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "Extraction",
+    "x": 374.390625,
+    "y": 5474.09375,
+    "width": 210.40625,
+    "height": 25.59375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "One graph per product",
+    "x": 604.796875,
+    "y": 5474.09375,
+    "width": 210.390625,
+    "height": 25.59375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "Nine typed tools",
+    "x": 835.1875,
+    "y": 5474.09375,
+    "width": 210.40625,
+    "height": 25.59375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "Agent loop",
+    "x": 1065.59375,
+    "y": 5474.09375,
+    "width": 210.390625,
+    "height": 25.59375
+   },
+   {
+    "tag": "h3",
+    "cls": "h3",
+    "text": "The nine tools",
+    "x": 144,
+    "y": 5754.859375,
+    "width": 365.328125,
+    "height": 24.296875
+   },
+   {
+    "tag": "h3",
+    "cls": "h3",
+    "text": "The graph schema",
+    "x": 144,
+    "y": 6173.59375,
+    "width": 1152,
+    "height": 24.296875
+   },
+   {
+    "tag": "h4",
+    "cls": "h3",
+    "text": "Edge types not drawn",
+    "x": 652,
+    "y": 7017.6875,
+    "width": 644,
+    "height": 20.25
+   },
+   {
+    "tag": "h3",
+    "cls": "h3",
+    "text": "FalkorDB features doing work",
+    "x": 144,
+    "y": 7380.09375,
+    "width": 456.65625,
+    "height": 24.296875
+   },
+   {
+    "tag": "h3",
+    "cls": "h3",
+    "text": "One recorded query",
+    "x": 656.65625,
+    "y": 7380.09375,
+    "width": 639.34375,
+    "height": 24.296875
+   },
+   {
+    "tag": "h2",
+    "cls": "h2",
+    "text": "Pre-registered, then run",
+    "x": 144,
+    "y": 8173.890625,
+    "width": 1152,
+    "height": 36.796875
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "Plan written",
+    "x": 144,
+    "y": 8367.265625,
+    "width": 208.390625,
+    "height": 25.59375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "Hash posted",
+    "x": 374.390625,
+    "y": 8367.265625,
+    "width": 208.40625,
+    "height": 25.59375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "Held-out run",
+    "x": 604.796875,
+    "y": 8367.265625,
+    "width": 208.390625,
+    "height": 25.59375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "Grading",
+    "x": 835.1875,
+    "y": 8367.265625,
+    "width": 208.40625,
+    "height": 25.59375
+   },
+   {
+    "tag": "h3",
+    "cls": "",
+    "text": "Results",
+    "x": 1065.59375,
+    "y": 8367.265625,
+    "width": 208.390625,
+    "height": 25.59375
+   },
+   {
+    "tag": "h2",
+    "cls": "h2",
+    "text": "Run it yourself",
+    "x": 144,
+    "y": 8769.046875,
+    "width": 456.65625,
+    "height": 36.796875
+   }
+  ],
+  "needles": [
+   {
+    "needle": "inherit-brain",
+    "x": 144,
+    "y": 19.40625,
+    "width": 98.0625,
+    "height": 20
+   },
+   {
+    "needle": "inherit-brain",
+    "x": 144,
+    "y": 325.171875,
+    "width": 101.234375,
+    "height": 21
+   },
+   {
+    "needle": "80.0",
+    "x": 144,
+    "y": 467.734375,
+    "width": 94.140625,
+    "height": 55
+   },
+   {
+    "needle": "inherit-brain",
+    "x": 274,
+    "y": 479.671875,
+    "width": 89.234375,
+    "height": 17
+   },
+   {
+    "needle": "39.2",
+    "x": 144,
+    "y": 528.921875,
+    "width": 92.265625,
+    "height": 55
+   },
+   {
+    "needle": "26.0",
+    "x": 144,
+    "y": 590.109375,
+    "width": 92.265625,
+    "height": 55
+   },
+   {
+    "needle": "inherit-brain",
+    "x": 351.359375,
+    "y": 1187.09375,
+    "width": 77.328125,
+    "height": 15
+   },
+   {
+    "needle": "80.0",
+    "x": 351.359375,
+    "y": 1395.890625,
+    "width": 52.0625,
+    "height": 30
+   },
+   {
+    "needle": "39.2",
+    "x": 823.671875,
+    "y": 1395.890625,
+    "width": 52.0625,
+    "height": 30
+   },
+   {
+    "needle": "inherit-brain",
+    "x": 384.09234619140625,
+    "y": 2947.621826171875,
+    "width": 77.34375,
+    "height": 15
+   },
+   {
+    "needle": "80.0",
+    "x": 363.17047119140625,
+    "y": 2963.621826171875,
+    "width": 25.359375,
+    "height": 14
+   },
+   {
+    "needle": "39.2",
+    "x": 574.0302734375,
+    "y": 3072.14990234375,
+    "width": 24.53125,
+    "height": 14
+   },
+   {
+    "needle": "26.0",
+    "x": 603.7880249023438,
+    "y": 3107.261962890625,
+    "width": 25.09375,
+    "height": 14
+   },
+   {
+    "needle": "80.0",
+    "x": 186.1875,
+    "y": 3294.609375,
+    "width": 27.109375,
+    "height": 15
+   },
+   {
+    "needle": "39.2",
+    "x": 186.1875,
+    "y": 3324.203125,
+    "width": 27.109375,
+    "height": 15
+   },
+   {
+    "needle": "26.0",
+    "x": 186.1875,
+    "y": 3353.796875,
+    "width": 27.109375,
+    "height": 15
+   },
+   {
+    "needle": "inherit-brain",
+    "x": 195.53125,
+    "y": 3515.859375,
+    "width": 78.75,
+    "height": 16
+   },
+   {
+    "needle": "80.0",
+    "x": 623.203125,
+    "y": 3517.859375,
+    "width": 29.421875,
+    "height": 16
+   },
+   {
+    "needle": "39.2",
+    "x": 623.203125,
+    "y": 3578.046875,
+    "width": 29.421875,
+    "height": 16
+   },
+   {
+    "needle": "26.0",
+    "x": 623.203125,
+    "y": 3638.234375,
+    "width": 29.421875,
+    "height": 16
+   },
+   {
+    "needle": "inherit-brain",
+    "x": 372.984375,
+    "y": 4407.9375,
+    "width": 101.25,
+    "height": 21
+   },
+   {
+    "needle": "26.0",
+    "x": 1079.90625,
+    "y": 5133.296875,
+    "width": 30.109375,
+    "height": 17
+   },
+   {
+    "needle": "inherit-brain",
+    "x": 1217.25,
+    "y": 9100.625,
+    "width": 78.75,
+    "height": 16
+   }
+  ],
+  "missing": []
+ },
+ "whatif": {
+  "url": "whatif.html",
+  "viewport": {
+   "w": 1440,
+   "h": 900
+  },
+  "full": {
+   "w": 1440,
+   "h": 1394
+  },
+  "boxes": [
+   {
+    "tag": "h1",
+    "cls": "h2",
+    "text": "If this person leaves",
+    "x": 144,
+    "y": 101,
+    "width": 1152,
+    "height": 43.6875
+   },
+   {
+    "tag": "aside",
+    "cls": "wi-side",
+    "text": "Product AutoTuneForce CoachForce CollaborateForce CollaborationForce ConnectForce ContextForce EdgeForce ExplainabilityForce FeedbackForce FlowForce ForecastForce InsightForce MonitorForce Personalize",
+    "x": 144,
+    "y": 240.46875,
+    "width": 365.328125,
+    "height": 443.4375
+   },
+   {
+    "tag": "div",
+    "cls": "wi-tabs seg",
+    "text": "Most open work Engineering Leads",
+    "x": 565.328125,
+    "y": 240.46875,
+    "width": 730.671875,
+    "height": 30.796875
+   },
+   {
+    "tag": "div",
+    "cls": "wi-head",
+    "text": "Person Newly unowned Affected Already unowned",
+    "x": 565.328125,
+    "y": 322.265625,
+    "width": 730.671875,
+    "height": 29
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Julia Smith Software Engineer, eid_11732422 Hide the items 3 0 0 Newly unowned (3) Bug Incorrect Error Log Parsing Bug:SupportForce:ch-force-076b01:incorrect-error-log-parsing Bug Inefficient Query Ex",
+    "x": 565.328125,
+    "y": 351.265625,
+    "width": 730.671875,
+    "height": 289.328125
+   },
+   {
+    "tag": "summary",
+    "cls": "person-sum",
+    "text": "Julia Smith Software Engineer, eid_11732422 Hide the items 3 0 0",
+    "x": 565.328125,
+    "y": 351.265625,
+    "width": 730.671875,
+    "height": 108.390625
+   },
+   {
+    "tag": "div",
+    "cls": "person-body",
+    "text": "Newly unowned (3) Bug Incorrect Error Log Parsing Bug:SupportForce:ch-force-076b01:incorrect-error-log-parsing Bug Inefficient Query Execution Plan Bug:SupportForce:ch-force-076b01:inefficient-query-e",
+    "x": 565.328125,
+    "y": 459.65625,
+    "width": 730.671875,
+    "height": 179.9375
+   },
+   {
+    "tag": "h4",
+    "cls": "",
+    "text": "Newly unowned (3)",
+    "x": 565.328125,
+    "y": 459.65625,
+    "width": 730.671875,
+    "height": 21.59375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Bug Incorrect Error Log Parsing Bug:SupportForce:ch-force-076b01:incorrect-error-log-parsing",
+    "x": 565.328125,
+    "y": 487.25,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Bug Inefficient Query Execution Plan Bug:SupportForce:ch-force-076b01:inefficient-query-execution-plan",
+    "x": 565.328125,
+    "y": 534.03125,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "PR Integrate User Testing Session Scheduling PR:https://github.com/salesforce/ortAIX/pull/3",
+    "x": 565.328125,
+    "y": 580.8125,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "David Garcia Software Engineer, eid_80cffa39 Show the 2 items 2 0 0",
+    "x": 565.328125,
+    "y": 640.59375,
+    "width": 730.671875,
+    "height": 109.390625
+   },
+   {
+    "tag": "summary",
+    "cls": "person-sum",
+    "text": "David Garcia Software Engineer, eid_80cffa39 Show the 2 items 2 0 0",
+    "x": 565.328125,
+    "y": 640.59375,
+    "width": 730.671875,
+    "height": 108.390625
+   },
+   {
+    "tag": "div",
+    "cls": "person-body",
+    "text": "",
+    "x": 565.328125,
+    "y": 748.984375,
+    "width": 730.671875,
+    "height": 133.15625
+   },
+   {
+    "tag": "h4",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 748.984375,
+    "width": 730.671875,
+    "height": 21.59375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 776.578125,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 823.359375,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Fiona Davis Software Engineer, eid_399e4119 Show the 2 items 2 0 0",
+    "x": 565.328125,
+    "y": 749.984375,
+    "width": 730.671875,
+    "height": 109.390625
+   },
+   {
+    "tag": "summary",
+    "cls": "person-sum",
+    "text": "Fiona Davis Software Engineer, eid_399e4119 Show the 2 items 2 0 0",
+    "x": 565.328125,
+    "y": 749.984375,
+    "width": 730.671875,
+    "height": 108.390625
+   },
+   {
+    "tag": "div",
+    "cls": "person-body",
+    "text": "",
+    "x": 565.328125,
+    "y": 858.375,
+    "width": 730.671875,
+    "height": 133.15625
+   },
+   {
+    "tag": "h4",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 858.375,
+    "width": 730.671875,
+    "height": 21.59375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 885.96875,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 932.75,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Fiona Miller Software Engineer, eid_0e5bec0e Show the 2 items 2 0 0",
+    "x": 565.328125,
+    "y": 859.375,
+    "width": 730.671875,
+    "height": 109.390625
+   },
+   {
+    "tag": "summary",
+    "cls": "person-sum",
+    "text": "Fiona Miller Software Engineer, eid_0e5bec0e Show the 2 items 2 0 0",
+    "x": 565.328125,
+    "y": 859.375,
+    "width": 730.671875,
+    "height": 108.390625
+   },
+   {
+    "tag": "div",
+    "cls": "person-body",
+    "text": "",
+    "x": 565.328125,
+    "y": 967.765625,
+    "width": 730.671875,
+    "height": 133.15625
+   },
+   {
+    "tag": "h4",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 967.765625,
+    "width": 730.671875,
+    "height": 21.59375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 995.359375,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 1042.140625,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "Hannah Taylor Software Engineer, eid_b9189afb Show the 2 items 2 0 0",
+    "x": 565.328125,
+    "y": 968.765625,
+    "width": 730.671875,
+    "height": 109.390625
+   },
+   {
+    "tag": "summary",
+    "cls": "person-sum",
+    "text": "Hannah Taylor Software Engineer, eid_b9189afb Show the 2 items 2 0 0",
+    "x": 565.328125,
+    "y": 968.765625,
+    "width": 730.671875,
+    "height": 108.390625
+   },
+   {
+    "tag": "div",
+    "cls": "person-body",
+    "text": "",
+    "x": 565.328125,
+    "y": 1077.15625,
+    "width": 730.671875,
+    "height": 133.15625
+   },
+   {
+    "tag": "h4",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 1077.15625,
+    "width": 730.671875,
+    "height": 21.59375
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 1104.75,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "li",
+    "cls": "",
+    "text": "",
+    "x": 565.328125,
+    "y": 1151.53125,
+    "width": 730.671875,
+    "height": 40.78125
+   },
+   {
+    "tag": "p",
+    "cls": "wi-foot",
+    "text": "Computed by GRAPH.COPY of the product graph, removing the person in the copy, and diffing; checked against an independent Python computation on every lead. The lists here come from that Python computa",
+    "x": 565.328125,
+    "y": 1094.15625,
+    "width": 730.671875,
+    "height": 86.375
+   }
+  ],
+  "needles": [
+   {
+    "needle": "Julia Smith",
+    "x": 565.328125,
+    "y": 376.265625,
+    "width": 84.3125,
+    "height": 17
+   },
+   {
+    "needle": "Newly unowned (3)",
+    "x": 565.328125,
+    "y": 462.65625,
+    "width": 123.453125,
+    "height": 15
+   },
+   {
+    "needle": "Incorrect Error Log Parsing",
+    "x": 645.328125,
+    "y": 490.25,
+    "width": 172.171875,
+    "height": 16
+   },
+   {
+    "needle": "Inefficient Query Execution Plan",
+    "x": 645.328125,
+    "y": 537.03125,
+    "width": 207,
+    "height": 16
+   },
+   {
+    "needle": "Integrate User Testing Session Scheduling",
+    "x": 645.328125,
+    "y": 583.8125,
+    "width": 272.40625,
+    "height": 16
+   },
+   {
+    "needle": "GRAPH.COPY",
+    "x": 652.203125,
+    "y": 1097.15625,
+    "width": 85.25,
+    "height": 15
+   }
+  ],
+  "missing": []
+ }
+}

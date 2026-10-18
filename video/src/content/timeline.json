@@ -1,0 +1,1923 @@
+{
+  "source": "scratch: macOS Samantha voice, a placeholder to time the cut; the final video uses the narrator's recording",
+  "voice": "audio/scratch-voice.wav",
+  "fps": 30,
+  "lead_in_s": 2.0,
+  "end_hold_s": 4.0,
+  "total_s": 162.086,
+  "alignment": {
+    "script_words_matched": 0.976
+  },
+  "beats": [
+    {
+      "id": "cold_open",
+      "text": "Day one on a new team. You inherit a product you have never seen: months of Slack, meetings, documents and pull requests. Your first question is simple. Who wrote the technical spec, and who reviewed it?",
+      "start_s": 2.0,
+      "end_s": 16.342,
+      "words": [
+        {
+          "w": "Day",
+          "start_s": 2.0,
+          "end_s": 2.0
+        },
+        {
+          "w": "one",
+          "start_s": 2.0,
+          "end_s": 2.4
+        },
+        {
+          "w": "on",
+          "start_s": 2.4,
+          "end_s": 2.53
+        },
+        {
+          "w": "a",
+          "start_s": 2.53,
+          "end_s": 2.59
+        },
+        {
+          "w": "new",
+          "start_s": 2.59,
+          "end_s": 2.79
+        },
+        {
+          "w": "team.",
+          "start_s": 2.79,
+          "end_s": 3.3
+        },
+        {
+          "w": "You",
+          "start_s": 3.3,
+          "end_s": 3.64
+        },
+        {
+          "w": "inherit",
+          "start_s": 3.64,
+          "end_s": 4.03
+        },
+        {
+          "w": "a",
+          "start_s": 4.03,
+          "end_s": 4.1
+        },
+        {
+          "w": "product",
+          "start_s": 4.1,
+          "end_s": 4.61
+        },
+        {
+          "w": "you",
+          "start_s": 4.61,
+          "end_s": 4.88
+        },
+        {
+          "w": "have",
+          "start_s": 4.88,
+          "end_s": 5.12
+        },
+        {
+          "w": "never",
+          "start_s": 5.12,
+          "end_s": 5.48
+        },
+        {
+          "w": "seen:",
+          "start_s": 5.48,
+          "end_s": 6.02
+        },
+        {
+          "w": "months",
+          "start_s": 6.02,
+          "end_s": 6.51
+        },
+        {
+          "w": "of",
+          "start_s": 6.51,
+          "end_s": 6.67
+        },
+        {
+          "w": "Slack,",
+          "start_s": 6.67,
+          "end_s": 7.53
+        },
+        {
+          "w": "meetings,",
+          "start_s": 7.53,
+          "end_s": 7.94
+        },
+        {
+          "w": "documents",
+          "start_s": 7.94,
+          "end_s": 8.62
+        },
+        {
+          "w": "and",
+          "start_s": 8.62,
+          "end_s": 8.84
+        },
+        {
+          "w": "pull",
+          "start_s": 8.84,
+          "end_s": 9.19
+        },
+        {
+          "w": "requests.",
+          "start_s": 9.19,
+          "end_s": 10.0
+        },
+        {
+          "w": "Your",
+          "start_s": 11.02,
+          "end_s": 11.02
+        },
+        {
+          "w": "first",
+          "start_s": 11.02,
+          "end_s": 11.02
+        },
+        {
+          "w": "question",
+          "start_s": 11.02,
+          "end_s": 11.46
+        },
+        {
+          "w": "is",
+          "start_s": 11.46,
+          "end_s": 11.63
+        },
+        {
+          "w": "simple.",
+          "start_s": 11.63,
+          "end_s": 12.41
+        },
+        {
+          "w": "Who",
+          "start_s": 12.41,
+          "end_s": 13.02
+        },
+        {
+          "w": "wrote",
+          "start_s": 13.02,
+          "end_s": 13.1
+        },
+        {
+          "w": "the",
+          "start_s": 13.1,
+          "end_s": 13.36
+        },
+        {
+          "w": "technical",
+          "start_s": 13.36,
+          "end_s": 14.14
+        },
+        {
+          "w": "spec,",
+          "start_s": 14.14,
+          "end_s": 14.66
+        },
+        {
+          "w": "and",
+          "start_s": 14.66,
+          "end_s": 14.91
+        },
+        {
+          "w": "who",
+          "start_s": 14.91,
+          "end_s": 15.17
+        },
+        {
+          "w": "reviewed",
+          "start_s": 15.17,
+          "end_s": 15.9
+        },
+        {
+          "w": "it?",
+          "start_s": 15.9,
+          "end_s": 16.34
+        }
+      ]
+    },
+    {
+      "id": "intro",
+      "text": "Hi, I'm Zeyu. This is inherit-brain, a company brain on FalkorDB. It turns what a team left behind into one graph per product: people, bugs, documents, pull requests, and who did what to which.",
+      "start_s": 16.842,
+      "end_s": 31.188,
+      "words": [
+        {
+          "w": "Hi,",
+          "start_s": 16.842,
+          "end_s": 16.842
+        },
+        {
+          "w": "I'm",
+          "start_s": 16.842,
+          "end_s": 16.97
+        },
+        {
+          "w": "Zeyu.",
+          "start_s": 16.97,
+          "end_s": 17.6
+        },
+        {
+          "w": "This",
+          "start_s": 17.6,
+          "end_s": 17.97
+        },
+        {
+          "w": "is",
+          "start_s": 17.97,
+          "end_s": 18.15
+        },
+        {
+          "w": "inherit-brain,",
+          "start_s": 18.15,
+          "end_s": 19.42
+        },
+        {
+          "w": "a",
+          "start_s": 19.42,
+          "end_s": 19.51
+        },
+        {
+          "w": "company",
+          "start_s": 19.51,
+          "end_s": 20.16
+        },
+        {
+          "w": "brain",
+          "start_s": 20.16,
+          "end_s": 20.62
+        },
+        {
+          "w": "on",
+          "start_s": 20.62,
+          "end_s": 20.81
+        },
+        {
+          "w": "FalkorDB.",
+          "start_s": 20.81,
+          "end_s": 21.92
+        },
+        {
+          "w": "It",
+          "start_s": 21.92,
+          "end_s": 22.07
+        },
+        {
+          "w": "turns",
+          "start_s": 22.07,
+          "end_s": 22.45
+        },
+        {
+          "w": "what",
+          "start_s": 22.45,
+          "end_s": 22.75
+        },
+        {
+          "w": "a",
+          "start_s": 22.75,
+          "end_s": 22.82
+        },
+        {
+          "w": "team",
+          "start_s": 22.82,
+          "end_s": 23.12
+        },
+        {
+          "w": "left",
+          "start_s": 23.12,
+          "end_s": 23.88
+        },
+        {
+          "w": "behind",
+          "start_s": 23.88,
+          "end_s": 23.93
+        },
+        {
+          "w": "into",
+          "start_s": 23.93,
+          "end_s": 24.18
+        },
+        {
+          "w": "one",
+          "start_s": 24.18,
+          "end_s": 24.41
+        },
+        {
+          "w": "graph",
+          "start_s": 24.41,
+          "end_s": 24.88
+        },
+        {
+          "w": "per",
+          "start_s": 24.88,
+          "end_s": 25.02
+        },
+        {
+          "w": "product:",
+          "start_s": 25.02,
+          "end_s": 25.84
+        },
+        {
+          "w": "people,",
+          "start_s": 25.84,
+          "end_s": 26.6
+        },
+        {
+          "w": "bugs,",
+          "start_s": 26.6,
+          "end_s": 27.17
+        },
+        {
+          "w": "documents,",
+          "start_s": 27.17,
+          "end_s": 28.25
+        },
+        {
+          "w": "pull",
+          "start_s": 28.25,
+          "end_s": 28.57
+        },
+        {
+          "w": "requests,",
+          "start_s": 28.57,
+          "end_s": 29.45
+        },
+        {
+          "w": "and",
+          "start_s": 29.45,
+          "end_s": 29.55
+        },
+        {
+          "w": "who",
+          "start_s": 29.55,
+          "end_s": 29.78
+        },
+        {
+          "w": "did",
+          "start_s": 29.78,
+          "end_s": 30.26
+        },
+        {
+          "w": "what",
+          "start_s": 30.26,
+          "end_s": 30.32
+        },
+        {
+          "w": "to",
+          "start_s": 30.32,
+          "end_s": 30.54
+        },
+        {
+          "w": "which.",
+          "start_s": 30.54,
+          "end_s": 31.14
+        }
+      ]
+    },
+    {
+      "id": "walk_graph",
+      "text": "Ask it, and it does not hunt through documents. It walks the graph. Ten people wrote or reviewed that spec, including two different people named Alice Davis. The graph returns all ten, each with the record that puts them there.",
+      "start_s": 32.488,
+      "end_s": 47.491,
+      "words": [
+        {
+          "w": "Ask",
+          "start_s": 32.488,
+          "end_s": 32.488
+        },
+        {
+          "w": "it,",
+          "start_s": 32.488,
+          "end_s": 32.488
+        },
+        {
+          "w": "and",
+          "start_s": 32.488,
+          "end_s": 32.488
+        },
+        {
+          "w": "it",
+          "start_s": 32.488,
+          "end_s": 32.488
+        },
+        {
+          "w": "does",
+          "start_s": 32.488,
+          "end_s": 32.58
+        },
+        {
+          "w": "not",
+          "start_s": 32.58,
+          "end_s": 32.85
+        },
+        {
+          "w": "hunt",
+          "start_s": 32.85,
+          "end_s": 33.21
+        },
+        {
+          "w": "through",
+          "start_s": 33.21,
+          "end_s": 34.48
+        },
+        {
+          "w": "documents.",
+          "start_s": 34.48,
+          "end_s": 34.92
+        },
+        {
+          "w": "It",
+          "start_s": 34.92,
+          "end_s": 35.1
+        },
+        {
+          "w": "walks",
+          "start_s": 35.1,
+          "end_s": 35.55
+        },
+        {
+          "w": "the",
+          "start_s": 35.55,
+          "end_s": 36.12
+        },
+        {
+          "w": "graph.",
+          "start_s": 36.12,
+          "end_s": 36.58
+        },
+        {
+          "w": "Ten",
+          "start_s": 38.0,
+          "end_s": 38.0
+        },
+        {
+          "w": "people",
+          "start_s": 38.0,
+          "end_s": 38.0
+        },
+        {
+          "w": "wrote",
+          "start_s": 38.0,
+          "end_s": 38.0
+        },
+        {
+          "w": "or",
+          "start_s": 38.0,
+          "end_s": 38.0
+        },
+        {
+          "w": "reviewed",
+          "start_s": 38.0,
+          "end_s": 38.53
+        },
+        {
+          "w": "that",
+          "start_s": 38.53,
+          "end_s": 38.85
+        },
+        {
+          "w": "spec,",
+          "start_s": 38.85,
+          "end_s": 40.0
+        },
+        {
+          "w": "including",
+          "start_s": 40.0,
+          "end_s": 40.07
+        },
+        {
+          "w": "two",
+          "start_s": 40.07,
+          "end_s": 40.31
+        },
+        {
+          "w": "different",
+          "start_s": 40.31,
+          "end_s": 41.05
+        },
+        {
+          "w": "people",
+          "start_s": 41.05,
+          "end_s": 41.64
+        },
+        {
+          "w": "named",
+          "start_s": 41.64,
+          "end_s": 41.95
+        },
+        {
+          "w": "Alice",
+          "start_s": 41.95,
+          "end_s": 42.36
+        },
+        {
+          "w": "Davis.",
+          "start_s": 42.36,
+          "end_s": 43.08
+        },
+        {
+          "w": "The",
+          "start_s": 43.58,
+          "end_s": 43.58
+        },
+        {
+          "w": "graph",
+          "start_s": 43.58,
+          "end_s": 43.65
+        },
+        {
+          "w": "returns",
+          "start_s": 43.65,
+          "end_s": 44.15
+        },
+        {
+          "w": "all",
+          "start_s": 44.15,
+          "end_s": 44.36
+        },
+        {
+          "w": "ten,",
+          "start_s": 44.36,
+          "end_s": 44.71
+        },
+        {
+          "w": "each",
+          "start_s": 44.71,
+          "end_s": 44.99
+        },
+        {
+          "w": "with",
+          "start_s": 44.99,
+          "end_s": 45.48
+        },
+        {
+          "w": "the",
+          "start_s": 45.48,
+          "end_s": 45.59
+        },
+        {
+          "w": "record",
+          "start_s": 45.59,
+          "end_s": 45.91
+        },
+        {
+          "w": "that",
+          "start_s": 45.91,
+          "end_s": 46.19
+        },
+        {
+          "w": "puts",
+          "start_s": 46.19,
+          "end_s": 46.54
+        },
+        {
+          "w": "them",
+          "start_s": 46.54,
+          "end_s": 46.75
+        },
+        {
+          "w": "there.",
+          "start_s": 46.75,
+          "end_s": 47.42
+        }
+      ]
+    },
+    {
+      "id": "benchmark",
+      "text": "A demo is easy to cherry-pick. So I tested it on Salesforce's HERB benchmark: thirty simulated products. I built on six, and held back twelve hundred questions from the other twenty-four. Before the held-out run, I froze the code and posted the hash of my plan in public.",
+      "start_s": 48.591,
+      "end_s": 67.4,
+      "words": [
+        {
+          "w": "A",
+          "start_s": 48.591,
+          "end_s": 48.591
+        },
+        {
+          "w": "demo",
+          "start_s": 48.591,
+          "end_s": 48.591
+        },
+        {
+          "w": "is",
+          "start_s": 48.591,
+          "end_s": 48.73
+        },
+        {
+          "w": "easy",
+          "start_s": 48.73,
+          "end_s": 49.07
+        },
+        {
+          "w": "to",
+          "start_s": 49.07,
+          "end_s": 49.24
+        },
+        {
+          "w": "cherry-pick.",
+          "start_s": 49.24,
+          "end_s": 50.5
+        },
+        {
+          "w": "So",
+          "start_s": 50.5,
+          "end_s": 50.66
+        },
+        {
+          "w": "I",
+          "start_s": 50.66,
+          "end_s": 50.74
+        },
+        {
+          "w": "tested",
+          "start_s": 50.74,
+          "end_s": 51.22
+        },
+        {
+          "w": "it",
+          "start_s": 51.22,
+          "end_s": 51.38
+        },
+        {
+          "w": "on",
+          "start_s": 51.38,
+          "end_s": 51.78
+        },
+        {
+          "w": "Salesforce's",
+          "start_s": 51.78,
+          "end_s": 52.62
+        },
+        {
+          "w": "HERB",
+          "start_s": 52.62,
+          "end_s": 52.83
+        },
+        {
+          "w": "benchmark:",
+          "start_s": 52.83,
+          "end_s": 53.84
+        },
+        {
+          "w": "thirty",
+          "start_s": 54.14,
+          "end_s": 54.3
+        },
+        {
+          "w": "simulated",
+          "start_s": 54.3,
+          "end_s": 54.99
+        },
+        {
+          "w": "products.",
+          "start_s": 54.99,
+          "end_s": 55.84
+        },
+        {
+          "w": "I",
+          "start_s": 55.84,
+          "end_s": 56.14
+        },
+        {
+          "w": "built",
+          "start_s": 56.14,
+          "end_s": 56.46
+        },
+        {
+          "w": "on",
+          "start_s": 56.46,
+          "end_s": 56.66
+        },
+        {
+          "w": "six,",
+          "start_s": 56.66,
+          "end_s": 57.3
+        },
+        {
+          "w": "and",
+          "start_s": 57.3,
+          "end_s": 57.49
+        },
+        {
+          "w": "held",
+          "start_s": 57.49,
+          "end_s": 57.78
+        },
+        {
+          "w": "back",
+          "start_s": 57.78,
+          "end_s": 57.99
+        },
+        {
+          "w": "twelve",
+          "start_s": 57.99,
+          "end_s": 58.425
+        },
+        {
+          "w": "hundred",
+          "start_s": 58.425,
+          "end_s": 58.86
+        },
+        {
+          "w": "questions",
+          "start_s": 58.86,
+          "end_s": 59.42
+        },
+        {
+          "w": "from",
+          "start_s": 59.42,
+          "end_s": 59.67
+        },
+        {
+          "w": "the",
+          "start_s": 59.67,
+          "end_s": 59.86
+        },
+        {
+          "w": "other",
+          "start_s": 59.86,
+          "end_s": 60.17
+        },
+        {
+          "w": "twenty-four.",
+          "start_s": 60.17,
+          "end_s": 60.78
+        },
+        {
+          "w": "Before",
+          "start_s": 62.2,
+          "end_s": 62.2
+        },
+        {
+          "w": "the",
+          "start_s": 62.2,
+          "end_s": 62.2
+        },
+        {
+          "w": "held-out",
+          "start_s": 62.2,
+          "end_s": 62.35
+        },
+        {
+          "w": "run,",
+          "start_s": 62.35,
+          "end_s": 62.81
+        },
+        {
+          "w": "I",
+          "start_s": 62.81,
+          "end_s": 62.9
+        },
+        {
+          "w": "froze",
+          "start_s": 62.9,
+          "end_s": 63.36
+        },
+        {
+          "w": "the",
+          "start_s": 63.36,
+          "end_s": 63.64
+        },
+        {
+          "w": "code",
+          "start_s": 63.64,
+          "end_s": 64.2
+        },
+        {
+          "w": "and",
+          "start_s": 64.2,
+          "end_s": 64.29
+        },
+        {
+          "w": "posted",
+          "start_s": 64.29,
+          "end_s": 64.85
+        },
+        {
+          "w": "the",
+          "start_s": 64.85,
+          "end_s": 65.14
+        },
+        {
+          "w": "hash",
+          "start_s": 65.14,
+          "end_s": 65.5
+        },
+        {
+          "w": "of",
+          "start_s": 65.5,
+          "end_s": 65.84
+        },
+        {
+          "w": "my",
+          "start_s": 65.84,
+          "end_s": 65.86
+        },
+        {
+          "w": "plan",
+          "start_s": 65.86,
+          "end_s": 66.23
+        },
+        {
+          "w": "in",
+          "start_s": 66.23,
+          "end_s": 66.41
+        },
+        {
+          "w": "public.",
+          "start_s": 66.41,
+          "end_s": 67.32
+        }
+      ]
+    },
+    {
+      "id": "arms",
+      "text": "Eight ways to answer, all on the same model, Qwen3 on Nebius. They include HERB's own retrieval tools, reading the whole product at once, vector search, and FalkorDB's own GraphRAG SDK.",
+      "start_s": 67.9,
+      "end_s": 81.104,
+      "words": [
+        {
+          "w": "Eight",
+          "start_s": 67.9,
+          "end_s": 67.9
+        },
+        {
+          "w": "ways",
+          "start_s": 67.9,
+          "end_s": 68.03
+        },
+        {
+          "w": "to",
+          "start_s": 68.03,
+          "end_s": 68.19
+        },
+        {
+          "w": "answer,",
+          "start_s": 68.19,
+          "end_s": 68.89
+        },
+        {
+          "w": "all",
+          "start_s": 68.89,
+          "end_s": 69.13
+        },
+        {
+          "w": "on",
+          "start_s": 69.13,
+          "end_s": 69.29
+        },
+        {
+          "w": "the",
+          "start_s": 69.29,
+          "end_s": 69.85
+        },
+        {
+          "w": "same",
+          "start_s": 69.85,
+          "end_s": 69.91
+        },
+        {
+          "w": "model,",
+          "start_s": 69.91,
+          "end_s": 70.52
+        },
+        {
+          "w": "Qwen3",
+          "start_s": 70.84,
+          "end_s": 71.12
+        },
+        {
+          "w": "on",
+          "start_s": 71.12,
+          "end_s": 71.29
+        },
+        {
+          "w": "Nebius.",
+          "start_s": 71.29,
+          "end_s": 72.12
+        },
+        {
+          "w": "They",
+          "start_s": 72.12,
+          "end_s": 72.84
+        },
+        {
+          "w": "include",
+          "start_s": 72.84,
+          "end_s": 72.87
+        },
+        {
+          "w": "HERB's",
+          "start_s": 72.87,
+          "end_s": 73.26
+        },
+        {
+          "w": "own",
+          "start_s": 73.26,
+          "end_s": 73.46
+        },
+        {
+          "w": "retrieval",
+          "start_s": 73.46,
+          "end_s": 74.07
+        },
+        {
+          "w": "tools,",
+          "start_s": 74.07,
+          "end_s": 74.66
+        },
+        {
+          "w": "reading",
+          "start_s": 74.66,
+          "end_s": 75.14
+        },
+        {
+          "w": "the",
+          "start_s": 75.14,
+          "end_s": 75.34
+        },
+        {
+          "w": "whole",
+          "start_s": 75.34,
+          "end_s": 75.68
+        },
+        {
+          "w": "product",
+          "start_s": 75.68,
+          "end_s": 76.16
+        },
+        {
+          "w": "at",
+          "start_s": 76.16,
+          "end_s": 76.56
+        },
+        {
+          "w": "once,",
+          "start_s": 76.56,
+          "end_s": 76.8
+        },
+        {
+          "w": "vector",
+          "start_s": 76.8,
+          "end_s": 77.25
+        },
+        {
+          "w": "search,",
+          "start_s": 77.25,
+          "end_s": 77.96
+        },
+        {
+          "w": "and",
+          "start_s": 77.96,
+          "end_s": 78.3
+        },
+        {
+          "w": "FalkorDB's",
+          "start_s": 78.3,
+          "end_s": 79.13
+        },
+        {
+          "w": "own",
+          "start_s": 79.13,
+          "end_s": 79.4
+        },
+        {
+          "w": "GraphRAG",
+          "start_s": 79.4,
+          "end_s": 80.13
+        },
+        {
+          "w": "SDK.",
+          "start_s": 80.13,
+          "end_s": 80.74
+        }
+      ]
+    },
+    {
+      "id": "results",
+      "text": "The graph scored eighty. HERB's tools in the same loop, thirty-nine. Reading everything, twenty-six, with twelve times the input. Swap the graph tools for retrieval, and the same model loses forty points. On wordings it never saw in development, the lead is smaller: twenty points.",
+      "start_s": 81.604,
+      "end_s": 102.092,
+      "words": [
+        {
+          "w": "The",
+          "start_s": 81.604,
+          "end_s": 81.604
+        },
+        {
+          "w": "graph",
+          "start_s": 81.604,
+          "end_s": 81.604
+        },
+        {
+          "w": "scored",
+          "start_s": 81.604,
+          "end_s": 81.95
+        },
+        {
+          "w": "eighty.",
+          "start_s": 81.95,
+          "end_s": 82.74
+        },
+        {
+          "w": "HERB's",
+          "start_s": 82.74,
+          "end_s": 83.51
+        },
+        {
+          "w": "tools",
+          "start_s": 83.51,
+          "end_s": 83.6
+        },
+        {
+          "w": "in",
+          "start_s": 83.6,
+          "end_s": 83.65
+        },
+        {
+          "w": "the",
+          "start_s": 83.65,
+          "end_s": 83.86
+        },
+        {
+          "w": "same",
+          "start_s": 83.86,
+          "end_s": 84.14
+        },
+        {
+          "w": "loop,",
+          "start_s": 84.14,
+          "end_s": 84.68
+        },
+        {
+          "w": "thirty-nine.",
+          "start_s": 84.68,
+          "end_s": 85.38
+        },
+        {
+          "w": "Reading",
+          "start_s": 85.38,
+          "end_s": 85.87
+        },
+        {
+          "w": "everything,",
+          "start_s": 85.87,
+          "end_s": 86.84
+        },
+        {
+          "w": "twenty-six,",
+          "start_s": 86.84,
+          "end_s": 87.93
+        },
+        {
+          "w": "with",
+          "start_s": 87.93,
+          "end_s": 88.11
+        },
+        {
+          "w": "twelve",
+          "start_s": 88.11,
+          "end_s": 88.61
+        },
+        {
+          "w": "times",
+          "start_s": 88.61,
+          "end_s": 89.13
+        },
+        {
+          "w": "the",
+          "start_s": 89.13,
+          "end_s": 89.28
+        },
+        {
+          "w": "input.",
+          "start_s": 89.28,
+          "end_s": 89.98
+        },
+        {
+          "w": "Swap",
+          "start_s": 91.4,
+          "end_s": 91.4
+        },
+        {
+          "w": "the",
+          "start_s": 91.4,
+          "end_s": 91.4
+        },
+        {
+          "w": "graph",
+          "start_s": 91.4,
+          "end_s": 91.4
+        },
+        {
+          "w": "tools",
+          "start_s": 91.4,
+          "end_s": 91.44
+        },
+        {
+          "w": "for",
+          "start_s": 91.44,
+          "end_s": 91.7
+        },
+        {
+          "w": "retrieval,",
+          "start_s": 91.7,
+          "end_s": 92.74
+        },
+        {
+          "w": "and",
+          "start_s": 92.74,
+          "end_s": 93.0
+        },
+        {
+          "w": "the",
+          "start_s": 93.0,
+          "end_s": 93.4
+        },
+        {
+          "w": "same",
+          "start_s": 93.4,
+          "end_s": 93.61
+        },
+        {
+          "w": "model",
+          "start_s": 93.61,
+          "end_s": 94.04
+        },
+        {
+          "w": "loses",
+          "start_s": 94.04,
+          "end_s": 94.47
+        },
+        {
+          "w": "forty",
+          "start_s": 94.47,
+          "end_s": 95.04
+        },
+        {
+          "w": "points.",
+          "start_s": 95.04,
+          "end_s": 95.86
+        },
+        {
+          "w": "On",
+          "start_s": 96.86,
+          "end_s": 96.86
+        },
+        {
+          "w": "wordings",
+          "start_s": 96.86,
+          "end_s": 96.86
+        },
+        {
+          "w": "it",
+          "start_s": 96.86,
+          "end_s": 97.02
+        },
+        {
+          "w": "never",
+          "start_s": 97.02,
+          "end_s": 97.51
+        },
+        {
+          "w": "saw",
+          "start_s": 97.51,
+          "end_s": 97.8
+        },
+        {
+          "w": "in",
+          "start_s": 97.8,
+          "end_s": 98.86
+        },
+        {
+          "w": "development,",
+          "start_s": 98.86,
+          "end_s": 99.4
+        },
+        {
+          "w": "the",
+          "start_s": 99.4,
+          "end_s": 99.6
+        },
+        {
+          "w": "lead",
+          "start_s": 99.6,
+          "end_s": 99.87
+        },
+        {
+          "w": "is",
+          "start_s": 99.87,
+          "end_s": 100.0
+        },
+        {
+          "w": "smaller:",
+          "start_s": 100.0,
+          "end_s": 100.7
+        },
+        {
+          "w": "twenty",
+          "start_s": 100.7,
+          "end_s": 101.22
+        },
+        {
+          "w": "points.",
+          "start_s": 101.22,
+          "end_s": 102.02
+        }
+      ]
+    },
+    {
+      "id": "audit",
+      "text": "It was not clean. Two AI auditors checked the extracted facts against the raw records, and they failed it five times. Each time I fixed the extraction or the audit rules, drew a fresh sample, and kept the failures on the record.",
+      "start_s": 104.092,
+      "end_s": 119.785,
+      "words": [
+        {
+          "w": "It",
+          "start_s": 104.092,
+          "end_s": 104.092
+        },
+        {
+          "w": "was",
+          "start_s": 104.092,
+          "end_s": 104.092
+        },
+        {
+          "w": "not",
+          "start_s": 104.092,
+          "end_s": 104.62
+        },
+        {
+          "w": "clean.",
+          "start_s": 104.62,
+          "end_s": 105.1
+        },
+        {
+          "w": "Two",
+          "start_s": 105.1,
+          "end_s": 105.32
+        },
+        {
+          "w": "AI",
+          "start_s": 105.32,
+          "end_s": 105.46
+        },
+        {
+          "w": "auditors",
+          "start_s": 105.46,
+          "end_s": 106.3
+        },
+        {
+          "w": "checked",
+          "start_s": 106.3,
+          "end_s": 106.55
+        },
+        {
+          "w": "the",
+          "start_s": 106.55,
+          "end_s": 106.77
+        },
+        {
+          "w": "extracted",
+          "start_s": 106.77,
+          "end_s": 107.54
+        },
+        {
+          "w": "facts",
+          "start_s": 107.54,
+          "end_s": 107.78
+        },
+        {
+          "w": "against",
+          "start_s": 107.78,
+          "end_s": 108.38
+        },
+        {
+          "w": "the",
+          "start_s": 108.38,
+          "end_s": 108.51
+        },
+        {
+          "w": "raw",
+          "start_s": 108.51,
+          "end_s": 108.99
+        },
+        {
+          "w": "records,",
+          "start_s": 108.99,
+          "end_s": 109.5
+        },
+        {
+          "w": "and",
+          "start_s": 109.82,
+          "end_s": 109.82
+        },
+        {
+          "w": "they",
+          "start_s": 109.82,
+          "end_s": 110.02
+        },
+        {
+          "w": "failed",
+          "start_s": 110.02,
+          "end_s": 110.47
+        },
+        {
+          "w": "it",
+          "start_s": 110.47,
+          "end_s": 110.62
+        },
+        {
+          "w": "five",
+          "start_s": 110.62,
+          "end_s": 110.92
+        },
+        {
+          "w": "times.",
+          "start_s": 110.92,
+          "end_s": 111.56
+        },
+        {
+          "w": "Each",
+          "start_s": 112.64,
+          "end_s": 112.64
+        },
+        {
+          "w": "time",
+          "start_s": 112.64,
+          "end_s": 112.64
+        },
+        {
+          "w": "I",
+          "start_s": 112.64,
+          "end_s": 112.64
+        },
+        {
+          "w": "fixed",
+          "start_s": 112.64,
+          "end_s": 112.93
+        },
+        {
+          "w": "the",
+          "start_s": 112.93,
+          "end_s": 113.22
+        },
+        {
+          "w": "extraction",
+          "start_s": 113.22,
+          "end_s": 114.21
+        },
+        {
+          "w": "or",
+          "start_s": 114.21,
+          "end_s": 114.64
+        },
+        {
+          "w": "the",
+          "start_s": 114.64,
+          "end_s": 114.69
+        },
+        {
+          "w": "audit",
+          "start_s": 114.69,
+          "end_s": 115.18
+        },
+        {
+          "w": "rules,",
+          "start_s": 115.18,
+          "end_s": 116.04
+        },
+        {
+          "w": "drew",
+          "start_s": 116.38,
+          "end_s": 116.38
+        },
+        {
+          "w": "a",
+          "start_s": 116.38,
+          "end_s": 116.41
+        },
+        {
+          "w": "fresh",
+          "start_s": 116.41,
+          "end_s": 116.78
+        },
+        {
+          "w": "sample,",
+          "start_s": 116.78,
+          "end_s": 117.48
+        },
+        {
+          "w": "and",
+          "start_s": 117.48,
+          "end_s": 117.68
+        },
+        {
+          "w": "kept",
+          "start_s": 117.68,
+          "end_s": 117.95
+        },
+        {
+          "w": "the",
+          "start_s": 117.95,
+          "end_s": 118.38
+        },
+        {
+          "w": "failures",
+          "start_s": 118.38,
+          "end_s": 118.7
+        },
+        {
+          "w": "on",
+          "start_s": 118.7,
+          "end_s": 118.83
+        },
+        {
+          "w": "the",
+          "start_s": 118.83,
+          "end_s": 119.03
+        },
+        {
+          "w": "record.",
+          "start_s": 119.03,
+          "end_s": 119.7
+        }
+      ]
+    },
+    {
+      "id": "falkordb",
+      "text": "FalkorDB does real work here: a separate graph per product, a read-only user for the agent, Cypher that joins a bug, its fix, its author and its history in one query, and GRAPH.COPY for the uncomfortable question. If Julia Smith leaves, two open bugs and a pull request have no owner left.",
+      "start_s": 121.085,
+      "end_s": 141.324,
+      "words": [
+        {
+          "w": "FalkorDB",
+          "start_s": 121.085,
+          "end_s": 121.63
+        },
+        {
+          "w": "does",
+          "start_s": 121.63,
+          "end_s": 121.93
+        },
+        {
+          "w": "real",
+          "start_s": 121.93,
+          "end_s": 122.23
+        },
+        {
+          "w": "work",
+          "start_s": 122.23,
+          "end_s": 122.53
+        },
+        {
+          "w": "here:",
+          "start_s": 122.53,
+          "end_s": 123.08
+        },
+        {
+          "w": "a",
+          "start_s": 123.08,
+          "end_s": 123.15
+        },
+        {
+          "w": "separate",
+          "start_s": 123.15,
+          "end_s": 123.72
+        },
+        {
+          "w": "graph",
+          "start_s": 123.72,
+          "end_s": 124.07
+        },
+        {
+          "w": "per",
+          "start_s": 124.07,
+          "end_s": 124.28
+        },
+        {
+          "w": "product,",
+          "start_s": 124.28,
+          "end_s": 125.02
+        },
+        {
+          "w": "a",
+          "start_s": 125.32,
+          "end_s": 125.32
+        },
+        {
+          "w": "read-only",
+          "start_s": 125.32,
+          "end_s": 125.74
+        },
+        {
+          "w": "user",
+          "start_s": 125.74,
+          "end_s": 126.03
+        },
+        {
+          "w": "for",
+          "start_s": 126.03,
+          "end_s": 126.25
+        },
+        {
+          "w": "the",
+          "start_s": 126.25,
+          "end_s": 126.47
+        },
+        {
+          "w": "agent,",
+          "start_s": 126.47,
+          "end_s": 127.1
+        },
+        {
+          "w": "Cypher",
+          "start_s": 127.46,
+          "end_s": 127.59
+        },
+        {
+          "w": "that",
+          "start_s": 127.59,
+          "end_s": 127.92
+        },
+        {
+          "w": "joins",
+          "start_s": 127.92,
+          "end_s": 128.33
+        },
+        {
+          "w": "a",
+          "start_s": 128.33,
+          "end_s": 128.41
+        },
+        {
+          "w": "bug,",
+          "start_s": 128.41,
+          "end_s": 128.94
+        },
+        {
+          "w": "its",
+          "start_s": 129.2,
+          "end_s": 129.23
+        },
+        {
+          "w": "fix,",
+          "start_s": 129.23,
+          "end_s": 129.82
+        },
+        {
+          "w": "its",
+          "start_s": 130.14,
+          "end_s": 130.14
+        },
+        {
+          "w": "author",
+          "start_s": 130.14,
+          "end_s": 130.45
+        },
+        {
+          "w": "and",
+          "start_s": 130.45,
+          "end_s": 130.66
+        },
+        {
+          "w": "its",
+          "start_s": 130.66,
+          "end_s": 130.87
+        },
+        {
+          "w": "history",
+          "start_s": 130.87,
+          "end_s": 131.36
+        },
+        {
+          "w": "in",
+          "start_s": 131.36,
+          "end_s": 131.5
+        },
+        {
+          "w": "one",
+          "start_s": 131.5,
+          "end_s": 132.06
+        },
+        {
+          "w": "query,",
+          "start_s": 132.06,
+          "end_s": 132.3
+        },
+        {
+          "w": "and",
+          "start_s": 133.44,
+          "end_s": 133.44
+        },
+        {
+          "w": "GRAPH.COPY",
+          "start_s": 133.44,
+          "end_s": 133.44
+        },
+        {
+          "w": "for",
+          "start_s": 133.44,
+          "end_s": 133.61
+        },
+        {
+          "w": "the",
+          "start_s": 133.61,
+          "end_s": 133.87
+        },
+        {
+          "w": "uncomfortable",
+          "start_s": 133.87,
+          "end_s": 135.44
+        },
+        {
+          "w": "question.",
+          "start_s": 135.44,
+          "end_s": 136.02
+        },
+        {
+          "w": "If",
+          "start_s": 136.42,
+          "end_s": 136.42
+        },
+        {
+          "w": "Julia",
+          "start_s": 136.42,
+          "end_s": 136.61
+        },
+        {
+          "w": "Smith",
+          "start_s": 136.61,
+          "end_s": 137.03
+        },
+        {
+          "w": "leaves,",
+          "start_s": 137.03,
+          "end_s": 137.82
+        },
+        {
+          "w": "two",
+          "start_s": 138.22,
+          "end_s": 138.22
+        },
+        {
+          "w": "open",
+          "start_s": 138.22,
+          "end_s": 138.41
+        },
+        {
+          "w": "bugs",
+          "start_s": 138.41,
+          "end_s": 138.75
+        },
+        {
+          "w": "and",
+          "start_s": 138.75,
+          "end_s": 139.0
+        },
+        {
+          "w": "a",
+          "start_s": 139.0,
+          "end_s": 139.08
+        },
+        {
+          "w": "pull",
+          "start_s": 139.08,
+          "end_s": 139.42
+        },
+        {
+          "w": "request",
+          "start_s": 139.42,
+          "end_s": 140.22
+        },
+        {
+          "w": "have",
+          "start_s": 140.22,
+          "end_s": 140.31
+        },
+        {
+          "w": "no",
+          "start_s": 140.31,
+          "end_s": 140.44
+        },
+        {
+          "w": "owner",
+          "start_s": 140.44,
+          "end_s": 140.77
+        },
+        {
+          "w": "left.",
+          "start_s": 140.77,
+          "end_s": 141.26
+        }
+      ]
+    },
+    {
+      "id": "check_it",
+      "text": "You can check all of it. Every answer, every query and every score, next to the benchmark's own gold answer. The link is below.",
+      "start_s": 143.024,
+      "end_s": 152.169,
+      "words": [
+        {
+          "w": "You",
+          "start_s": 143.024,
+          "end_s": 143.024
+        },
+        {
+          "w": "can",
+          "start_s": 143.024,
+          "end_s": 143.12
+        },
+        {
+          "w": "check",
+          "start_s": 143.12,
+          "end_s": 143.5
+        },
+        {
+          "w": "all",
+          "start_s": 143.5,
+          "end_s": 143.72
+        },
+        {
+          "w": "of",
+          "start_s": 143.72,
+          "end_s": 143.87
+        },
+        {
+          "w": "it.",
+          "start_s": 143.87,
+          "end_s": 144.28
+        },
+        {
+          "w": "Every",
+          "start_s": 144.52,
+          "end_s": 144.62
+        },
+        {
+          "w": "answer,",
+          "start_s": 144.62,
+          "end_s": 145.24
+        },
+        {
+          "w": "every",
+          "start_s": 145.6,
+          "end_s": 145.6
+        },
+        {
+          "w": "query",
+          "start_s": 145.6,
+          "end_s": 145.94
+        },
+        {
+          "w": "and",
+          "start_s": 145.94,
+          "end_s": 146.15
+        },
+        {
+          "w": "every",
+          "start_s": 146.15,
+          "end_s": 146.5
+        },
+        {
+          "w": "score,",
+          "start_s": 146.5,
+          "end_s": 147.08
+        },
+        {
+          "w": "next",
+          "start_s": 147.42,
+          "end_s": 147.42
+        },
+        {
+          "w": "to",
+          "start_s": 147.42,
+          "end_s": 147.5
+        },
+        {
+          "w": "the",
+          "start_s": 147.5,
+          "end_s": 147.71
+        },
+        {
+          "w": "benchmark's",
+          "start_s": 147.71,
+          "end_s": 148.48
+        },
+        {
+          "w": "own",
+          "start_s": 148.48,
+          "end_s": 148.69
+        },
+        {
+          "w": "gold",
+          "start_s": 148.69,
+          "end_s": 149.39
+        },
+        {
+          "w": "answer.",
+          "start_s": 149.39,
+          "end_s": 149.62
+        },
+        {
+          "w": "The",
+          "start_s": 150.74,
+          "end_s": 150.74
+        },
+        {
+          "w": "link",
+          "start_s": 150.74,
+          "end_s": 150.74
+        },
+        {
+          "w": "is",
+          "start_s": 150.74,
+          "end_s": 150.9
+        },
+        {
+          "w": "below.",
+          "start_s": 150.9,
+          "end_s": 152.06
+        }
+      ]
+    },
+    {
+      "id": "close",
+      "text": "When you inherit a product, you inherit its history. inherit-brain lets you ask it.",
+      "start_s": 153.169,
+      "end_s": 158.086,
+      "words": [
+        {
+          "w": "When",
+          "start_s": 153.18,
+          "end_s": 153.18
+        },
+        {
+          "w": "you",
+          "start_s": 153.18,
+          "end_s": 153.18
+        },
+        {
+          "w": "inherit",
+          "start_s": 153.18,
+          "end_s": 153.5
+        },
+        {
+          "w": "a",
+          "start_s": 153.5,
+          "end_s": 153.6
+        },
+        {
+          "w": "product,",
+          "start_s": 153.6,
+          "end_s": 154.64
+        },
+        {
+          "w": "you",
+          "start_s": 154.96,
+          "end_s": 154.96
+        },
+        {
+          "w": "inherit",
+          "start_s": 154.96,
+          "end_s": 155.32
+        },
+        {
+          "w": "its",
+          "start_s": 155.32,
+          "end_s": 155.52
+        },
+        {
+          "w": "history.",
+          "start_s": 155.52,
+          "end_s": 156.22
+        },
+        {
+          "w": "inherit-brain",
+          "start_s": 156.22,
+          "end_s": 157.01
+        },
+        {
+          "w": "lets",
+          "start_s": 157.01,
+          "end_s": 157.28
+        },
+        {
+          "w": "you",
+          "start_s": 157.28,
+          "end_s": 157.48
+        },
+        {
+          "w": "ask",
+          "start_s": 157.48,
+          "end_s": 157.68
+        },
+        {
+          "w": "it.",
+          "start_s": 157.68,
+          "end_s": 158.08
+        }
+      ]
+    }
+  ]
+}
