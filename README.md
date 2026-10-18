@@ -19,6 +19,13 @@ On 1,203 held-out questions of Salesforce's [HERB](https://github.com/Salesforce
 
 Swap the graph tools for HERB's retrieval tools, with the same model, loop and limits, and the score drops 40.8 points (95% interval 35.7 to 46.2).
 
+Why HERB: its records and gold answers are public and were written by a third party (Salesforce AI Research), so I did not write the questions my system is scored on, and every answer can be checked against the benchmark's own gold.
+
+| 30 product graphs | 164,698 edges, each with its source record id | 9 read-only Cypher tools | 8 ways to answer, same model | 1,203 held-out questions | 42.72 USD total model spend |
+|---|---|---|---|---|---|
+
+**Judges in a hurry:** open the [explorer on one question](https://zeyusuntt.github.io/inherit-brain/explore.html#q=SecurityForce/ans/21), the [what-if for SupportForce](https://zeyusuntt.github.io/inherit-brain/whatif.html#p=SupportForce), the [removal test](#why-a-graph-the-removal-test), and the [graph data model](#graph-data-model).
+
 ## What it does
 
 One held-out question, answered during the scored run ([see it in the demo](https://zeyusuntt.github.io/inherit-brain/explore.html#q=SecurityForce/ans/21)):
