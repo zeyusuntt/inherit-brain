@@ -1,7 +1,7 @@
 ---
 title: "What retrieval missed: a company brain on FalkorDB, tested on 1,203 held-out questions"
 published: true
-description: "I built a company brain with fixed Cypher tools, tested it against retrieval on HERB, and learned where joins and extraction rules mattered."
+description: "Same model, 1,203 held-out HERB questions: graph tools 80.0, HERB's retrieval tools 39.2, hybrid vector RAG 19.2."
 tags: falkordb, wemakedevs, graphhacks, ai
 cover_image: https://raw.githubusercontent.com/zeyusuntt/inherit-brain/main/docs/blog/cover.png
 ---
@@ -12,6 +12,8 @@ I built inherit-brain for Graph Hacks, Track 3: Company Brain. I used Salesforce
 
 Recorded demo, including answers and tool traces: https://zeyusuntt.github.io/inherit-brain/
 Code: https://github.com/zeyusuntt/inherit-brain
+
+Result on 1,203 held-out questions, with the plan's hash posted before the run: 80.0 for the graph tools, 39.2 for HERB's retrieval tools in the same loop, 19.2 for HERB's hybrid RAG, same model.
 
 {% embed https://youtu.be/D2tpskFWl8A %}
 
@@ -81,6 +83,7 @@ I compared eight methods using Qwen3-30B-A3B-Instruct-2507 on Nebius. Four cover
 | inherit-brain | 80.0 | 10,117 |
 | HERB's retrieval tools, same loop | 39.2 | 46,451 |
 | Whole product in one prompt | 26.0 | 125,947 |
+| HERB's hybrid RAG (keyword and vector, one call) | 19.2 | 5,176 |
 
 I scored 478 questions with structured answers using HERB's set F1, multiplied by 100. I averaged three groups equally: people, companies, and artifacts, which combines PR and URL questions. Token medians cover all 659 answerable questions.
 

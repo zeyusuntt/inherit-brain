@@ -18,6 +18,7 @@ On 1,203 held-out questions of Salesforce's [HERB](https://github.com/Salesforce
 | **inherit-brain**, graph tools in the agent loop | **80.0** | 10,117 |
 | HERB's own retrieval tools in the same loop, over the raw records | 39.2 | 46,451 |
 | The whole product in one prompt (one call) | 26.0 | 125,947 |
+| HERB's hybrid RAG: BM25 top 20 plus vector top 20, one retrieval, one call | 19.2 | 5,176 |
 
 Swap the graph tools for HERB's retrieval tools, with the same model, loop and limits, and the score drops 40.8 points (95% interval 35.7 to 46.2).
 
