@@ -1,6 +1,6 @@
 ---
 title: "What retrieval missed: a company brain on FalkorDB, tested on 1,203 held-out questions"
-published: false
+published: true
 description: "I built a company brain with fixed Cypher tools, tested it against retrieval on HERB, and learned where joins and extraction rules mattered."
 tags: falkordb, wemakedevs, graphhacks, ai
 cover_image: https://raw.githubusercontent.com/zeyusuntt/inherit-brain/main/docs/blog/cover.png
@@ -19,11 +19,11 @@ Code: https://github.com/zeyusuntt/inherit-brain
 
 inherit-brain turns a product's records into one FalkorDB graph per product: people, documents, meetings, Slack messages, pull requests, bugs and their event histories, features, customers, and who did what to which. An agent answers questions by calling nine read-only tools. Each tool runs fixed, parameterised Cypher; the model never writes a query.
 
-I did not load the records directly as facts. Plain code extracts structure, resolves names and applies rules. Model calls extract bug histories and semantic relations such as review suggestions. I load those facts into FalkorDB and keep source record IDs on the edges.
+I use plain code to extract structure, resolve names and apply rules. Model calls extract bug histories and semantic relations such as review suggestions. I load those facts into FalkorDB and keep source record IDs on the edges.
 
-For the spec question on one product, SupportForce, the agent made one tool call (`doc_people`), which ran three read-only queries in 21.9 ms. It returned ten people, each with the record that puts them there. The two Alice Davises have different employee ids; the graph kept them apart because a person node is an employee id, not a name.
+For the spec question on one product, SupportForce, the agent made one tool call (`doc_people`), which ran three read-only queries in 21.9 ms. It returned ten people, each with the record that puts them there. The two Alice Davises are keyed by `eid_6e2f3e2b` and `eid_e5e36dc1`; `doc_people` deduplicates people by employee ID across document versions.
 
-The demo draws each answer's path from the real edges among the nodes its tool returned. Here are the three versions of the spec and the ten people linked to them by AUTHORED and SUGGESTED edges, both Alice Davises included:
+For this answer, the demo's diagram shows the stored AUTHORED and SUGGESTED edges between three versions of the spec and the ten people:
 
 ![The SupportForce spec question: three document versions and the ten people linked to them by AUTHORED and SUGGESTED edges](https://raw.githubusercontent.com/zeyusuntt/inherit-brain/main/docs/blog/path-supportforce.png)
 
@@ -54,9 +54,9 @@ MATCH (b)-[:HAS_EVENT]->(ro:BugEvent) WHERE ro.type = 'REOPENED' AND ro.ts > rs.
 RETURN p.eid, p.name, p.role, b.id, pr.link, op.src, fx.src + hs.src, [rs.id]
 ```
 
-Cypher joins the bug, its fixing PR, the author, and a resolution followed by a reopening. Python then counts distinct PR links per author and keeps every tie at the maximum. Julia Miller had two fixing PRs across the four matched bugs, which gave HERB's gold answer. Retrieval named four other engineers. The complete answer took 9.43 seconds across four model calls; the main join took 13.0 ms in this recording.
+Cypher joins the bug, its fixing PR, the author, and a resolution followed by a reopening. Python counts distinct PR links per author, because a PR can match several pairs of resolution and reopening events, and keeps everyone tied at the maximum. Julia Miller had two fixing PRs across the four matched bugs, which gave HERB's gold answer. Retrieval named four other engineers. The complete answer took 9.43 seconds across four model calls; the main join took 13.0 ms in this recording.
 
-Here is the same path in FalkorDB Browser, queried directly on the product graph: Julia Miller, her two fix PRs, the bugs they fix, and each bug's REOPENED event.
+To inspect Julia's result in FalkorDB Browser, I filtered to her employee ID (`eid_c38fe0e7`) and returned `p, op, pr, fx, b, h, ro`: seven nodes and six edges connecting her two PRs to their bugs and REOPENED events. The resolution events used by the scored query are not displayed.
 
 ![FalkorDB Browser: Julia Miller opened two PRs, each FIXES a bug, each bug has a REOPENED event](https://raw.githubusercontent.com/zeyusuntt/inherit-brain/main/docs/blog/falkordb-browser.png)
 
@@ -70,7 +70,7 @@ Everything runs on FalkorDB 4.22.1 and 6.0.2; the tool tests run against both.
 
 ## Testing it so I could not fool myself
 
-A demo is easy to cherry-pick, so I tested on a benchmark I did not write: Salesforce AI Research's [HERB](https://github.com/SalesforceAIResearch/HERB), a simulated company with 30 products, their records, and questions with gold answers (including questions that have no answer in the records). I built on six products and held back the other 24, with 1,203 questions.
+Salesforce AI Research's [HERB](https://github.com/SalesforceAIResearch/HERB) supplies gold answers and includes questions that cannot be answered from the records. My held-out set contains 659 answerable and 544 unanswerable questions.
 
 Before the held-out run I froze the code, the prompts and the graphs (each hashed), wrote down the result I expected and what I would say for every outcome, and posted the plan's sha256 publicly (a [gist](https://gist.github.com/zeyusuntt/3012ee12697e7afade6d820e95d6bd67) and a [Wayback snapshot](https://web.archive.org/web/20261017025021/https://gist.github.com/zeyusuntt/3012ee12697e7afade6d820e95d6bd67)). A preflight refused to start any run whose hashes had drifted.
 
@@ -84,7 +84,7 @@ I compared eight methods using Qwen3-30B-A3B-Instruct-2507 on Nebius. Four cover
 
 I scored 478 questions with structured answers using HERB's set F1, multiplied by 100. I averaged three groups equally: people, companies, and artifacts, which combines PR and URL questions. Token medians cover all 659 answerable questions.
 
-With the same model, agent loop and limits, replacing my graph tools with HERB's retrieval tools reduced the score by 40.8 points, with a 95% interval of 35.7 to 46.2 (product-clustered bootstrap). This changes the tools and the extracted representation together. It does not compare database engines.
+Both agents had a 12-call limit and a 60,000-token input budget per question. With the same model and loop, inherit-brain led HERB's retrieval tools by 40.8 points (95% interval 35.7 to 46.2; product-clustered bootstrap). Retrieval hit the input budget on 44.5% of questions; inherit-brain did on 1.3%. This changes the tools and the extracted representation together. It does not compare database engines.
 
 ![The removal test on the demo site: same model, same loop, graph tools against retrieval tools](https://raw.githubusercontent.com/zeyusuntt/inherit-brain/main/docs/blog/removal.png)
 
@@ -101,7 +101,7 @@ A few FalkorDB details I did not expect:
 - `%R~herb:p` ACL rules do not work for graph commands: `GRAPH.RO_QUERY` declares its key as read-write, so a read-only key rule never matches. A command-scoped selector, `(~herb:p +GRAPH.RO_QUERY)`, does.
 - `GRAPH.COPY` ACLs cannot distinguish source from destination. My what-if user can copy between its product graph and scratch namespace. The product graph must remain present while that user is enabled: the existing destination prevents a copy back into its name. Tests check this boundary; they do not enforce that operational condition.
 - The server's `TIMEOUT` was 1000 ms, so whole-graph identity reads (hashing a graph for the freeze) timed out until I passed a per-query timeout.
-- On two small directed fixtures, 6.0.2 passed all five betweenness checks and 4.22.1 passed two. I use a Python fallback on 4.22.1.
+- On the directed chain `a -> b -> c`, `samplingSize:10, samplingSeed:1` gave `b` a betweenness score of 0 on 4.22.1 and 1 on 6.0.2. Across two small directed fixtures, 6.0.2 passed all five checks and 4.22.1 passed two. I use a Python fallback on 4.22.1.
 
 I kept the [ACL reproduction and other integration feedback](https://github.com/zeyusuntt/inherit-brain/blob/main/docs/sponsor-feedback.md), the [version probes and betweenness checks](https://github.com/zeyusuntt/inherit-brain/blob/main/docs/falkor-versions.md), and the [freeze reader's timeout override](https://github.com/zeyusuntt/inherit-brain/blob/main/src/inherit/freeze.py#L349-L357) in the repository.
 
@@ -127,5 +127,3 @@ uv run python -m inherit.ask --replay runs/eval/A5-held --slot SecurityForce/ans
 The same nine tools are available as an MCP server (`uv run python -m inherit.mcp_server --product SecurityForce`).
 
 I built this with Claude Code and Codex as coding tools; the benchmark choice, experiment design, gates and release decisions were mine.
-
-When you inherit a product, you inherit its history. inherit-brain lets you ask it.
