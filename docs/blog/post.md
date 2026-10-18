@@ -21,6 +21,10 @@ I did not load the records directly as facts. Plain code extracts structure, res
 
 For the spec question on one product, SupportForce, the agent made one tool call (`doc_people`), which ran three read-only queries in 21.9 ms. It returned ten people, each with the record that puts them there. The two Alice Davises have different employee ids; the graph kept them apart because a person node is an employee id, not a name.
 
+The demo draws each answer's path from the real edges among the nodes its tool returned. Here are the three versions of the spec and the ten people linked to them by AUTHORED and SUGGESTED edges, both Alice Davises included:
+
+![The SupportForce spec question: three document versions and the ten people linked to them by AUTHORED and SUGGESTED edges](https://raw.githubusercontent.com/zeyusuntt/inherit-brain/main/docs/blog/path-supportforce.png)
+
 ![The overview of the demo site](https://raw.githubusercontent.com/zeyusuntt/inherit-brain/main/docs/blog/cover.png)
 
 ## How FalkorDB fits in
